@@ -38,6 +38,7 @@ let placing = true;
 let playTimer = 0;
 let seedEdited = false;
 let newsAt = 0;
+let soundWanted = (() => { try { return localStorage.getItem("mt.sound") !== "off"; } catch { return true; } })();
 let siteTried: { x: number; y: number }[] = [];
 
 async function start() {
@@ -336,10 +337,30 @@ function setupUI() {
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     afterChange();
   });
-  $("sound").addEventListener("click", async () => {
-    if (sound.running) { await sound.stop(); $("sound").textContent = "Sound on"; }
-    else { await sound.start(); $("sound").textContent = "Sound off"; updateSound(); }
+  // Sound. Browsers (Safari above all) only allow audio to start inside a user gesture, so sound is
+  // "wanted" by default and starts on the first click or key press anywhere; the choice is remembered.
+  // Every later gesture also revives a context Safari has suspended or interrupted on its own.
+  const toggleSound = () => {
+    // in the "click to start" state a press means start, not mute
+    if (soundWanted && !sound.running) { sound.start().then(() => { soundUI(); updateSound(); }); return; }
+    soundWanted = !soundWanted;
+    try { localStorage.setItem("mt.sound", soundWanted ? "on" : "off"); } catch { /* private mode */ }
+    if (soundWanted) sound.start().then(soundUI); else sound.stop().then(soundUI);
+    soundUI();
+  };
+  $("sound").addEventListener("click", (e) => { e.stopPropagation(); toggleSound(); });
+  $("soundTop").addEventListener("click", (e) => { e.stopPropagation(); toggleSound(); });
+  const wake = (e: Event) => {
+    if (e instanceof KeyboardEvent && e.key.toLowerCase() === "m") return; // the M key toggles instead
+    if (soundWanted && !sound.running) sound.start().then(() => { soundUI(); updateSound(); });
+  };
+  for (const ev of ["pointerdown", "click", "keydown"]) window.addEventListener(ev, wake, true);
+  window.addEventListener("keydown", (e) => {
+    if ((e.target as HTMLElement).tagName === "INPUT" && (e.target as HTMLInputElement).type === "text") return;
+    if (e.key.toLowerCase() === "m") toggleSound();
   });
+  sound.onState = soundUI;
+  soundUI();
   const vols = () => sound.setVolumes(Number(($<HTMLInputElement>("musicVol")).value), Number(($<HTMLInputElement>("ambVol")).value));
   $("musicVol").addEventListener("input", vols); $("ambVol").addEventListener("input", vols);
   setInterval(updateSound, 500);
@@ -451,6 +472,17 @@ function placeName(): string {
   for (const h of HILLSIDES) { const [x, y] = latLonToTile(map, h.lat, h.lon); consider(h.name, x, y); }
   for (const l of map.landmarks) if (l.kind === "town") consider(l.name.replace(/ \(.*\)$/, ""), l.x, l.y);
   return best;
+}
+
+function soundUI() {
+  const on = sound.running;
+  const top = $("soundTop");
+  top.classList.toggle("on", on);
+  top.classList.toggle("waiting", soundWanted && !on);
+  top.textContent = on ? "🔊 Sound on" : soundWanted ? "🔈 Click to start" : "🔇 Sound off";
+  top.title = on ? "Sound is on — click or press M to mute" : soundWanted ? "Browsers start audio on your first click or key press" : "Sound is off — click or press M to turn it on";
+  $("sound").textContent = on ? "Sound off" : "Sound on";
+  if (!on && !soundWanted) $("nowPlaying").textContent = "Music follows the era, the neighbourhood in view and how close you are.";
 }
 
 function updateSound() {

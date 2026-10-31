@@ -105,3 +105,6 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #final td:last-child { text-align: right; font-weight: bold; }
 #final .actions { display: flex; gap: 8px; justify-content: flex-end; }
 #final button { font-family: inherit; }
+#soundTop { margin-left: 8px; min-width: 112px; }
+#soundTop.on { background: #2f5a3a; border-color: #4a8a5a #000 #000 #4a8a5a; }
+#soundTop.waiting { border-color: var(--accent); color: var(--accent); }

@@ -69,28 +69,41 @@ export class SoundController {
   private scape!: Soundscape;
   private player: MusicPlayer | null = null;
   private timer = 0;
-  private lastSwitch = 0;
+  private lastSwitch = -Infinity; // so the first style starts at once
   nowPlaying = "";
   musicVol = 0.6;
   ambVol = 0.7;
 
   get running() { return !!this.ctx && this.ctx.state === "running"; }
+  /** called when the context's state changes (Safari can suspend or interrupt it on its own) */
+  onState: (() => void) | null = null;
 
-  async start() {
+  /**
+   * Must be called from inside a user gesture (click / key). Everything up to resume() runs synchronously
+   * so Safari still counts it as part of the gesture.
+   */
+  start(): Promise<void> {
     if (!this.ctx) {
-      this.ctx = new AudioContext();
+      const Ctor: typeof AudioContext = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new Ctor();
+      this.ctx.onstatechange = () => this.onState?.();
       this.master = this.ctx.createGain(); this.master.gain.value = 0.8;
       const comp = this.ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
       this.master.connect(comp); comp.connect(this.ctx.destination);
       this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = this.musicVol * 0.6; this.musicBus.connect(this.master);
       this.ambBus = this.ctx.createGain(); this.ambBus.gain.value = this.ambVol; this.ambBus.connect(this.master);
       this.scape = new Soundscape(this.ctx, this.ambBus);
-      this.timer = window.setInterval(() => this.player?.schedule(this.ctx!.currentTime + 0.6), 150);
+      this.timer = window.setInterval(() => { try { this.player?.schedule(this.ctx!.currentTime + 0.6); } catch (e) { console.warn("music", e); } }, 150);
     }
-    await this.ctx.resume();
+    // Safari unlock: play one silent sample inside the gesture
+    try {
+      const b = this.ctx.createBuffer(1, 1, this.ctx.sampleRate), src = this.ctx.createBufferSource();
+      src.buffer = b; src.connect(this.ctx.destination); src.start(0);
+    } catch { /* ignore */ }
+    return this.ctx.resume().catch((e) => console.warn("audio resume", e));
   }
 
-  async stop() { await this.ctx?.suspend(); }
+  stop(): Promise<void> { return this.ctx?.suspend() ?? Promise.resolve(); }
 
   setVolumes(music: number, amb: number) {
     this.musicVol = music; this.ambVol = amb;
@@ -103,6 +116,10 @@ export class SoundController {
   /** Call ~2×/s with the current view. */
   update(v: ViewSummary) {
     if (!this.running) return;
+    try { this.updateInner(v); } catch (e) { console.warn("sound update", e); }
+  }
+
+  private updateInner(v: ViewSummary) {
     const ctx = this.ctx!, t = ctx.currentTime;
     this.scape.update(v);
     // music sits under the mills when you're close to the works

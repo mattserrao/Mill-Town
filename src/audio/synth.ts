@@ -120,7 +120,7 @@ export function note(ctx: BaseAudioContext, out: AudioNode, inst: Inst, t: numbe
       if (inst === "synthbass") { l.frequency.setValueAtTime(1800, t); l.frequency.exponentialRampToValueAtTime(300, t + 0.2); }
       o.connect(l); s.connect(l); l.connect(g);
       g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.45, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(vel * 0.2, t + Math.min(dur, 0.3));
+      g.gain.exponentialRampToValueAtTime(Math.max(1e-4, vel * 0.2), t + Math.min(dur, 0.3));
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.08);
       end = t + dur + 0.1; start([o, s], end);
       break;
@@ -137,7 +137,7 @@ export function note(ctx: BaseAudioContext, out: AudioNode, inst: Inst, t: numbe
       const sh = ctx.createWaveShaper(); const c = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 128 - 1; c[i] = Math.tanh(x * 3); } sh.curve = c;
       const l = filt("lowpass", 2500, 1.5);
       o.connect(sh); o2.connect(sh); sh.connect(l); l.connect(g);
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.12, t + 0.008); g.gain.exponentialRampToValueAtTime(vel * 0.05, t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.15);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.12, t + 0.008); g.gain.exponentialRampToValueAtTime(Math.max(1e-4, vel * 0.05), t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.15);
       start([o, o2], end);
       break;
     }
