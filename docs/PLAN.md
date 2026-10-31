@@ -27,6 +27,7 @@
 | Historical moments | Decisions when they touch your works (e.g. Homestead 1892 at your mill); elsewhere history plays out as written |
 | Rival AI | Rivals take the same actions, by personality (Carnegie integrates and cuts prices, Frick corners coke and breaks strikes, Mellon finances and buys) |
 | Collapse | Hard but possible to survive: modernise, diversify, keep labour peace |
+| Historical event actions | See `docs/EVENTS-PLAN.md` §6: no trust buy-out (1901 card instead); separate rivals; Frick stays at Homestead; add Mesta, National Tube, U.S. Steel Duquesne, Carrie Furnaces, Duquesne Light (Westinghouse → East Pittsburgh equipment maker); off-map places get stand-in sites on the map; streetcars still end 1955; coke = coal price for steel; build sell-a-works, layoffs, strike contagion, a morale meter and sports teams |
 
 ## Core loop
 Pick a site → found the works → each season: hire from the local labor pool, buy inputs, ship by river, sell output →

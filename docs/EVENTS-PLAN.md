@@ -161,22 +161,27 @@ The "historical" option (what the owners did) is the default if the player doesn
   Duquesne Works Closes (buy Dorothy Six?), Pastor Roth
 - Existing and kept: Homestead 1892, Great Steel Strike 1919, Big Steel Signs 1937, 116-Day Strike 1959
 
-## 6. Open questions
+## 6. Decisions (answered 31 Oct 2026)
 
-1. **U.S. Steel 1901.** The note suggests "sell your company to Morgan", but the design says there's no trust
-   buy-out. Proposed: a card offering stay independent / join a price pact / sell one of your other works. Keep the rule?
-2. **U.S. Steel as one owner (R4, large).** Model Carnegie Steel (1892) and U.S. Steel (1901) as owner groups, or keep
-   them as separate rivals with headlines?
-3. **Who is at Homestead?** The rival there is "H. C. Frick Coke Company"; historically it was Pittsburgh Bessemer
-   Steel, then Carnegie's. Rename it Carnegie's Homestead Works and make Frick an off-map coke supplier that acts
-   through coal prices?
-4. **How many new rivals?** Mesta, National Tube, U.S. Steel Duquesne, Carrie Furnaces and Duquesne Light are
-   needed by ~25 events. Westinghouse also sits in East Liberty as a "power" rival though it really made equipment at
-   East Pittsburgh. Add all of them?
-5. **Off-map places** (Observatory, Highland Park zoo, Creighton, Sharpsburg, New Kensington, Neville Island,
-   Johnstown, Donora, the regional parks, VW New Stanton) can't be built on the map. Keep them as prices, rivals,
-   migrants and headlines?
-6. **Streetcars.** Today they end everywhere in 1955; the late transit rows assume lines ran on (and the South Hills
-   lines never closed). Build per-line transit (X1) or keep 1955 and make those rows headlines?
-7. **Coke.** Steel's inputs are ore, coal and limestone. Treat coke events as coal prices for steel works, or add coke
-   as a separate good?
+| Question | Decision |
+|---|---|
+| U.S. Steel 1901 | Keep the no-buy-out rule. The 1901 card offers: stay independent, join a price pact, or sell one of your other works |
+| Carnegie Steel / U.S. Steel as one owner | No. Separate rivals plus headlines (R4 dropped) |
+| Who is at Homestead | Leave the Frick rival at Homestead as the stand-in |
+| New rivals | Add all: Mesta (West Homestead 1898), National Tube (McKeesport 1872), U.S. Steel Duquesne Works (Duquesne Works site), Carrie Furnaces (Rankin 1884–1978), Duquesne Light as the power rival (1903); Westinghouse moves to East Pittsburgh as an electrical-equipment maker |
+| Off-map places | Find stand-in sites on the map: put each off-map place (Observatory, Highland Park zoo, Creighton, Sharpsburg, New Kensington, Neville Island, Johnstown relief, Donora, the regional parks, VW New Stanton, Ambridge, Wilmerding…) into an under-used area of the map so it can be built and seen |
+| Streetcars | Keep the 1955 end; the 1964, 1984 and 1985 transit events stay headlines (X1 dropped) |
+| Coke | Coke events change coal prices for steel works only (no new good) |
+| Optional systems | Build: sell a works and layoffs (X3, X4), strike contagion (X5), a town morale meter (X8), and **sports teams** that are founded and grow over time (new, below). Not built: highways and busways (X2); outbound freight and taxes stay skipped |
+
+### Added: sports teams and morale
+
+- A **town morale** meter (0–100) fed by championships, civic openings, disasters, layoffs and closures. It nudges
+  labour relations, unrest and how willing people are to stay in the valley; shown beside the other meters.
+- **Teams** founded on their historical dates and playing in their real grounds as they open: the Pirates (1887;
+  Exposition Park, Forbes Field 1909, Three Rivers 1970), the Homestead Grays (1912) and Pittsburgh Crawfords (1931;
+  Greenlee Field 1932), the Steelers (1933 as the Pirates; Three Rivers 1970), Pitt football (Pitt Stadium 1925), the
+  Penguins (1967, Civic Arena). Each team has a strength that rises and falls; titles fire the historical headlines
+  (1909, 1960, 1971, 1979 World Series; the Steelers' Super Bowls) and lift morale; poor runs and moves lower it.
+- Optional player actions: sponsor a team or a works team (mill leagues, the Grays began as one), build a works
+  ballfield. Ballparks and stadiums come from the dated landmarks (M1).
