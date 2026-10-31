@@ -3,12 +3,17 @@
 `EVENTS.csv` is the master list of historical events in Mill Town. The game reads it directly.
 Edit it in any spreadsheet and save it as CSV.
 
-Columns: `Year, Season, Event Name, Description, Category`
+Columns: `Year, Season, Event Name, Description, Category, Suggested Action`
 
 - Seasons run Spring (Mar–May), Summer (Jun–Aug), Autumn (Sep–Nov), Winter (Dec–Feb).
   An event in January or February belongs in the **previous** year's Winter.
 - Category is one of: Industry, Economy, Labor, Politics, Parks, Libraries, Universities, Culture, Health,
   Infrastructure, Disaster, Society. It is shown above the headline.
+- Suggested Action is a design note, not read by the game. It proposes what the event should do in play, tagged:
+  **Spawn** (something appears on the map), **Rival** (an AI company acts), **Choice** (a player decision),
+  **Effect** (an economy or town modifier; "Effect (existing)" means `events.ts` already does it),
+  **Unlock** (a new option or technology) and **Off-map** (it happens beyond the map edge, so it acts through
+  prices, rivals or migrants instead of buildings).
 - Keep rows in date order (the tests check this).
 - Events fire at the start of their season, shown as a headline and logged.
 - Some events also change the game. The effect is matched by Event Name in `src/core/events.ts`
