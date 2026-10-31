@@ -21,7 +21,9 @@ function worksCard(g: GameState, w: Works): string {
   const mk = marketFactor(g, w.industry);
   const isOpen = open.has(w.id);
   const res = w.research ? ind.tech.find((t) => t.id === w.research!.id) : null;
-  const next = ind.tech.filter((t) => !w.techs.includes(t.id) && t.year <= y + 10);
+  // what can be built now, plus the next invention or two coming (not every process for the next decade)
+  const avail = ind.tech.filter((t) => !w.techs.includes(t.id) && t.year <= y);
+  const next = [...avail, ...ind.tech.filter((t) => !w.techs.includes(t.id) && t.year > y && t.year <= y + 10).slice(0, avail.length ? 1 : 2)];
   const head = `<div class="wk-head" data-toggle="${w.id}"><b>${esc(w.name)}</b><span class="${w.status === "running" ? "up" : "down"}">${STATUS[w.status] ?? w.status}</span><span>${s ? money(s.profit) : ""}</span><i>${isOpen ? "▾" : "▸"}</i></div>`;
   if (!isOpen) return `<div class="wk">${head}</div>`;
   return `<div class="wk">${head}

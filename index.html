@@ -13,10 +13,16 @@
       <div id="cash" class="stat"></div>
       <div id="standing" class="stat" title="Reputation · labour relations · influence"></div>
       <div class="spacer"></div>
-      <label class="seed" title="Seed">Seed <input id="seed" type="text" size="8" /></label>
-      <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
       <button id="marketsBtn" title="Prices, wages and costs over time">Markets</button>
-      <button id="soundTop" title="Sound on/off (M)">🔈 Sound</button>
+      <button id="soundTop" title="Sound on/off (M)"></button>
+      <div id="gameMenu">
+        <button id="gameBtn" title="New town, seed">Game ▾</button>
+        <div id="gameDrop" hidden>
+          <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
+          <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
+          <p class="hint">Leave the seed as it is for a fresh town, or type one to replay a town.</p>
+        </div>
+      </div>
       <div id="timeControls">
         <span id="speeds" title="Game speed (P pauses; 1–4 pick a speed). At 1× a game from 1850 to 1985 takes about two hours.">
           <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="1× — a season every 13 s (about 2 hours a game)">1×</button><button data-speed="2" title="2× — a season every 6.5 s">2×</button><button data-speed="3" title="4× — a season every 3.3 s">4×</button><button data-speed="4" title="8× — as fast as the map can keep up">8×</button>
@@ -37,6 +43,7 @@
           </ol>
           <select id="industry"></select>
           <p class="hint" id="industryNote"></p>
+          <label class="namebox">Company name <input id="companyName" type="text" maxlength="40" /></label>
           <label><input type="checkbox" id="placing" checked /> Show the works footprint under the cursor</label>
           <button id="bestSite" title="Jump to the best-scoring site for this industry">Show me a good site</button>
         </section>
@@ -83,17 +90,20 @@
         <div id="placeBar" hidden></div>
         <div id="markets" hidden></div>
       </div>
-      <aside id="right">
-        <section id="secTile">
+      <aside id="right" data-tab="company">
+        <nav id="rightTabs">
+          <button data-tab="company" class="on">Company</button><button data-tab="business">Business</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
+        </nav>
+        <section id="secTile" data-tab="company">
           <h2>Tile</h2>
           <div id="inspector" class="kv"><p class="hint">Click a tile.</p></div>
         </section>
-        <section id="siteSection" hidden>
+        <section id="siteSection" data-tab="company" hidden>
           <h2>Site report</h2>
           <div id="site" class="kv"></div>
           <button id="found" class="primary" disabled>Found company here</button>
         </section>
-        <section id="companySection" hidden>
+        <section id="companySection" data-tab="company" hidden>
           <h2>Company</h2>
           <div id="company" class="kv"></div>
           <button id="library" title="Fund a free public library near the works">Fund a library ($40,000)</button>
@@ -102,27 +112,28 @@
           <button id="spur" title="Lay a siding from the works to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full" hidden></button>
           <div class="btn-row"><button id="showSupply" title="Show where your raw materials come from and where your goods go">Supply chain map</button><button id="showRivals" title="Show the rival works in your industry and related ones">Competitors map</button></div>
         </section>
-        <section id="townSection">
+        <section id="townSection" data-tab="town">
           <h2>The town</h2>
           <div id="town"></div>
         </section>
-        <section id="districtSection" hidden>
+        <section id="districtSection" data-tab="town" hidden>
           <h2>Neighbourhood</h2>
           <div id="district"></div>
         </section>
-        <section id="worksSection" hidden>
+        <section id="worksSection" data-tab="business" hidden>
           <h2>Your works &amp; technology</h2>
           <div id="works"></div>
         </section>
-        <section id="businessSection" hidden>
+        <p id="bizEmpty" class="hint tab-empty" data-tab="business">Found a company first: your works, technology, policies and actions appear here.</p>
+        <section id="businessSection" data-tab="business" hidden>
           <h2>Running the business</h2>
           <div id="biz"></div>
         </section>
-        <section id="supplySection" hidden>
+        <section id="supplySection" data-tab="company" hidden>
           <h2>Supply chain</h2>
           <div id="supply"></div>
         </section>
-        <section id="rivalsSection">
+        <section id="rivalsSection" data-tab="rivals">
           <h2 id="rivalsTitle">Competitors</h2>
           <div id="rivalsList"></div>
         </section>

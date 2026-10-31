@@ -72,3 +72,13 @@ export interface Camera {
 }
 
 export const ZOOMS = [0.125, 0.1875, 0.25, 0.375, 0.5, 0.75, 1, 1.5, 2];
+
+/** A screen-space rectangle in canvas pixels. */
+export interface ScreenRect { x: number; y: number; w: number; h: number }
+
+/**
+ * Boxes of the place-name labels drawn this frame (cleared by Renderer.draw, filled by drawLabels).
+ * Overlays that draw their own labels on top (districts, supply chain, rivals) steer clear of them
+ * where they can.
+ */
+export const placeLabelRects: ScreenRect[] = [];

@@ -14,7 +14,7 @@ import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
 import { ANCHORS } from "../core/ancestry";
 import { latLonToTile } from "../core/features";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, project, tileCorners, ZPX } from "./iso";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 
@@ -219,6 +219,7 @@ export class Renderer {
     ctx.fillStyle = "#1b1d22";
     ctx.fillRect(0, 0, cw, ch);
     ctx.imageSmoothingEnabled = false;
+    placeLabelRects.length = 0;
     this.updatePlants(g);
 
     const s = Math.min(1, cam.zoom);
@@ -257,15 +258,21 @@ export class Renderer {
     this.evict();
 
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy) || a.cx - b.cx);
+    // Upscaled zooms are nearest-neighbour (the flag is reset whenever the canvas is resized, and by
+    // any save/restore elsewhere, so set it right before the blits). The camera offset is snapped to a
+    // whole device pixel once, and each chunk's own offset separately, so neighbouring chunks keep a
+    // fixed relationship while panning and the pixel grid doesn't shimmer at non-integer zooms (1.5×).
+    ctx.imageSmoothingEnabled = false;
+    const camX = Math.round(cam.x * cam.zoom), camY = Math.round(cam.y * cam.zoom);
     for (const c of vis) {
       const key = `${s}:${c.cx},${c.cy}`;
       const chn = this.chunks.get(key);
       if (!chn) continue;
       this.chunks.delete(key);
       this.chunks.set(key, chn); // LRU touch
-      const dx = Math.round(chn.ox * k - cam.x * cam.zoom), dy = Math.round(chn.oy * k - cam.y * cam.zoom);
+      const dx = Math.round(chn.ox * k) - camX, dy = Math.round(chn.oy * k) - camY;
       if (k === 1) ctx.drawImage(chn.canvas, dx, dy);
-      else ctx.drawImage(chn.canvas, dx, dy, chn.canvas.width * k, chn.canvas.height * k);
+      else ctx.drawImage(chn.canvas, dx, dy, Math.round(chn.canvas.width * k), Math.round(chn.canvas.height * k));
     }
 
     this.drawMarks(ctx, cam, marks);
@@ -877,19 +884,23 @@ export class Renderer {
       // bridges are drawn whole as smooth spans (drawBridges), not per tile
       if (!(w.street[i] === Street.Bridge || (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year))) {
         // barges moored at plant docks; steamboats at the wharves; coal barges on the Mon
-        let dock = false, nearWharf = false;
+        let dock = false, nearWharf = false, dockInd = "";
         for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
           const j = ny * W + nx;
-          if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && this.plants.get(j)?.t.ground === "dock") dock = true;
+          const pl = Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? this.plants.get(j) : undefined;
+          if (pl?.t.ground === "dock") { dock = true; dockInd = pl.c.ind; }
           if (m.special[j] === Special.Wharf) nearWharf = true;
         }
         const axis = riverAxis(m, x, y);
-        if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}`, u: 0.5, v: 0.5 });
+        // cargo (sprite variant, see BARGE_CARGO): 0 coal, 1 iron ore, 2 limestone/sand
+        const r = n(22);
+        const cargo = dockInd === "steel" ? (r < 0.5 ? 0 : r < 0.85 ? 1 : 2) : dockInd === "glass" ? (r < 0.3 ? 0 : 2) : dockInd === "power" ? 0 : dockInd ? (r < 0.6 ? 0 : 2) : r < 0.75 ? 0 : r < 0.9 ? 1 : 2;
+        if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         else if ((x + 2 * y) % 5 === 0) {
           if (nearWharf && n(20) < 0.3) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 });
-          else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}`, u: 0.5, v: 0.5 });
+          else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         }
       }
     }
@@ -1252,7 +1263,8 @@ export class Renderer {
     if (mk.selected) outline(mk.selected.x, mk.selected.y, "#ffd65a", "rgba(255,214,90,0.15)");
   }
 
-  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+  /** Place names. `reserved`: canvas-pixel rects (minimap, zoom buttons) to keep labels off. */
+  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, reserved: { x: number; y: number; w: number; h: number }[] = []) {
     const m = this.map;
     ctx.textAlign = "center";
     const items: { name: string; x: number; y: number; col: string; min: number }[] = [];
@@ -1277,18 +1289,34 @@ export class Renderer {
       seen.add(sp.name);
       items.push({ name: sp.name, x: (sp.a[0] + sp.b[0]) / 2, y: (sp.a[1] + sp.b[1]) / 2, col: "#d8c8a8", min: 0.75 });
     }
-    for (const it of items) {
-      if (cam.zoom < it.min) continue;
+    // Keep every label wholly inside the canvas: labels whose anchor is on screen are slid in from the
+    // edge; ones whose anchor is off screen are dropped. Towns go first, and a label that would sit on
+    // top of one already drawn (or on reserved UI such as the minimap) is skipped.
+    const W = ctx.canvas.width, H = ctx.canvas.height, MG = 4;
+    const placed = reserved.map((r) => ({ ...r }));
+    const order = items.filter((it) => cam.zoom >= it.min).sort((a, b) => a.min - b.min);
+    ctx.textBaseline = "alphabetic";
+    for (const it of order) {
       const tx = Math.floor(it.x), ty = Math.floor(it.y);
       const [wx, wy] = project(it.x, it.y, m.elevation[ty * m.width + tx] ?? BASE_M);
       const px = Math.round((wx - cam.x) * cam.zoom), py = Math.round((wy - cam.y) * cam.zoom) - 14;
-      if (px < -120 || py < -20 || px > ctx.canvas.width + 120 || py > ctx.canvas.height + 20) continue;
-      ctx.font = it.min === 0 ? "bold 13px ui-monospace, monospace" : "bold 11px ui-monospace, monospace";
+      if (px < 0 || py < 0 || px > W || py > H) continue;
+      const big = it.min === 0;
+      ctx.font = big ? "bold 13px ui-monospace, monospace" : "bold 11px ui-monospace, monospace";
+      const tw = Math.ceil(ctx.measureText(it.name).width) + 4, asc = big ? 11 : 9, desc = 3;
+      if (tw > W - 2 * MG) continue;
+      const cx = Math.max(MG + tw / 2, Math.min(W - MG - tw / 2, px));
+      const by = Math.max(MG + asc, Math.min(H - MG - desc, py));
+      const box = { x: cx - tw / 2, y: by - asc, w: tw, h: asc + desc };
+      if (placed.some((p) => box.x < p.x + p.w && box.x + box.w > p.x && box.y < p.y + p.h && box.y + box.h > p.y)) continue;
+      placed.push(box);
+      placeLabelRects.push(box);
+      ctx.textAlign = "center";
       ctx.lineWidth = 3;
       ctx.strokeStyle = "rgba(0,0,0,0.85)";
-      ctx.strokeText(it.name, px, py);
+      ctx.strokeText(it.name, cx, by);
       ctx.fillStyle = it.col;
-      ctx.fillText(it.name, px, py);
+      ctx.fillText(it.name, cx, by);
     }
   }
 }

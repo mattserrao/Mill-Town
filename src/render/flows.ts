@@ -6,7 +6,7 @@ import { distance } from "../core/units";
 import { type Competitor, type Flow, flowPath, type Relation, type WorksRef } from "../core/economy";
 import type { GameState } from "../core/game";
 import { Terrain } from "../core/terrain";
-import { type Camera, heightAt, project } from "./iso";
+import { type Camera, heightAt, placeLabelRects, project } from "./iso";
 import { fmt } from "../core/text";
 
 export const FLOW_COLOUR = (f: Flow): string => {
@@ -16,7 +16,7 @@ export const FLOW_COLOUR = (f: Flow): string => {
   if (/water/i.test(f.good)) return "#5ad0f0";
   return "#ffe14a";
 };
-export const RELATION_COLOUR: Record<Relation, string> = { competitor: "#ff5046", supplier: "#f0a030", customer: "#ff50aa", other: "#98a0b4" };
+export const RELATION_COLOUR: Record<Relation, string> = { competitor: "#ff5046", supplier: "#f0a030", customer: "#ff50aa", lender: "#60c890", other: "#98a0b4" };
 
 type Pt = [number, number];
 
@@ -74,35 +74,99 @@ function anchor(pts: Pt[], W: number, H: number, mg = 36): Pt {
   return [a[0] + dx * Math.max(0, t), a[1] + dy * Math.max(0, t)];
 }
 
-function pill(ctx: CanvasRenderingContext2D, placed: { x: number; y: number; w: number; h: number }[], lb: Label) {
-  ctx.font = "bold 11px ui-monospace, monospace";
-  const w = Math.max(...lb.lines.map((l, k) => { ctx.font = k ? "10px ui-monospace, monospace" : "bold 11px ui-monospace, monospace"; return ctx.measureText(l).width; })) + 12;
-  const h = 6 + lb.lines.length * 13;
+const FONT_B = "bold 11px ui-monospace, monospace", FONT = "10px ui-monospace, monospace";
+const MARGIN = 6;
+
+/** Cut a line down (with an ellipsis) to fit `max` px. */
+function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+  if (ctx.measureText(text).width <= max) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ctx.measureText(text.slice(0, mid) + "…").width <= max) lo = mid; else hi = mid - 1; }
+  return text.slice(0, lo) + "…";
+}
+
+/**
+ * Place a label greedily: above its anchor, else nudged up/down (then sideways) to the nearest free
+ * spot, always clamped inside the canvas (and off `placed`, which starts with the reserved UI rects).
+ * If the full label can't fit, a one-line version is tried; if that can't either it is skipped,
+ * unless `must` (the works' own label), which then takes the least-bad spot.
+ */
+function pill(ctx: CanvasRenderingContext2D, placed: Rect[], lb: Label, must = false): { leader: () => void; box: () => void } | null {
   const W = ctx.canvas.width, H = ctx.canvas.height;
-  const x0 = Math.round(lb.x - w / 2), y0 = Math.round(lb.y - h - 8);
-  const clampX = (v: number) => Math.max(4, Math.min(W - w - 4, v)), clampY = (v: number) => Math.max(4, Math.min(H - h - 4, v));
-  const free = (x: number, y: number) => !placed.some((p) => x < p.x + p.w + 3 && x + w + 3 > p.x && y < p.y + p.h + 3 && y + h + 3 > p.y);
-  // try the spot above the anchor, then step outward in rings until a free one turns up
-  let x = clampX(x0), y = clampY(y0);
-  search: for (let ring = 1; !free(x, y) && ring <= 8; ring++) {
-    for (const [dx, dy] of [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]]) {
-      const cx = clampX(x0 + dx * ring * (w * 0.55)), cy = clampY(y0 + dy * ring * (h + 4));
-      if (free(cx, cy)) { x = cx; y = cy; break search; }
+  const maxW = Math.min(320, W - 2 * MARGIN) - 12;
+  const measure = (lines: string[]) => {
+    const fitted = lines.map((l, k) => { ctx.font = k ? FONT : FONT_B; return fit(ctx, l, maxW); });
+    const w = Math.ceil(Math.max(...fitted.map((l, k) => { ctx.font = k ? FONT : FONT_B; return ctx.measureText(l).width; }))) + 12;
+    return { lines: fitted, w, h: 6 + fitted.length * 13 };
+  };
+  let soft = true; // first try to keep clear of the map's place names too, then only of other pills
+  const overlap = (x: number, y: number, w: number, h: number) => {
+    let a = 0;
+    for (const p of soft ? placed.concat(placeLabelRects) : placed) {
+      const ox = Math.min(x + w + 3, p.x + p.w) - Math.max(x - 3, p.x), oy = Math.min(y + h + 3, p.y + p.h) - Math.max(y - 3, p.y);
+      if (ox > 0 && oy > 0) a += ox * oy;
     }
-  }
+    return a;
+  };
+  const place = (w: number, h: number, any: boolean) => {
+    if (w > W - 2 * MARGIN || h > H - 2 * MARGIN) return null;
+    const clampX = (v: number) => Math.round(Math.max(MARGIN, Math.min(W - w - MARGIN, v)));
+    const clampY = (v: number) => Math.round(Math.max(MARGIN, Math.min(H - h - MARGIN, v)));
+    const x0 = lb.x - w / 2, y0 = lb.y - h - 8;
+    let best: { x: number; y: number; a: number; d: number } | null = null;
+    const tryAt = (x: number, y: number) => {
+      const cx = clampX(x), cy = clampY(y);
+      const a = overlap(cx, cy, w, h), d = Math.hypot(cx - x0, cy - y0);
+      if (!best || a < best.a || (a === best.a && d < best.d)) best = { x: cx, y: cy, a, d };
+      return a === 0;
+    };
+    // vertical nudges first (the label stays over its line), then sideways steps with nudges
+    const step = h + 4;
+    const dys = [0, -1, 1, -2, 2, -3, 3, -4, 4].map((k) => k * step * 0.5);
+    for (const dx of [0, -0.6, 0.6, -1.2, 1.2]) for (const dy of dys) if (tryAt(x0 + dx * w, y0 + dy)) return best;
+    return any ? best : null;
+  };
+  let m = measure(lb.lines);
+  let at = place(m.w, m.h, false);
+  if (!at) { soft = false; at = place(m.w, m.h, false); }
+  if (!at && lb.lines.length > 1) { m = measure(lb.lines.slice(0, 1)); at = place(m.w, m.h, false); }
+  if (!at && must) { m = measure(lb.lines); at = place(m.w, m.h, true) ?? place((m = measure(lb.lines.slice(0, 1))).w, m.h, true); }
+  if (!at) return null;
+  const { x, y } = at as { x: number; y: number };
+  const { w, h, lines } = m;
   placed.push({ x, y, w, h });
-  ctx.fillStyle = "rgba(14,16,22,0.88)";
-  ctx.strokeStyle = lb.col;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(x + 0.5, y + 0.5, w, h, 4);
-  ctx.fill(); ctx.stroke();
-  ctx.textAlign = "left";
-  lb.lines.forEach((l, k) => {
-    ctx.font = k ? "10px ui-monospace, monospace" : "bold 11px ui-monospace, monospace";
-    ctx.fillStyle = k ? "#c8ccd4" : lb.col;
-    ctx.fillText(l, x + 6, y + 14 + k * 13);
-  });
+  return {
+    // a thin leader back to the anchor when the label had to move away from it
+    leader: () => {
+      const nx = Math.max(x, Math.min(x + w, lb.x)), ny = Math.max(y, Math.min(y + h, lb.y));
+      if (Math.hypot(nx - lb.x, ny - lb.y) <= 14) return;
+      ctx.beginPath(); ctx.moveTo(lb.x, lb.y); ctx.lineTo(nx, ny);
+      ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = lb.col; ctx.lineWidth = 1; ctx.stroke();
+    },
+    box: () => {
+      ctx.fillStyle = "rgba(14,16,22,0.88)";
+      ctx.strokeStyle = lb.col;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(x + 0.5, y + 0.5, w, h, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+      lines.forEach((l, k) => {
+        ctx.font = k ? FONT : FONT_B;
+        ctx.fillStyle = k ? "#c8ccd4" : lb.col;
+        ctx.fillText(l, x + 6, y + 14 + k * 13);
+      });
+    },
+  };
+}
+
+/** Place every label, then draw all the leaders before any of the boxes (so no leader crosses a box). */
+function drawPills(ctx: CanvasRenderingContext2D, placed: Rect[], labels: Label[], mustFirst: boolean) {
+  const out = labels.map((lb, k) => pill(ctx, placed, lb, mustFirst && k === 0));
+  for (const o of out) o?.leader();
+  for (const o of out) o?.box();
 }
 
 function dim(ctx: CanvasRenderingContext2D) {
@@ -179,7 +243,7 @@ export function drawSupply(ctx: CanvasRenderingContext2D, cam: Camera, g: GameSt
   worksOutline(ctx, g, cam, works.x, works.y, works.fp, "#ffd34a", "rgba(255,211,74,0.22)", preview ? [6, 4] : []);
   const c = screen(g, cam, works.x + works.fp / 2, works.y + works.fp / 2, 10);
   labels.unshift({ x: c[0], y: c[1] - 10, col: "#ffd34a", lines: [preview ? `Proposed: ${works.name}` : works.name, preview ? "Supply chain if you found here" : "Your works"] });
-  for (const lb of labels) pill(ctx, placed, lb);
+  drawPills(ctx, placed, labels, true);
 }
 
 /** Rival works around you, coloured by how they relate to your business. */
@@ -220,5 +284,5 @@ export function drawRivals(ctx: CanvasRenderingContext2D, cam: Camera, g: GameSt
     worksOutline(ctx, g, cam, mine.x, mine.y, mine.fp, "#ffd34a", "rgba(255,211,74,0.25)");
     labels.unshift({ x: myC![0], y: myC![1] - 10, col: "#ffd34a", lines: [mine.name, "Your works"] });
   }
-  for (const lb of labels) pill(ctx, placed, lb);
+  drawPills(ctx, placed, labels, mine !== null);
 }

@@ -55,7 +55,7 @@ export interface WorksRef {
   lanes?: Lane[];
 }
 
-export type Relation = "competitor" | "supplier" | "customer" | "other";
+export type Relation = "competitor" | "supplier" | "customer" | "lender" | "other";
 
 // ---------------------------------------------------------------- gateways
 
@@ -146,6 +146,7 @@ const gate = (gw: Gateway, name?: string): Endpoint => ({ x: gw.x + 0.5, y: gw.y
 
 /** How another industry relates to yours. */
 export function relationOf(mine: IndustryId, theirs: IndustryId, rivalId?: string): Relation {
+  if (rivalId === "mellon") return "lender"; // the bank, not a boatyard: it lends and finances
   if (rivalId === "frick") return mine === "steel" || mine === "power" ? "supplier" : "other"; // coke and coal
   if (mine === theirs) return "competitor";
   if (theirs === "power") return "supplier";
@@ -353,7 +354,7 @@ export interface Competitor {
 /** Every rival works, open or still to come, ranked by how much it matters to an industry. */
 export function competitors(g: GameState, industry: IndustryId, from?: { x: number; y: number }): Competitor[] {
   const year = g.world.year;
-  const order: Record<Relation, number> = { competitor: 0, supplier: 1, customer: 2, other: 3 };
+  const order: Record<Relation, number> = { competitor: 0, supplier: 1, customer: 2, lender: 3, other: 4 };
   return RIVALS.map((def) => {
     const st = g.rivals.find((r) => r.id === def.id && r.active);
     const techs = techsAt(def.industry, year);
@@ -368,7 +369,7 @@ export function competitors(g: GameState, industry: IndustryId, from?: { x: numb
       capacity: st ? Math.round(capacityOf(def.industry, techs) * 0.85) : 0,
       km: from ? (Math.hypot(at.x - from.x, at.y - from.y) * g.map.metersPerTile) / 1000 : undefined,
       near,
-      product: def.id === "frick" ? "Connellsville coke" : productName(def.industry, techs, year),
+      product: def.id === "frick" ? "Connellsville coke" : def.id === "mellon" ? "Banking and loans" : productName(def.industry, techs, year),
     };
   }).sort((a, b) => order[a.relation] - order[b.relation] || (a.state ? 0 : 1) - (b.state ? 0 : 1) || a.def.entryYear - b.def.entryYear);
 }

@@ -30,6 +30,9 @@ in the terminal running `npm run dev`.
 - Map: drag / WASD / arrows to pan; scroll, +/- or the on-screen buttons to zoom; click a tile to inspect it;
   ? or Q for the query tool; Esc closes views
 - Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in the left panel
+- Game menu (top bar): type a seed and press New town to replay a town, or leave it for a fresh one
+- Right panel tabs: Company (tile, site report, company, supply chain) · Business (works, technology, policies,
+  actions) · Town (morale, teams, neighbourhood) · Rivals
 - Browser console: `mt` exposes the game (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`, `mt.fire("Event Name")`)
 
 ## Layout

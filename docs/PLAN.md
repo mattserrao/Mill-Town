@@ -151,6 +151,14 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      the 1882 courthouse fire and its rebuilding; Prohibition shutters the taverns until Repeal; Donora leaves four
      years of pressure on smoky works' reputation; the patent truce steadies power prices; the Ripper Act makes
      locks dearer; new processes: the 69 kV ring (power, 1915) and automation in every industry (1982)
+   - Polish pass (v0.12): one-row top bar (Seed and New town under a Game menu, drawn sound icon); right panel in
+     tabs (Company · Business · Town · Rivals); name your company at founding (a period name is suggested); the
+     site report goes once you've founded; the log keeps headlines short (the paper has the stories); the paper
+     says when an issue has more stories; rival plants named in full ("Carnegie Steel — Duquesne Works"); the
+     Mellons shown as the bank; only the next inventions listed; Markets charts with round axes and yearly
+     averages; districts drawn as smooth dashed lines; supply-chain and place labels kept clear of each other and
+     the edges; crisp 2× zoom; barges with decks and cargo; a warning when your works falls behind; an end-of-game
+     epilogue from your choices
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -177,6 +185,7 @@ routing, environment, growth and neighbourhood style.
   is kept in Autumn 1985 so it appears
 - Left out by design: highways, busways and the Liberty Tubes as travel links (X2; the Tubes act as South Hills
   growth), per-line transit (X1), outbound freight and taxes; Frick Park's land isn't held from growth before 1927
+- The map canvas ignores the screen's pixel ratio: on HiDPI displays it is scaled up by the browser (sharp but uneven pixels)
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal

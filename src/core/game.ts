@@ -294,7 +294,7 @@ export function fireEvents(g: GameState) {
   for (const e of g.headlines) {
     const dec = decisions[e.name]?.(g);
     if (dec) { if (!g.pendingDecision) g.pendingDecision = dec; else g.moreDecisions.push(dec); }
-    log(g, `${e.name}. ${e.description}`);
+    log(g, `${e.name}.`); // the story itself is in the newspaper
     const fx = effects[e.name];
     if (fx) applyEffects(g, e.name, fx);
   }

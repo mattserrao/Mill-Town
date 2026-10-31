@@ -15,6 +15,7 @@ import { queryCard } from "./ui/query";
 import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
 import { marketsView } from "./ui/markets";
+import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
 import { drawDistricts } from "./render/districts";
 import { teamGround, teamName } from "./core/sports";
@@ -95,12 +96,14 @@ function newTown(seed: number) {
     toggleMarkets(false);
     resetBusinessUi(); resetWorksUi();
   }
-  focusId = null; chainCache = null; hoverSite = null;
+  focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
   game = newGame(map, seed);
   paperIdx = -1; paperSeen = 0;
   ($<HTMLInputElement>("seed")).value = String(seed);
   seedEdited = false;
+  ($<HTMLInputElement>("companyName")).value = suggestName(industry, seed);
+  setTab("company");
   siteTried = [];
   placing = true; ($<HTMLInputElement>("placing")).checked = true;
   $("final").hidden = true;
@@ -220,12 +223,12 @@ function requestRender() {
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) traffic.drawHaze(ctx, game, cam, canvas.width, canvas.height);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
-    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game);
+    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
     if (overlay === "supply") {
       const sc = currentChain();
       if (sc) drawSupply(ctx, cam, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, reservedRects());
     } else if (overlay === "districts") {
-      drawDistricts(ctx, cam, game, selected ? zoneAt(game, selected.x, selected.y) : -1);
+      drawDistricts(ctx, cam, game, selected ? zoneAt(game, selected.x, selected.y) : -1, reservedRects());
     } else if (overlay === "rivals") {
       const mine = playerWorks(game);
       drawRivals(ctx, cam, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, reservedRects());
@@ -304,6 +307,23 @@ function currentChain() {
 }
 
 // ---------------------------------------------------------------- panels
+/** "Carnegie Steel (Duquesne Works)" → "Carnegie Steel — Duquesne Works": owner first, but the plant still named */
+const plantName = (n: string) => n.replace(/ \((.*)\)$/, " — $1");
+
+/** right panel tabs: company · business · town · rivals */
+function setTab(tab: string) {
+  $("right").dataset.tab = tab;
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#rightTabs button")) b.classList.toggle("on", b.dataset.tab === tab);
+  $("right").scrollTop = 0;
+}
+
+/** a company name of the period for the industry, different each town ("Lyon, Shorb & Co. Iron Works") */
+function suggestName(ind: IndustryId, seed: number): string {
+  const S = ["Shoenberger", "Lyon", "Bakewell", "Zug", "Painter", "Moorhead", "McKnight", "Singer", "Spang", "Graff", "Hussey", "Lewis", "Wood", "Brown", "Park", "Oliver", "Byers", "Laughlin", "Shorb", "Black", "Everson"];
+  const a = S[Math.abs(seed) % S.length], b = S[(Math.abs(seed) * 7 + 3) % S.length];
+  const tail = { steel: "Iron Works", glass: "Glass Works", power: "Gas Light Company", metalworks: "Boat & Engine Works" }[ind];
+  return (seed % 3 === 0 && a !== b ? `${a}, ${b} & Co.` : seed % 3 === 1 ? `${a} Brothers` : `${a} & Co.`) + ` ${tail}`;
+}
 function row(k: string, v: string, cls = "") {
   return `<div class="k">${k}</div><div class="v ${cls}">${v}</div>`;
 }
@@ -335,6 +355,11 @@ function renderPaper() {
     (fresh ? "" : `<p class="none">${paperIdx === n - 1 ? "No news this season. The last issue:" : "From the archive:"}</p>`) +
     issue.items.map((e) => `<div class="kicker">${e.category}</div><h3>${esc(e.name)}</h3><p>${esc(e.description)}</p>`).join("");
   el.scrollTop = 0;
+  // several stories: say so, and let the reader scroll
+  if (issue.items.length > 1 && el.scrollHeight > el.clientHeight + 4) {
+    el.insertAdjacentHTML("beforeend", `<div class="more">▾ ${issue.items.length} stories — scroll</div>`);
+    el.onscroll = () => { const m = el.querySelector<HTMLElement>(".more"); if (m) m.hidden = el.scrollTop + el.clientHeight >= el.scrollHeight - 6; };
+  } else el.onscroll = null;
 }
 
 function refreshPanels() {
@@ -378,6 +403,7 @@ function inspect() {
   const el = $("inspector");
   const site = $("siteSection");
   $("districtSection").hidden = !selected || !districtPanel(game, $("district"), zoneAt(game, selected.x, selected.y));
+  $("bizEmpty").hidden = !!game.company;
   if (!selected) { el.innerHTML = `<p class="hint">Click a tile.</p>`; site.hidden = true; return; }
   const { x, y } = selected;
   const i = y * map.width + x;
@@ -415,7 +441,8 @@ function inspect() {
     row("Nearest place", `${near.name} (${distance(nd * map.metersPerTile)})`),
   ].join("");
 
-  site.hidden = false;
+  site.hidden = !!game.company;
+  if (game.company) return;
   const rep = evaluateSite(map, game.world, game.fields, industry, x, y);
   $("site").innerHTML = [
     row("Industry", INDUSTRIES[industry].name),
@@ -431,6 +458,23 @@ function inspect() {
   ($<HTMLButtonElement>("found")).disabled = !!game.company || !rep.ok || rep.cost > 100000;
 }
 
+/** what the works is now, from its newest process ("Bessemer steel", not 1850's "iron furnace" in 1985) */
+function businessNow(c: { industry: IndustryId; techs: string[] }): string {
+  const ind = INDUSTRIES[c.industry];
+  const newest = [...ind.tech].reverse().find((t) => c.techs.includes(t.id) && t.cost > 0);
+  return newest ? `${ind.name} · ${newest.name.toLowerCase()}` : ind.startsAs;
+}
+
+/** a warning in the Company panel when the works has fallen well behind the industry */
+function behindWarning(): string[] {
+  const out: string[] = [];
+  for (const w of allWorks(game.company!)) {
+    const st = techStanding(game, w);
+    if (st.behind.length >= 2) out.push(`<div class="full warn">${esc(w.name)} is ${st.behind.length} processes behind the industry (${st.behind.map((t) => esc(t.name)).join(", ")}): its prices are ${Math.round((1 - st.factor) * 100)}% under the rivals'. Commission them on the Business tab.</div>`);
+  }
+  return out;
+}
+
 function companyPanel() {
   const c = game.company;
   $("companySection").hidden = !c;
@@ -440,7 +484,7 @@ function companyPanel() {
   const s = c.lastSeason;
   $("company").innerHTML = [
     row("Name", esc(c.name)),
-    row("Business", ind.startsAs),
+    row("Business", businessNow(c)),
     row("Status", c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : c.status === "lockout" ? "Locked out" : "Idle", c.status === "running" ? "good" : "bad"),
     row("Cash", money(c.cash), c.cash < 0 ? "bad" : ""),
     c.debt ? row("Owed to the bank", money(c.debt), "bad") : "",
@@ -448,6 +492,7 @@ function companyPanel() {
     row("Employees", fmt(allWorks(c).reduce((s, w) => s + w.employees, 0))),
     row("Lifetime output", fmt(c.produced)),
     row("Tech", c.techs.map((t) => ind.tech.find((x) => x.id === t)?.name).join(", ")),
+    ...behindWarning(),
     ...(s ? [
       `<div class="full hint">Last season${c.others.length ? " (first works; the company's costs)" : ""}</div>`,
       row("Produced", fmt(s.produced)),
@@ -504,13 +549,13 @@ function rivalsPanel() {
   const myCap = game.company ? allWorks(game.company).filter((w) => w.industry === ind).reduce((t, w) => t + capacityOf(w.industry, w.techs), 0) : 0;
   const total = myCap + direct.reduce((s, c) => s + c.capacity, 0);
   const share = mine && total ? `<div class="full hint">Your share of ${INDUSTRIES[ind].name.toLowerCase()} capacity on the map</div>
-    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, ""), v: c.capacity, c: RELATION_COLOUR.competitor }))]
+    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear)), v: c.capacity, c: RELATION_COLOUR.competitor }))]
       .map((p, k) => `<div title="${p.n}: ~${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? 1 - k * 0.15 : 1}"></div>`).join("")}</div>
     <div class="hint">You ${Math.round((myCap / total) * 100)}% · ${direct.length} rival works open</div>` : "";
-  const label: Record<string, string> = { competitor: "Competitor", supplier: "Supplier", customer: "Customer", other: "Other industry" };
+  const label: Record<string, string> = { competitor: "Competitor", supplier: "Supplier", customer: "Customer", lender: "Bank", other: "Other industry" };
   $("rivalsList").innerHTML = share + list.map((c) => `
     <div class="sc-row ${c.state ? "" : "later"}" data-rival="${c.def.id}" title="Hover to highlight on the Competitors overlay, click to go there">
-      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${esc(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, ""))}${c.state?.closed ? " (closed)" : ""}</b><span>${label[c.relation]}</span></div>
+      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${esc(plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear)))}${c.state?.closed ? " (closed)" : ""}</b><span>${label[c.relation]}</span></div>
       <div class="sc-sub">${c.owned ? `<span class="owned">Yours now</span> · ${c.product}` : c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
       <div class="sc-sub">${esc(c.def.figures.join(" & "))} — ${esc(c.def.note)}</div>
       ${c.state?.lastMove ? `<div class="sc-sub"><i>Last move ${c.state.lastMove}</i></div>` : ""}
@@ -606,9 +651,11 @@ function setupUI() {
 
   $("found").addEventListener("click", () => {
     if (!selected) return;
-    const r = foundCompany(game, industry, selected.x, selected.y);
+    const name = ($<HTMLInputElement>("companyName")).value.trim() || suggestName(industry, game.seed);
+    const r = foundCompany(game, industry, selected.x, selected.y, name);
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     placing = false; ($<HTMLInputElement>("placing")).checked = false;
+    if (r.ok) { selected = null; hover = null; setTab("business"); }
     renderer.updateHeights();
     afterChange();
   });
@@ -639,9 +686,18 @@ function setupUI() {
     // a typed seed replays that town; otherwise every press is a fresh one
     const v = ($<HTMLInputElement>("seed")).value.trim();
     newTown(seedEdited && v && !isNaN(Number(v)) ? Number(v) : Math.floor(Math.random() * 1e6));
+    $("gameDrop").hidden = true;
     showNews();
   });
   $("seed").addEventListener("input", () => { seedEdited = true; });
+  $("companyName").addEventListener("input", () => { nameEdited = true; });
+  $("rightTabs").addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-tab]");
+    if (b) setTab(b.dataset.tab!);
+  });
+  // the Game menu holds the seed and New town; it closes on any click outside it
+  $("gameBtn").addEventListener("click", (e) => { e.stopPropagation(); $("gameDrop").hidden = !$("gameDrop").hidden; });
+  document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#gameMenu")) $("gameDrop").hidden = true; });
   $("nextYear").addEventListener("click", nextYear);
   $("bestSite").addEventListener("click", showBestSite);
 
@@ -717,7 +773,7 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("markets").hidden) toggleMarkets(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; } }
+    else if (k === "escape") { if (!$("markets").hidden) toggleMarkets(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; selected = null; inspect(); requestRender(); } }
     else if (k === "q") { setQuerying(!querying); return; }
     else return;
     clampCam();
@@ -754,10 +810,17 @@ function showQuery(x: number, y: number, px: number, py: number) {
   const el = $("query");
   el.innerHTML = queryCard({ game, map, renderer }, x, y);
   el.hidden = false;
-  const vw = canvas.width, vh = canvas.height, w = el.offsetWidth, h = el.offsetHeight;
-  const left = px + 24 + w < vw ? px + 24 : Math.max(8, px - 24 - w);
+  const vp = $("viewport"), vw = vp.clientWidth, vh = vp.clientHeight, w = el.offsetWidth, h = el.offsetHeight;
+  let left = px + 24 + w < vw - 8 ? px + 24 : Math.max(8, px - 24 - w);
+  let top = Math.max(8, Math.min(vh - h - 8, py - 40));
+  // don't sit on the minimap (bottom right): move up above it, or to its left
+  const mm = mini.getBoundingClientRect(), vr = vp.getBoundingClientRect();
+  const mx = mm.left - vr.left, my = mm.top - vr.top;
+  if (left + w > mx - 6 && top + h > my - 6) {
+    if (my - h - 8 >= 8) top = my - h - 8; else left = Math.max(8, mx - w - 8);
+  }
   el.style.left = `${left}px`;
-  el.style.top = `${Math.max(8, Math.min(vh - h - 8, py - 40))}px`;
+  el.style.top = `${top}px`;
 }
 
 function soundUI() {
@@ -765,7 +828,10 @@ function soundUI() {
   const top = $("soundTop");
   top.classList.toggle("on", on);
   top.classList.toggle("waiting", soundWanted && !on);
-  top.textContent = on ? "🔊" : soundWanted ? "🔈 Start" : "🔇";
+  // a drawn speaker (emoji fonts aren't everywhere) and a word
+  const waves = on ? `<path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6.5 6.5 0 0 1 0 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`
+    : `<path d="M10.5 5.5l4 5M14.5 5.5l-4 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`;
+  top.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/>${soundWanted && !on ? "" : waves}</svg><span>${on ? "Sound" : soundWanted ? "Start sound" : "Muted"}</span>`;
   top.title = on ? "Sound is on — click or press M to mute" : soundWanted ? "Browsers start audio on your first click or key press" : "Sound is off — click or press M to turn it on";
   $("sound").textContent = on ? "Sound off" : "Sound on";
   if (!on && !soundWanted) $("nowPlaying").textContent = "Music follows the era, the neighbourhood in view and how close you are.";
@@ -778,8 +844,10 @@ function updateSound() {
   $("nowPlaying").textContent = `Now playing: ${sound.nowPlaying}`;
 }
 
+let nameEdited = false;
 function industryNote() {
   const ind = INDUSTRIES[industry];
+  if (!nameEdited && game) ($<HTMLInputElement>("companyName")).value = suggestName(industry, game.seed);
   const fp = footprintTiles(map, industry);
   $("industryNote").textContent = `Starts as: ${ind.startsAs}. From $${fmt(ind.startCost)} plus land and grading. Needs ${fp}×${fp} tiles (${feet(fp * map.metersPerTile)} square) of ground with under ${feet(ind.site.maxReliefM)} of relief${ind.site.riverWithinM ? `, within ${feet(ind.site.riverWithinM)} of a river` : ""}.`;
 }
@@ -881,7 +949,7 @@ function updateTimeControls() {
   const over = !!game.over;
   for (const id of ["next", "nextYear"]) ($<HTMLButtonElement>(id)).disabled = over;
   document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => { b.disabled = over && b.dataset.speed !== "0"; });
-  $("next").textContent = over ? "The end — 1985" : "Season ▶";
+  $("next").textContent = over ? "The end" : "Season ▶";
 }
 
 /** jump to the best affordable site for the chosen industry (press again for the next one) */
@@ -913,7 +981,8 @@ function showFinal() {
   let verdict: string;
   if (c) {
     rows.unshift(
-      [c.name, `founded ${st.foundedYear ?? "?"}, ${INDUSTRIES[c.industry].startsAs.toLowerCase()}`],
+      [esc(c.name), `founded ${st.foundedYear ?? "?"} · ${esc(businessNow(c))}`],
+      ["Processes owned", `${allWorks(c).reduce((n, w) => n + w.techs.length, 0)} (${esc(INDUSTRIES[c.industry].tech.filter((t) => c.techs.includes(t.id)).map((t) => t.name).join(", "))})`],
       ["Seasons in operation", fmt(c.seasonsOperating)],
       ["Lifetime output", fmt(c.produced)],
       ["Most workers", `${fmt(st.peakEmployees)} (${st.peakEmployeesYear})`],
@@ -927,10 +996,12 @@ function showFinal() {
       ? `${c.name} is still standing when the valley's great mills go quiet. Whether the town around it survives is another question.`
       : `${c.name} did not outlast the collapse. The works stand cold beside the river.`;
   } else verdict = "You never founded a company. The valley's story went on without you.";
+  const epi = c ? epilogue() : [];
   $("final").innerHTML = `<div class="paper">
     <div class="mast"><span>Pittsburgh Post-Gazette</span><span>${c?.bankrupt ? `${cal(g).season} ${cal(g).year}` : "Winter 1985"}</span></div>
     <h3>${c?.bankrupt ? "Receivers Sell the Works" : "The Mills Go Quiet"}</h3>
     <p>${verdict}</p>
+    ${epi.length ? `<p class="epilogue">${epi.join(" ")}</p>` : ""}
     <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
     ${c && c.biz.record.length ? `<p style="font-size:12px"><b>Your choices:</b> ${c.biz.record.filter((r) => r.includes("—")).concat(c.biz.record.filter((r) => !r.includes("—")).slice(-4)).slice(0, 8).map(esc).join(" · ")}</p>` : ""}
     <div class="actions"><button id="finalLook">Look around</button><button id="finalNew" class="primary">New town</button></div>
@@ -938,6 +1009,31 @@ function showFinal() {
   $("final").hidden = false;
   $("finalLook").addEventListener("click", () => { $("final").hidden = true; });
   $("finalNew").addEventListener("click", () => { newTown(Math.floor(Math.random() * 1e6)); showNews(); });
+}
+
+/** a few sentences on how the company played its part, from the choices it made and how it ended */
+function epilogue(): string[] {
+  const g = game, c = g.company!, f = { ...g.flags, ...c.biz.flags }, m = c.biz.meters, out: string[] = [];
+  const st = techStanding(g, c);
+  if (f.sheltered) out.push("In 1850 its cellars hid fugitives on the road to Canada.");
+  if (f.stayedUnion1897) out.push("When J&L broke with the union in 1897, it kept faith with the Amalgamated.");
+  else if (f.nonUnion1897) out.push("It followed J&L out of the union in 1897.");
+  if (f.usSteel === "pact") out.push("It dined with Judge Gary and held the trust's prices.");
+  else if (f.usSteel === "sold") out.push("It sold a works to Morgan's trust in 1901.");
+  if (f.bannedMeetings) out.push("It shut Mother Jones out of its company town in 1919.");
+  if (f.warOrders || f.warContract) out.push("It took the government's war orders.");
+  if (f.conference) out.push("It joined the Allegheny Conference to clear the smoke.");
+  if (f.decreeStalled) out.push("It signed the clean-air decree and dragged its feet.");
+  if (f.relief || f.reliefGiven) out.push("In hard times it fed the families out of work.");
+  if (f.laidOff) out.push("When the orders stopped, it laid men off.");
+  if (c.library) out.push("A library with its name on it still stands.");
+  if (f.endowed) out.push("The university keeps a laboratory in its name.");
+  if (st.behind.length >= 2) out.push(`It never caught up with the industry: at the end it still lacked ${st.behind.length} processes its rivals ran.`);
+  else if (c.techs.length > 3) out.push("It kept its furnaces up to date to the end.");
+  out.push(m.reputation >= 30 ? "The valley remembers it kindly." : m.reputation <= -40 ? "The valley remembers it bitterly." : "The valley remembers it as one mill among many.");
+  if (m.labour <= -30) out.push("Its men never trusted it.");
+  else if (m.labour >= 30) out.push("Its men stood by it.");
+  return out;
 }
 
 function afterChange() {

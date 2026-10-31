@@ -275,7 +275,7 @@ export function buildPlant(key: string): Sprite {
   const W = pal.wall, R = pal.roof;
   const lf = longFace(axis);
   const endT = s === "e" || s === "1";
-  const coal = ["#141416", "#232327", "#36363c"], ore = ["#5a2e24", "#7a3e2c", "#94503a"], sand = ["#c8b88a", "#d8c89a", "#e8dcb0"];
+  const coal = ["#141418", "#212227", "#2e3036", "#454952"], ore = ["#5a2e24", "#7a3e2c", "#94503a"], sand = ["#c8b88a", "#d8c89a", "#e8dcb0"];
   void ore;
 
   switch (part) {

@@ -438,7 +438,10 @@ export class Traffic {
           ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...r[0]); ctx.lineTo(...r[1]); ctx.lineTo(...q[0]); ctx.lineTo(...q[1]); ctx.closePath(); ctx.fill();
           void p;
         };
-        quadB("#4a3a2a", 0.6); quadB("#1a1a1c", 1.4, 0.08);
+        // hull, pale gunwale rim, hold, then a heaped cargo ridge (coal, with every third barge of ore)
+        const ore = k % 3 === 2;
+        quadB("#4a3a2a", 0.6); quadB("#a48a64", 1.0, 0.015); quadB("#2e251c", 1.05, 0.045);
+        quadB(ore ? "#5a2a18" : "#1e1f24", 1.6, 0.075); quadB(ore ? "#8a4424" : "#3a3c44", 2.1, 0.12);
       }
       quad(-0.45, 0.3, 0.17, a.col, 0.8);
       quad(-0.35, 0.05, 0.1, "#efe9da", 2.6);

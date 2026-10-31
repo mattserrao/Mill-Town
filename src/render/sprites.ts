@@ -371,12 +371,68 @@ function steamboat(o: "a" | "b", v: number): Sprite {
   return p.sprite();
 }
 
+/** Cargo carried by moored barges: coal, iron ore, or limestone/sand (generic). Index = sprite variant. */
+export const BARGE_CARGO = ["coal", "ore", "stone"] as const;
+const CARGO_PAL: Record<(typeof BARGE_CARGO)[number], string[]> = {
+  // dark → light; the last entry is the glint on lit lumps
+  coal: ["#121216", "#1e1f24", "#2c2e35", "#40434c", "#7c8494"],
+  ore: ["#3e1c12", "#5a2a18", "#7a3a20", "#9a4e2a", "#c47444"],
+  stone: ["#6a6458", "#847c6c", "#9e9480", "#b8ad96", "#dcd2bc"],
+};
+
+/**
+ * A moored open-hopper barge: timber hull with a pale gunwale rim around a deck, the hold heaped with
+ * cargo (a ridge along the barge, lit on its +v / screen-left flank, with glints on the lit lumps).
+ */
 function barge(o: "a" | "b", v: number): Sprite {
   const p = new Painter(1, 80);
-  const b = o === "a" ? box(p, 0.0, 0.32, 1.0, 0.68, 4, { wall: "#4a3a2a", top: "#2a2826" }) : box(p, 0.32, 0.0, 0.68, 1.0, 4, { wall: "#4a3a2a", top: "#2a2826" });
-  const [x, y] = p.P(0.5, 0.5, 4);
-  blob(p, x, y - 2, 16, 4, ["#141416", "#26262a", "#3a3a40"], (k) => tileNoise(v, k, 5, 5));
-  void b;
+  const cargo = BARGE_CARGO[v % BARGE_CARGO.length];
+  const pal = CARGO_PAL[cargo];
+  // work in (s along the barge, t across it); map to (u, v) by orientation
+  const UV = (s: number, t: number, z = 0) => (o === "a" ? p.P(s, t, z) : p.P(t, s, z));
+  const S0 = 0.02, S1 = 0.98, T0 = 0.31, T1 = 0.69, HULL = 4;
+  if (o === "a") box(p, S0, T0, S1, T1, HULL, { wall: "#5c4630", wallR: "#3e2f22", top: "#6e5a42" });
+  else box(p, T0, S0, T1, S1, HULL, { wall: "#5c4630", wallR: "#3e2f22", top: "#6e5a42" });
+  const poly = (pts: [number, number][], z: number, col: string) => p.poly(pts.map(([s, t]) => UV(s, t, z)), col);
+  // hold (recessed), inset from the gunwale
+  const h0 = 0.09, h1 = 0.91, w0 = T0 + 0.055, w1 = T1 - 0.055;
+  poly([[h0, w0], [h1, w0], [h1, w1], [h0, w1]], HULL, "#2e251c");
+  // gunwale rim: a light timber line around the deck edge, brightest on the lit (+v) side
+  const rim = (a: [number, number], b: [number, number], col: string) => p.line(UV(a[0], a[1], HULL), UV(b[0], b[1], HULL), col);
+  const LIT = "#c8ad80", BACK = "#a48a64", DARK = "#8c7556";
+  rim([S0, T0], [S1, T0], BACK);
+  rim([S0, T0], [S0, T1], BACK);
+  rim([S0, T1], [S1, T1], o === "a" ? LIT : DARK);
+  rim([S1, T0], [S1, T1], o === "a" ? DARK : LIT);
+  // rub-rail along the lit hull face
+  if (o === "a") p.line(UV(S0, T1, 2), UV(S1, T1, 2), "#7a6046");
+  else p.line(UV(S1, T0, 2), UV(S1, T1, 2), "#7a6046");
+  // cargo heap: a ridge along s, sampled back-to-front, filled down to the hold floor
+  const r = (k: number) => tileNoise(v, k, 5, 5);
+  const N = 72, M = 18, peak = 6 + r(1) * 2;
+  const tm = (w0 + w1) / 2, th = (w1 - w0) / 2 - 0.01;
+  const cells: { s: number; t: number; z: number; lit: number; litSide: boolean }[] = [];
+  for (let i = 0; i <= N; i++) for (let j = 0; j <= M; j++) {
+    const s = h0 + 0.02 + ((h1 - h0 - 0.04) * i) / N, t = tm - th + (2 * th * j) / M;
+    const across = Math.abs(t - tm) / th; // 0 on the ridge, 1 at the coaming
+    const end = Math.min(1, Math.min(s - h0, h1 - s) / 0.14);
+    const lump = Math.sin(s * 37 + r(2) * 6) * 0.6 + Math.sin(s * 71 + r(3) * 6) * 0.4;
+    const z = HULL + Math.max(0, (1 - across * across) * end) * (peak + lump);
+    // slope toward +t (and toward -s ends) faces the light
+    const litSide = o === "a" ? t > tm : t < tm; // +v faces the light (t is v for "a", u for "b")
+    const lit = (litSide ? 0.62 : 0.28) + (s < 0.5 ? 0.06 : -0.06) * (1 - end) + (1 - across) * 0.12;
+    cells.push({ s, t, z, lit, litSide });
+  }
+  cells.sort((a, b) => a.s + a.t - (b.s + b.t)); // u + v: back to front
+  for (const c of cells) {
+    if (c.z <= HULL + 0.4) continue;
+    const [x, y] = UV(c.s, c.t, c.z), [, y0] = UV(c.s, c.t, HULL);
+    const n = tileNoise(91 + v, Math.round(x), Math.round(y), 1);
+    const k = Math.max(0, Math.min(pal.length - 2, Math.floor((c.lit + (n - 0.5) * 0.35) * (pal.length - 1))));
+    p.px(x, y, pal[k], 1, Math.max(1, Math.round(y0 - y)));
+    // glints: occasional bright pixels on the lit flank
+    if (c.litSide && n > 0.93) p.px(x, y, pal[pal.length - 1]);
+  }
   return p.sprite();
 }
 
@@ -1455,7 +1511,7 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   for (let n = 1; n <= 4; n++) s.set(`struct:ruin${n}`, ruin(n));
   for (const o of ["a", "b"] as const) {
     s.set(`boat:steam:${o}`, steamboat(o, 0));
-    s.set(`boat:barge:${o}`, barge(o, 0));
+    for (let v = 0; v < BARGE_CARGO.length; v++) s.set(`boat:barge:${o}:${v}`, barge(o, v));
     s.set(`bridge:road:${o}`, bridgeDeck("road", o, 16));
     s.set(`bridge:rail:${o}`, bridgeDeck("rail", o, 18));
   }

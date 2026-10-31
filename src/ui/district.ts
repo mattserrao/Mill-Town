@@ -9,6 +9,9 @@ import { fmt } from "../core/text";
 
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
+/** how communities build (shown on hover over the neighbourhood's name, not repeated under every panel) */
+const HOW = "Each community builds in its own neighbourhood as its people arrive: boarding houses first, then its own shops (300 people), a church (700), a social hall, and a parish school (1,200). When a community moves away, its church passes to the newcomers or closes.";
+
 export function zoneAt(g: GameState, x: number, y: number): number {
   const d = districts(g.map);
   return x < 0 || y < 0 || x >= g.map.width || y >= g.map.height ? -1 : d.zone[y * g.map.width + x];
@@ -50,9 +53,8 @@ export function districtPanel(g: GameState, el: HTMLElement, zone: number): bool
       <div class="dist-bar"><b style="width:${Math.max(2, share * 100)}%;background:rgb(${gr.colour.join(",")})"></b></div>
       <div class="dist-next">${have.length ? `Has ${have.join(", ")}.` : "Nothing of its own yet."}${next ? ` Next: ${next}.` : ""}</div></div>`;
   }).join("");
-  el.innerHTML = `<div class="dist-name">${zn.name}</div>
+  el.innerHTML = `<div class="dist-name" title="${HOW}">${zn.name} <span class="dist-how" title="${HOW}">?</span></div>
     <div class="dist-city">${zn.named ? `${city} · ` : ""}${fmt(c.tot)} people</div>
-    ${rows || `<p class="hint">Hardly anyone lives here yet.</p>`}
-    <p class="hint">Each community builds in its own neighbourhood as its people arrive: boarding houses first, then its own shops (300 people), a church (700), a social hall, and a parish school (1,200). When a community moves away, its church passes to the newcomers or closes.</p>`;
+    ${rows || `<p class="hint">Hardly anyone lives here yet.</p>`}`;
   return true;
 }
