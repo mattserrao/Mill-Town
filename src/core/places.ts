@@ -29,6 +29,17 @@ export const EXTRA_PLACES: [string, number, number, number][] = [
   ["Downtown", 40.4410, -79.9970, 700],
   ["The Point", 40.4415, -80.0080, 350],
   ["Clairton", 40.2950, -79.8820, 1200],
+  // public housing sites (the Housing Authority's projects)
+  ["Addison Terrace", 40.4440, -79.9790, 200],
+  ["Bedford Dwellings", 40.4505, -79.9765, 200],
+  ["Allegheny Dwellings", 40.4600, -80.0010, 200],
+  ["Arlington Heights", 40.4185, -79.9720, 250],
+  ["Broadhead Manor", 40.4370, -80.0450, 200],
+  ["Glen Hazel", 40.4075, -79.9420, 250],
+  ["Harrison Village", 40.3420, -79.8530, 200],
+  ["St. Clair Village", 40.4130, -79.9710, 250],
+  ["Northview Heights", 40.4720, -80.0010, 250],
+  ["Garfield Heights", 40.4680, -79.9380, 250],
 ];
 
 /**

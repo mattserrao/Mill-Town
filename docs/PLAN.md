@@ -130,18 +130,27 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      - English units throughout (feet and miles)
      - Every panel heading folds its section (remembered); the newspaper (with its back issues) and the log sit
        permanently at the bottom left
-   - Historical events (v0.11.1): every row of `EVENTS.csv` is now handled — 294 events change the game, the rest
+   - Historical events (v0.11.1): every row of `EVENTS.csv` is now handled — 301 of 405 events change the game (v0.11.2), the rest
      are headlines. One effects engine (`src/core/effects.ts`) with data in four era files
      (`src/core/eventdata/era1–4.ts`): scoped modifiers (by industry, good or freight gateway), floods and epidemics
      at named places, migration waves, rules that open or close actions (unions, company police, the sliding
      scale, the lab, bribes), political eras (machine, reform, New Deal, Renaissance), rival moves (expand, strike,
-     close, rename), 66 dated landmarks drawn on the map (libraries, hospitals, universities, ballparks, plants)
-     that can close or fall to ruin, and 44 decision cards (Morgan's trust in 1901, Mother Jones, the Clairton
+     close, rename), 64 dated landmarks plus 10 housing projects drawn on the map (libraries, hospitals, universities, ballparks, plants)
+     that can close or fall to ruin, and 45 decision cards (Morgan's trust in 1901, Mother Jones, the Clairton
      consent decree, Dorothy Six…), queued when several arrive in one season
    - New rivals: National Tube (McKeesport), Carrie Furnaces (Rankin), Duquesne Works, Mesta (West Homestead),
      Duquesne Light; Westinghouse is an East Pittsburgh equipment maker. Rivals close on their historical dates
    - Town morale (0–100) and sports teams (Pirates, Steelers, Penguins, Pitt, Grays, Crawfords) that are founded,
      move grounds and win titles; strikes spread to works nearby; lay off men, call them back, fund relief, sell a works
+   - Rest of the events plan (v0.11.2): public housing (the Housing Authority's projects go up on their dates
+     from 1940 and keep their people); a redevelopment action (URA, 1946+: clear the cheapest housing beside your
+     works); retraining the jobless (Community College 1966, cheaper after Bidwell); endowing the university
+     (1894+: processes built a tenth faster); a Symphony subscription and Gulf Oil both cheapen Mellon loans;
+     selling a works to its workers (from Weirton) or to the Steel Valley Authority (1985); American Bridge
+     (Ambridge) and the Clairton Works as rivals; parks for Highland, Riverview, South Park and Point State Park;
+     the 1882 courthouse fire and its rebuilding; Prohibition shutters the taverns until Repeal; Donora leaves four
+     years of pressure on smoky works' reputation; the patent truce steadies power prices; the Ripper Act makes
+     locks dearer; new processes: the 69 kV ring (power, 1915) and automation in every industry (1982)
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -163,9 +172,8 @@ routing, environment, growth and neighbourhood style.
 - Finished goods: the markets on the supply-chain map are still a display model (inputs follow the freight simulation)
 - Event effects are first-pass; dates for some events are approximate. The Steel Valley Authority (founded Jan 1986)
   is kept in Autumn 1985 so it appears
-- Not built yet: public housing and the URA clearance action, park and tunnel landmarks, automation tech,
-  retraining, a timed reputation term (Donora is a one-off hit), the courthouse fire (the courthouse is a fixed
-  map building), American Bridge and Clairton as rivals
+- Left out by design: highways, busways and the Liberty Tubes as travel links (X2; the Tubes act as South Hills
+  growth), per-line transit (X1), outbound freight and taxes; Frick Park's land isn't held from growth before 1927
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal

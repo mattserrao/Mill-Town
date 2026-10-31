@@ -14,7 +14,7 @@ import type { DecisionOption } from "../business";
 import type { Effect } from "../effects";
 import { cal, type GameState } from "../game";
 import type { LandmarkDef } from "../landmarks";
-import { saleQuote } from "../rivalai";
+import { sellWorks } from "../rivalai";
 import { decision, option, when } from "./helpers";
 import type { DecisionFn } from "./index";
 
@@ -57,27 +57,27 @@ export const EFFECTS: Record<string, Effect[]> = {
   // ---- 1900–1909
   "No Union Steel Left": [{ mods: [["wage", 0.95, 40]], scope: STEEL }],
   "PPG Rules Plate Glass": [{ rival: "ppg", expand: 0.2 }, { mods: [["price", 0.95, 12]], scope: { industry: "glass" } }],
-  "American Bridge Company": [{ mods: [["price", 0.97, 8]], scope: { industry: "metalworks" } }],
+  "American Bridge Company": [{ mods: [["price", 0.97, 8]], scope: { industry: "metalworks" } }, { rival: "abridge", expand: 0.1 }],
   "Carnegie Technical Schools Founded": [{ landmark: "carnegie_tech" }, { meters: { morale: 1 } }],
   "U.S. Steel Formed": [{ rival: "carnegie", style: "steady" }, { mods: [["price", 0.97, 4]], scope: STEEL }],
   // the governor's recorder replaces the mayor: your friends at City Hall are gone, but Harrisburg works again
-  "Magee Dies; the Ripper Act": [{ rule: "lobby", set: { yield: 1 } }, { meters: { influence: -5 } }],
+  "Magee Dies; the Ripper Act": [{ rule: "lobby", set: { yield: 1 } }, { rule: "locks", set: { cost: 1.25 } }, { meters: { influence: -5 } }],
   "Union Rejects Half a Loaf": [{ mods: [["strike", 4, 1]], scope: MILLS }],
   "1901 Steel Strike Collapses": [{ mods: [["wage", 0.95, 40], ["strike", 0.7, 32]], scope: MILLS }],
   "Phipps Botany Hall": [{ landmark: "phipps_botany" }],
   "\"Pittsburg: A City Ashamed\"": [{ rule: "bribe", set: { risk: 0.3 } }],
   "The First World Series": [{ meters: { morale: 2 } }],
   "U.S. Steel Comes to Clairton": [
-    { landmark: "clairton_works" },
+    { rival: "clairton", expand: 0.05 },
     { migrate: { group: 5, people: 200, places: ["Clairton"] } }, { migrate: { group: 10, people: 150, places: ["Clairton"] } },
   ],
   "Harwick Mine Disaster": [{ mods: [["input", 1.08, 1]], scope: COAL }, { meters: { morale: -4 } }],
   "Wabash Terminal Opens": [{ landmark: "wabash_terminal" }, { mods: [["freightCost", 0.95, 16]], scope: { gateway: "rail" } }],
   "J&L Builds at Aliquippa": [{ rival: "jl", expand: 0.2 }, { landmark: "jl_aliquippa" }, { mods: [["price", 0.97, 20]], scope: STEEL }],
-  "Ambridge Incorporated": [{ landmark: "ambridge_works" }, { mods: [["price", 0.97, 20]], scope: { industry: "metalworks" } }],
+  "Ambridge Incorporated": [{ rival: "abridge", expand: 0.15 }, { mods: [["price", 0.97, 20]], scope: { industry: "metalworks" } }],
   "Reform Mayor Guthrie": [{ politics: "reform" }, { rule: "bribe", set: { blocked: "Reform mayor Guthrie: no one at City Hall will take it" } }],
   "Westinghouse Research Department": [{ rule: "lab", set: { blocked: null } }],
-  "Gulf Oil Corporation": [{ rival: "mellon", expand: 0.1 }],
+  "Gulf Oil Corporation": [{ rival: "mellon", expand: 0.1 }, { flag: "gulf" }],
   // (era3.ts also carries this 1907 flood from the old table; setting the flood twice is harmless)
   "St. Patrick's Day Flood": [{ flood: 0.35 }, { meters: { morale: -4 } }, { place: "Downtown", health: -0.1, seasons: 2 }],
   "Carrie Furnaces 6 and 7": [{ rival: "carrie", expand: 0.1 }],
@@ -103,7 +103,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   "George Westinghouse Ousted": [{ rival: "westinghouse", style: "steady" }],
   "Tin-Plate Strike Broken": [{ mods: [["wage", 0.97, 8], ["strike", 0.8, 8]], scope: MILLS }],
   // ward bosses lose their councils: a bribe buys less, an honest lobby a little more
-  "Small Council Charter": [{ politics: "reform" }, { rule: "bribe", set: { yield: 0.6 } }, { rule: "lobby", set: { yield: 1.1 } }],
+  "Small Council Charter": [{ politics: "reform" }, { rule: "bribe", set: { yield: 0.6 } }, { rule: "lobby", set: { yield: 1.1 } }, { rule: "locks", set: { cost: 1 } }],
   "West Penn Moves to Bloomfield": [{ landmark: "west_penn" }],
   "Homestead Grays": [{ team: "grays", act: "found" }, { place: "Homestead", unrest: -0.05, seasons: 8 }, { meters: { morale: 2 } }],
   // Tech graduates staff a laboratory more cheaply
@@ -129,6 +129,9 @@ export const EFFECTS: Record<string, Effect[]> = {
   ],
   "Schenley High School": [{ landmark: "schenley_high" }, { meters: { morale: 1 } }],
   "America Enters the War": [{ mods: [["price", 1.25, 7], ["output", 1.1, 7], ["labour", 0.92, 7]] }],
+  // patrons, lenders and the city's rules (engine systems added in v0.11.2)
+  "Mellon Joins the University Board": [{ rule: "endow", set: { blocked: null } }],
+  "Pittsburgh Railways Formed": [{ mods: [["labour", 1.03, FOREVER]] }],
 };
 
 // ---------------------------------------------------------------- decisions
@@ -140,12 +143,19 @@ const plus = (o: DecisionOption, f: (g: GameState) => string | void): DecisionOp
 
 /** the company paid bribes since 1900 (from its record) */
 const bribedSince = (g: GameState, y: number) =>
-  g.company!.biz.record.some((r) => r.includes("Bribe an official") && Number(/(\d{4})/.exec(r)?.[1] ?? 0) >= y);
+  Number(g.company!.biz.flags.bribed ?? 0) >= y || g.company!.biz.record.some((r) => r.includes("Bribe an official") && Number(/(\d{4})/.exec(r)?.[1] ?? 0) >= y);
 
 /** wage and price level (as business.ts) */
 const era = (g: GameState) => 1 + (cal(g).year - 1850) * 0.012;
 
 export const DECISIONS: Record<string, DecisionFn> = {
+  "Pittsburgh Symphony Founded": (g) => !when(g, "men>=100") ? null : decision("symphony1895", "A subscription for the orchestra",
+    "The new Pittsburgh Orchestra will play in Carnegie's Music Hall. Its guarantors' list is the city's who's who; the Mellons' bankers sit on the board.",
+    [
+      option("Subscribe as a guarantor", "Reputation +4, influence +3; the Mellon bank lends to you at a better rate from now on.",
+        [{ meters: { reputation: 4, influence: 3 } }, { flag: "symphony" }], "Your name goes on the programme beside the Mellons'.", Math.round(4000 * era(g))),
+      option("Send your regrets", "No cost.", [], "The orchestra will manage without you."),
+    ], 0),
   "J&L Refuses the Union": (g) => !when(g, "industry:steel,metalworks men>=250 !union:fight") ? null : decision(
     "jl1897", "J&L will not sign the scale",
     "Jones & Laughlin has refused to sign with the Amalgamated, and the other owners mean to follow. Your lodge's scale comes up for renewal.",
@@ -174,13 +184,7 @@ export const DECISIONS: Record<string, DecisionFn> = {
         (g) => {
           const w = g.company!.others[0];
           if (!w) return;
-          const bonus = Math.round(saleQuote(g, w) * 0.5);
-          g.company!.cash += bonus + saleQuote(g, w);
-          g.company!.others = g.company!.others.filter((x) => x !== w);
-          const r = w.fromRival ? g.rivals.find((x) => x.id === w.fromRival) : undefined;
-          if (r) { r.owned = false; r.active = true; r.closed = false; }
-          for (let dy = 0; dy < w.footprint; dy++) for (let dx = 0; dx < w.footprint; dx++) g.world.owner[(w.y + dy) * g.map.width + w.x + dx] = r ? r.ownerId : 0;
-          g.world.version++;
+          sellWorks(g, w, "market", 1.5);
           return `${w.name} goes to U.S. Steel.`;
         }));
     }
@@ -236,10 +240,8 @@ export const LANDMARKS: LandmarkDef[] = [
   { id: "west_end_library", name: "West End Branch Library", kind: "library", place: "West End Library" },
   { id: "kennywood", name: "Kennywood", kind: "amusement", place: "Kennywood" },
   { id: "carnegie_tech", name: "Carnegie Technical Schools", kind: "college", place: "Carnegie Tech" },
-  { id: "clairton_works", name: "Clairton Works (Crucible / U.S. Steel)", kind: "factory", place: "Clairton" },
   { id: "wabash_terminal", name: "Wabash Pittsburgh Terminal", kind: "terminal", place: "Wabash Terminal" },
   { id: "jl_aliquippa", name: "Aliquippa Works (J&L)", kind: "factory", place: "Aliquippa" },
-  { id: "ambridge_works", name: "American Bridge Works, Ambridge", kind: "factory", place: "Ambridge" },
   { id: "forbes_field", name: "Forbes Field", kind: "ballpark", place: "Forbes Field" },
   { id: "pitt", name: "University of Pittsburgh (Oakland)", kind: "college", place: "Pitt Campus" },
   { id: "west_penn", name: "West Penn Hospital", kind: "hospital", place: "West Penn Hospital", hospital: true },

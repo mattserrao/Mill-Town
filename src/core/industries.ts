@@ -72,6 +72,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
       { id: "strip_mill", name: "Continuous strip mill", era: "II", year: 1927, cost: 900000, seasons: 10, requires: ["open_hearth"], milestones: { produced: 120000 }, effects: { capacity: 1.0, workersPerUnit: -0.3 } },
       { id: "bof", name: "Basic oxygen furnace", era: "III", year: 1955, cost: 3000000, seasons: 12, requires: ["strip_mill"], effects: { capacity: 1.0, workersPerUnit: -0.4 } },
       { id: "continuous_cast", name: "Continuous casting", era: "III", year: 1965, cost: 5000000, seasons: 12, requires: ["bof"], effects: { efficiency: 0.25, workersPerUnit: -0.3 } },
+      { id: "automation", name: "Computer controls and robots", era: "III", year: 1982, cost: 4000000, seasons: 8, requires: ["continuous_cast"], effects: { workersPerUnit: -0.3, efficiency: 0.1 }, note: "Fewer men per ton; the men laid off stay in the valley." },
     ],
   },
   power: {
@@ -92,8 +93,10 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
       { id: "dc_dynamo", name: "DC dynamo station", era: "I", year: 1882, cost: 90000, seasons: 6, requires: ["gas_mains"], milestones: { seasonsOperating: 40 }, effects: { capacity: 0.8 } },
       { id: "ac_system", name: "Alternating current", era: "I", year: 1886, cost: 150000, seasons: 8, requires: ["dc_dynamo"], effects: { capacity: 1.5 }, note: "Westinghouse's system — serve the whole valley." },
       { id: "steam_turbine", name: "Steam turbines", era: "II", year: 1903, cost: 400000, seasons: 8, requires: ["ac_system"], effects: { capacity: 1.5, efficiency: 0.2 } },
+      { id: "hv_ring", name: "69,000-volt ring", era: "II", year: 1915, cost: 500000, seasons: 8, requires: ["steam_turbine"], effects: { capacity: 0.5, efficiency: 0.1 }, note: "Duquesne Light's high-voltage loop round the city." },
       { id: "interconnect", name: "Regional grid interconnect", era: "II", year: 1925, cost: 800000, seasons: 10, requires: ["steam_turbine"], effects: { capacity: 1.0 } },
       { id: "nuclear", name: "Nuclear station (Shippingport)", era: "III", year: 1957, cost: 6000000, seasons: 16, requires: ["interconnect"], effects: { capacity: 2.0, pollution: -0.6 } },
+      { id: "automation", name: "Computer dispatch and controls", era: "III", year: 1982, cost: 3000000, seasons: 8, requires: ["interconnect"], effects: { workersPerUnit: -0.3, efficiency: 0.1 } },
     ],
   },
   glass: {
@@ -115,6 +118,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
       { id: "plate_glass", name: "Plate glass", era: "II", year: 1890, cost: 200000, seasons: 8, requires: ["gas_furnace"], effects: { capacity: 1.0, quality: 1 } },
       { id: "bottle_machine", name: "Owens bottle machine", era: "II", year: 1905, cost: 300000, seasons: 8, requires: ["pressed_glass"], effects: { capacity: 2.0, workersPerUnit: -0.5 } },
       { id: "float_glass", name: "Float glass", era: "III", year: 1962, cost: 2500000, seasons: 12, requires: ["plate_glass"], effects: { capacity: 2.0, workersPerUnit: -0.3 } },
+      { id: "automation", name: "Automated lines", era: "III", year: 1982, cost: 2500000, seasons: 8, requires: ["float_glass"], effects: { workersPerUnit: -0.3, efficiency: 0.1 } },
     ],
   },
   metalworks: {
@@ -137,6 +141,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
       { id: "heavy_machinery", name: "Heavy machinery", era: "II", year: 1905, cost: 250000, seasons: 8, requires: ["machine_shop"], effects: { capacity: 1.0, quality: 1 } },
       { id: "welded_hulls", name: "Welded hulls / LSTs", era: "II", year: 1940, cost: 600000, seasons: 6, requires: ["steel_barges"], effects: { capacity: 2.0 }, note: "War production." },
       { id: "towboats", name: "Diesel towboats", era: "III", year: 1946, cost: 1500000, seasons: 10, requires: ["welded_hulls"], effects: { capacity: 1.0, workersPerUnit: -0.3 } },
+      { id: "automation", name: "Industrial robots", era: "III", year: 1982, cost: 2500000, seasons: 8, requires: ["heavy_machinery"], effects: { workersPerUnit: -0.3, efficiency: 0.1 }, note: "Westinghouse's Unimation arms on the line." },
     ],
   },
 };

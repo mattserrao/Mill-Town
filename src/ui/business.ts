@@ -82,7 +82,7 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
       if (why === "Only during a strike") return "";
       const extra = a.id === "recruit"
         ? `<select data-arg="recruit">${recruitable.map((gr) => `<option value="${gr.id}"${gr.id === newestGroup(y) ? " selected" : ""}>${gr.name}</option>`).join("")}</select>`
-        : (a.id === "sell" || a.id === "sell_workers") && c.others.length ? `<select data-arg="${a.id}">${c.others.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("")}</select>`
+        : (a.id === "sell" || a.id === "sell_workers" || a.id === "sell_authority") && c.others.length ? `<select data-arg="${a.id}">${c.others.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("")}</select>`
         : a.id === "locks" ? `<select data-arg="locks"><option value="upper_mon">Monongahela</option><option value="allegheny">Allegheny</option><option value="ohio">Ohio</option></select>` : "";
       const cost = actionCost(g, a, arg);
       return `<div class="bz-act${strike && (a.id === "negotiate" || a.id === "pinkertons" || a.id === "strikebreakers") ? " bz-hot" : ""}">

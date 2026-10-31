@@ -16,7 +16,7 @@ import { growByDesire } from "./growth";
 import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOption } from "./freight";
 import { placeNamed } from "./places";
 import { hospitals, type PlacedLandmark } from "./landmarks";
-import { clearRuins } from "./mapfx";
+import { clearRuins, publicHousing } from "./mapfx";
 import { sportsSeason, type TeamState } from "./sports";
 import { type Business, businessSeason, type Decision, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
 import { applyEffects, cond, applyPendingRivalFx, type PoliticalEra, type Rule } from "./effects";
@@ -182,6 +182,10 @@ export interface GameState {
   morale: number;
   /** states of the world that events set and later effects read */
   flags: Record<string, number | string | boolean>;
+  /** lasting pressure on a meter's drift target, from events (Donora 1948) */
+  pressures: { meter: "reputation" | "labour" | "influence"; amount: number; until: number; source: string }[];
+  /** taverns and saloons shuttered by Prohibition: tile index and the shop they were */
+  dryShops: [number, number][];
   /** what actions cost, whether they're allowed, what they yield (set by events: laws, eras) */
   rules: Record<string, Rule>;
   politics: PoliticalEra;
@@ -263,7 +267,7 @@ export function newGame(map: GameMap, seed: number): GameState {
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
     history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [],
-    moreDecisions: [], morale: 50, flags: {}, rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
+    moreDecisions: [], morale: 50, flags: {}, pressures: [], dryShops: [], rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
@@ -289,6 +293,7 @@ export function fireEvents(g: GameState) {
   }
   g.mods = g.mods.filter((m) => m.until > g.turn);
   g.placeFx = g.placeFx.filter((p) => p.until > g.turn);
+  g.pressures = g.pressures.filter((p) => p.until > g.turn);
 }
 
 /** make sure this season's headlines are in the paper's archive (they are shared, so later stories join them) */
@@ -298,7 +303,11 @@ export function fileNews(g: GameState) {
   else g.news.push({ turn: g.turn, items: g.headlines });
 }
 
-export const mod = (g: GameState, k: Parameters<typeof modMult>[1], ctx?: ModContext) => modMult(g.mods, k, g.turn, ctx);
+export const mod = (g: GameState, k: Parameters<typeof modMult>[1], ctx?: ModContext) => {
+  const m = modMult(g.mods, k, g.turn, ctx);
+  // the Westinghouse–GE patent pool (1896) steadies electricity prices: swings are halved
+  return k === "price" && ctx?.industry === "power" && g.flags.patentTruce ? 1 + (m - 1) * 0.5 : m;
+};
 
 export function cal(g: GameState): Calendar {
   return calendar(g.turn);
@@ -585,6 +594,7 @@ export function advanceTurn(g: GameState): void {
   g.plants = [];
   g.lastStrikes = g.strikeAt; g.strikeAt = [];
   clearRuins(g);
+  publicHousing(g);
   sportsSeason(g, rng.fork("sports"));
   for (const r of g.rivals) if (r.active && !r.owned && (r.strikeUntil ?? 0) > g.turn) g.strikeAt.push([r.x, r.y]);
   spawnRivals(g, c0.year);

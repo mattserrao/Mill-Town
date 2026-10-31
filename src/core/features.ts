@@ -19,7 +19,11 @@ export const INCLINES: Incline[] = [
 export const PARKS: { name: string; lat: number; lon: number; radiusM: number; year: number }[] = [
   { name: "Allegheny Commons", lat: 40.4528, lon: -80.0072, radiusM: 330, year: 1867 },
   { name: "Schenley Park", lat: 40.4345, lon: -79.9455, radiusM: 850, year: 1889 },
+  { name: "Highland Park", lat: 40.4740, lon: -79.9150, radiusM: 600, year: 1893 },
+  { name: "Riverview Park", lat: 40.4710, lon: -80.0150, radiusM: 500, year: 1894 },
   { name: "Frick Park", lat: 40.4330, lon: -79.9060, radiusM: 650, year: 1927 },
+  { name: "South Park", lat: 40.3000, lon: -80.0000, radiusM: 900, year: 1927 },
+  { name: "Point State Park", lat: 40.4418, lon: -80.0105, radiusM: 220, year: 1974 },
 ];
 
 /** The Diamond (Market Square), site of the market house */

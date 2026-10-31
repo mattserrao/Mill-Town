@@ -112,7 +112,10 @@ export const EFFECTS: Record<string, Effect[]> = {
     { landmark: "westernu_downtown", state: "closed" },
     { landmark: "westernu_allegheny" },
     { note: "The courthouse is gutted by fire; Western University moves to Allegheny." },
+    { structure: "courthouse", state: "ruin" },
   ],
+  // Richardson's courthouse rises on the burnt site
+  "New Allegheny County Courthouse": [{ structure: "courthouse", state: "open" }, { meters: { morale: 1 } }],
   "St. Anthony's Chapel": [{ landmark: "st_anthony" }],
   "The Pittsburgh Proclamation": [{ mods: [["strike", 1.15, 8]] }],
   "February Flood": [{ flood: 0.6 }],

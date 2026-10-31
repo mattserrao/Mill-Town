@@ -11,6 +11,7 @@
 import { GROUPS } from "./ancestry";
 import { allWorks, cal, fileNews, type GameState, log, totalEmployees } from "./game";
 import { modMult } from "./events";
+import { HOOKS } from "./effects";
 import type { GatewayId } from "./freight";
 import type { Rng } from "./rng";
 
@@ -154,7 +155,9 @@ function targets(g: GameState): Meters {
     + (p.wages === "high" ? 5 : 0) + (p.union === "recognise" && year >= 1937 ? 5 : 0)
     + (p.hours === "twelve" && year >= 1908 ? -8 : 0)
     + (c.library ? 10 : 0) + (p.police ? -3 : 0) + (p.halfHoliday ? 2 : 0);
-  return { labour, reputation, influence: 0 };
+  // lasting public pressure from events (Donora: every smoky works is suspect for years)
+  const press = (k: keyof Meters) => g.pressures.filter((x) => x.meter === k && x.until > g.turn).reduce((s, x) => s + x.amount, 0);
+  return { labour: labour + press("labour"), reputation: reputation + press("reputation"), influence: 0 };
 }
 
 export interface SeasonReport { notes: string[]; extraCost: number; fines: number; deaths: number }
@@ -322,6 +325,17 @@ export const ACTIONS: ActionDef[] = [
     run: (g) => { g.company!.biz.layoffUntil = 0; g.jobless = Math.max(0, Math.round(g.jobless * 0.5)); bump(g, "labour", 8); g.morale = Math.min(100, g.morale + 3); return "The men come back through the gate."; },
   },
   {
+    id: "retrain", group: "Labour", name: "Retrain the jobless",
+    blurb: "Pay the Community College to retrain men out of work for new trades, so they stay in the valley. Jobless −60%, morale +4, labour +4, reputation +4.",
+    cost: (g) => Math.round(Math.max(5000, g.jobless * 40) * era(year(g))),
+    blocked: (g) => (g.jobless < 50 ? "Hardly anyone is out of work" : null),
+    run: (g) => {
+      const n = Math.round(g.jobless * 0.6);
+      g.jobless -= n; g.morale = Math.min(100, g.morale + 4);
+      return `${n.toLocaleString()} men start courses in welding, nursing, drafting and computers.`;
+    },
+  },
+  {
     id: "picnic", group: "Labour", name: "Company picnic and turkeys",
     blurb: "Kennywood picnic in summer, a turkey at Christmas. Labour +8, reputation +2.",
     cost: (g) => Math.round(2000 * era(year(g))), blocked: () => null,
@@ -333,6 +347,12 @@ export const ACTIONS: ActionDef[] = [
     blurb: "A wing for the hospital, a bell for the church. Reputation +8, labour +4.",
     cost: (g) => Math.round(5000 * era(year(g))), blocked: () => null,
     run: () => "Your name goes on a cornerstone.",
+  },
+  {
+    id: "endow", group: "Public", name: "Endow the university",
+    blurb: "A chair of engineering and a laboratory in your name: reputation +6, influence +4, and every new process is built a tenth faster (its graduates). Once.",
+    cost: (g) => Math.round(20000 * era(year(g))), blocked: (g) => (g.company!.biz.flags.endowed ? "You have endowed the university" : null),
+    run: (g) => { g.company!.biz.flags.endowed = true; return "The university names a laboratory after you; its engineers come to your works."; },
   },
   {
     id: "press", group: "Public", name: "Buy the newspapers' goodwill",
@@ -402,6 +422,12 @@ export const ACTIONS: ActionDef[] = [
     run: (g) => { g.morale = Math.min(100, g.morale + 5); g.company!.biz.flags.relief = true; return "Your relief committee feeds the mill towns."; },
   },
   {
+    id: "ura", group: "Politics", name: "Clear a block by your works (redevelopment)",
+    blurb: "Spend influence (20): the Redevelopment Authority clears the worst housing next to your works for parking and expansion. The families are moved. Reputation −4, morale −3.",
+    cost: (g) => Math.round(30000 * era(year(g))), blocked: (g) => (g.company!.biz.meters.influence < 20 ? "Needs 20 influence" : null),
+    run: (g) => { bump(g, "influence", -20); g.morale = Math.max(0, g.morale - 3); return HOOKS.ura?.(g) ?? "Nothing to clear."; },
+  },
+  {
     id: "tariff", group: "Politics", name: "Lobby for a higher tariff",
     blurb: "Spend influence (30): import duties lift your prices 6% for five years.",
     cost: (g) => Math.round(10000 * era(year(g))), blocked: (g) => (g.company!.biz.meters.influence < 30 ? "Needs 30 influence" : null),
@@ -410,7 +436,7 @@ export const ACTIONS: ActionDef[] = [
 ];
 
 /** the meter changes that are simple constants */
-const SIMPLE: Record<string, Partial<Meters>> = { picnic: { labour: 8, reputation: 2 }, donate: { reputation: 8, labour: 4 }, press: { reputation: 5 }, relief: { reputation: 6, labour: 4 } };
+const SIMPLE: Record<string, Partial<Meters>> = { picnic: { labour: 8, reputation: 2 }, donate: { reputation: 8, labour: 4 }, press: { reputation: 5 }, relief: { reputation: 6, labour: 4 }, retrain: { labour: 4, reputation: 4 }, endow: { reputation: 6, influence: 4 }, ura: { reputation: -4 } };
 
 /** why an action can't be taken now: the law and the era first (rules set by events), then its own conditions */
 export function actionBlocked(g: GameState, a: ActionDef, arg?: string): string | null {

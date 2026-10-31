@@ -68,7 +68,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { mods: [["input", 0.95, 8]], scope: { industry: "power" } },
   ],
   "Kinzua Dam Completed": [{ mods: [["floodRisk", 0.7, PERM]], scope: { gateway: "allegheny" } }],
-  "Community College Founded": [{ landmark: "ccac" }, { mods: [["labour", 1.04, PERM]] }, { meters: { morale: 2 } }],
+  "Community College Founded": [{ landmark: "ccac" }, { mods: [["labour", 1.02, PERM]] }, { rule: "retrain", set: { blocked: null } }, { meters: { morale: 2 } }],
   "Mesta Unionized": [{ rival: "mesta", damage: [0.95, 8] }],
   "The Hill Burns": [
     { blast: { place: "Hill District", radiusM: 120, ruinSeasons: 40 } },
@@ -78,7 +78,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { meters: { morale: -8 } },
   ],
   "LTV Buys Jones & Laughlin": [{ rival: "jl", damage: [0.9, 40] }], // Dallas takes the cash and spends little
-  "Bidwell Training Center": [{ landmark: "bidwell" }, { place: "North Side", unrest: -0.04, seasons: 20 }],
+  "Bidwell Training Center": [{ landmark: "bidwell" }, { rule: "retrain", set: { cost: 0.8 } }, { place: "North Side", unrest: -0.04, seasons: 20 }],
   "Black Monday Shutdowns": [{ place: "Hill District", unrest: 0.08, seasons: 2 }],
   "\"Nobody's Boy\" Elected": [
     { politics: "reform" },
@@ -89,7 +89,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   // ---- the 1970s
   "Three Rivers Stadium": [
     { landmark: "three_rivers" },
-    { landmark: "forbes_field", state: "closed" },
+    { landmark: "forbes_field", state: "ruin" },
     { team: "pirates", act: "move", ground: "Three Rivers Stadium" },
     { team: "steelers", act: "move", ground: "Three Rivers Stadium" },
   ],
@@ -158,7 +158,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { meters: { morale: -3 } },
   ],
   "Neville Island Yard Closes": [{ place: "Neville Island", unrest: 0.08, seasons: 4 }, { meters: { morale: -2 } }],
-  "Westinghouse Buys Robots": [{ rival: "westinghouse", expand: 0.1 }],
+  "Westinghouse Buys Robots": [{ rival: "westinghouse", expand: 0.1 }, { note: "Industrial robots: every industry can now commission automation (fewer men per ton)." }],
   "Mon Valley Unemployment Peaks": [
     { migrate: { group: 5, people: -1500, places: MILL_TOWNS } },
     { migrate: { group: 6, people: -1000, places: MILL_TOWNS } },
@@ -173,7 +173,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { migrate: { group: 5, people: -500, places: ["Duquesne"] } },
     { meters: { morale: -5 } },
   ],
-  "Workers Buy Weirton": [{ meters: { morale: 2 } }, { note: "Employee buy-outs are news: a works can be sold to the men who work it." }],
+  "Workers Buy Weirton": [{ meters: { morale: 2 } }, { rule: "sell_workers", set: { blocked: null } }],
   "Skunk Oil at Christmas": [{ place: "Mon Valley", unrest: 0.08, seasons: 2 }, { meters: { reputation: -8 }, if: "flag:laidOff" }],
   "Pastor Roth Jailed": [{ place: "Clairton", unrest: 0.1, seasons: 2 }],
   "Benzene in the Mon": [
@@ -192,7 +192,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { migrate: { group: 5, people: -500, places: ["Clairton"] } },
     { meters: { morale: -3 } },
   ],
-  "Steel Valley Authority": [{ place: "Mon Valley", unrest: -0.03, seasons: 4 }, { meters: { morale: 2 } }],
+  "Steel Valley Authority": [{ place: "Mon Valley", unrest: -0.03, seasons: 4 }, { meters: { morale: 2 } }, { rule: "sell_authority", set: { blocked: null } }],
   "Election Day Flood": [{ flood: 0.6 }, { meters: { morale: -3 } }],
 };
 
@@ -218,9 +218,8 @@ function layOff(g: GameState): string {
 function startBof(g: GameState): string {
   const c = g.company!, w = allWorks(c).find((x) => x.industry === "steel" && !x.techs.includes("bof") && !x.research);
   if (!w) return "Your engineers are busy with other work; the oxygen plant waits.";
-  c.biz.actionsLeft++;
-  const r = commission(g, w, "bof");
-  if (!r.ok) { c.biz.actionsLeft--; return `The oxygen plant can't be started: ${r.text}.`; }
+  const r = commission(g, w, "bof", true);
+  if (!r.ok) return `The oxygen plant can't be started: ${r.text}.`;
   return r.text;
 }
 

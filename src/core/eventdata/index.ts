@@ -54,6 +54,11 @@ export function initialRules(): Record<string, Rule> {
     lab: { blocked: "Industrial research laboratories begin in 1906 (Westinghouse)" },
     contract_research: { blocked: "The Mellon Institute opens in 1913" },
     relief: { blocked: "Relief committees form in hard times (from the Crash of 1929)" },
+    endow: { blocked: "The university looks for patrons once Mellon joins its board (1894)" },
+    ura: { blocked: "The Urban Redevelopment Authority is formed in 1946" },
+    retrain: { blocked: "Retraining begins with the Community College (1966)" },
+    sell_workers: { blocked: "Employee buy-outs begin with Weirton (1983)" },
+    sell_authority: { blocked: "The Steel Valley Authority forms in 1985" },
     bribe: { risk: 0.2, yield: 1 },
     lobby: { yield: 1 },
   };

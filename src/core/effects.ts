@@ -64,6 +64,9 @@ export type Effect =
   | { blast: { place: string; radiusM: number; ruinSeasons: number } }
   | { clearance: { place: string; radiusM: number; to: string[] } }
   | { team: string; act: "found" | "move" | "title" | "rename"; ground?: string; name?: string }
+  | { pressure: { meter: keyof Meters; amount: number; seasons: number }; if?: Cond }
+  | { structure: "courthouse" | "arsenal"; state: "ruin" | "open" }
+  | { taverns: "close" | "open" }
   | { note: string };
 
 // ---------------------------------------------------------------- conditions
@@ -114,6 +117,10 @@ export interface EffectHooks {
   clearance?: (g: GameState, place: string, radiusM: number, to: string[]) => number;
   epidemic?: (g: GameState, share: number, place?: string) => void;
   team?: (g: GameState, team: string, act: "found" | "move" | "title" | "rename", ground?: string, name?: string) => void;
+  structure?: (g: GameState, kind: "courthouse" | "arsenal", state: "ruin" | "open") => void;
+  taverns?: (g: GameState, act: "close" | "open") => void;
+  /** the Redevelopment Authority clears housing next to the player's works; returns what happened */
+  ura?: (g: GameState) => string;
 }
 export const HOOKS: EffectHooks = {};
 
@@ -137,6 +144,7 @@ export function applyEffects(g: GameState, name: string, effects: Effect[]) {
     } else if ("clear" in ef) {
       g.mods = g.mods.filter((m) => m.source !== ef.clear);
       g.placeFx = g.placeFx.filter((p) => p.source !== ef.clear);
+      g.pressures = g.pressures.filter((p) => p.source !== ef.clear);
     } else if ("place" in ef) g.placeFx.push({ place: ef.place, unrest: ef.unrest ?? 0, health: ef.health ?? 0, until: g.turn + ef.seasons, source: name });
     else if ("flag" in ef) {
       if (!cond(g, ef.if)) continue;
@@ -156,7 +164,12 @@ export function applyEffects(g: GameState, name: string, effects: Effect[]) {
       if (!c || !cond(g, ef.if)) continue;
       c.cash += ef.cash;
       if (ef.why) log(g, `${ef.why} (${ef.cash < 0 ? "−" : "+"}$${Math.abs(ef.cash).toLocaleString()})`);
-    } else if ("migrate" in ef) {
+    } else if ("pressure" in ef) {
+      if (!cond(g, ef.if)) continue;
+      g.pressures.push({ meter: ef.pressure.meter, amount: ef.pressure.amount, until: g.turn + ef.pressure.seasons, source: name });
+    } else if ("structure" in ef) HOOKS.structure?.(g, ef.structure, ef.state);
+    else if ("taverns" in ef) HOOKS.taverns?.(g, ef.taverns);
+    else if ("migrate" in ef) {
       const n = HOOKS.migrate?.(g, ef.migrate.group, ef.migrate.people, ef.migrate.places) ?? 0;
       if (n) log(g, `${n.toLocaleString()} ${GROUPS[ef.migrate.group]?.name ?? ""} ${ef.migrate.people < 0 ? "leave" : "arrive"}.`);
     } else if ("landmark" in ef) HOOKS.landmark?.(g, ef.landmark, ef.state);

@@ -44,6 +44,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   "Prohibition": [
     { meters: { morale: -4, labour: -2 } },
     { note: "The saloons close. Behind the back-room doors, the speakeasies open." },
+    { taverns: "close" },
   ],
 
   // ---------------------------------------------------------------- the 1920s
@@ -129,7 +130,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     // the old Republican ring's men are out of City Hall: a bribe buys less and is likelier to come out
     { rule: "bribe", set: { yield: 0.4, risk: 0.3 } },
   ],
-  "Repeal": [{ meters: { morale: 4, labour: 2 } }, { note: "Prohibition ends. The saloons and the clubs reopen legally." }],
+  "Repeal": [{ meters: { morale: 4, labour: 2 } }, { taverns: "open" }],
   "Mesta Builds the Irvin Works": [{ rival: "mesta", expand: 0.2 }, { landmark: "irvin_works" }],
   "Steel Strike Called Off": [{ mods: [["strike", 0.7, 2]], scope: STEEL }],
   "Democrats Take Harrisburg": [
@@ -233,6 +234,8 @@ export const EFFECTS: Record<string, Effect[]> = {
     { meters: { reputation: -8 }, if: "policy:waste=dump" },
     { meters: { reputation: -3 }, if: "policy:waste=standard" },
     { meters: { morale: -3 } },
+    // four years in which every smoky works is suspect
+    { pressure: { meter: "reputation", amount: -10, seasons: 16 }, if: "!policy:waste=abate" },
   ],
   "CIO Expels the UE": [{ mods: [["strike", 0.7, 4]], scope: { industry: "power" } }],
   "Steel Pension Strike": [{ mods: [["strike", 6, 1], ["wage", 1.05, 400]], scope: STEEL }, ...steelRivalsStrike(1)],
@@ -246,6 +249,10 @@ export const EFFECTS: Record<string, Effect[]> = {
     { landmark: "gateway_center" },
     { meters: { morale: 2 } },
   ],
+  // public housing, redevelopment and a lost ballpark (engine systems added in v0.11.2)
+  "Housing Authority Founded": [{ flag: "housingAuthority" }],
+  "Urban Redevelopment Authority": [{ flag: "ura" }, { rule: "ura", set: { blocked: null } }],
+  "Greenlee Field Torn Down": [{ landmark: "greenlee_field", state: "ruin" }, { meters: { morale: -2 } }],
 };
 
 export const DECISIONS: Record<string, DecisionFn> = {

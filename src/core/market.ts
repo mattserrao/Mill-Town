@@ -91,19 +91,19 @@ export function techBlocked(g: GameState, w: Works, t: Tech): string | null {
 }
 
 /** start building a process at a works (the cash is spent at once) */
-export function commission(g: GameState, w: Works, techId: string): { ok: boolean; text: string } {
+export function commission(g: GameState, w: Works, techId: string, free = false): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "No company" };
   const t = INDUSTRIES[w.industry].tech.find((x) => x.id === techId);
   if (!t) return { ok: false, text: "Unknown process" };
   const why = techBlocked(g, w, t);
   if (why) return { ok: false, text: why };
-  if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
+  if (!free && c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
   const cost = techCost(t, cal(g).year);
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
-  c.biz.actionsLeft--;
-  w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons * (c.biz.flags.lab ? 0.75 : 1))) };
+  if (!free) c.biz.actionsLeft--;
+  w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons * (c.biz.flags.lab ? 0.75 : 1) * (c.biz.flags.endowed ? 0.9 : 1))) };
   c.biz.record.push(`${cal(g).season} ${cal(g).year}: Commissioned ${t.name} at ${w.name}`);
   log(g, `${w.name} commissions ${t.name} ($${cost.toLocaleString()}, ${t.seasons} seasons).`);
   return { ok: true, text: `Work begins on ${t.name}: ready in ${t.seasons} seasons.` };

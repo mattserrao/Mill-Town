@@ -11,8 +11,11 @@ All of sections 2–5 below are built: the effects engine, rules and politics, d
 closures, landmarks and sprites, places and stand-ins, morale, sports, strike contagion, layoffs and selling a works.
 Data is in `src/core/eventdata/era1–4.ts`: 289 events with effects, 44 with decision cards (294 in all), 66 landmarks.
 Date fixes: Turnpike to Ohio → Winter 1951; East Busway → Winter 1982; Weirton → Winter 1983.
-Still open: public housing / URA clearance, park and tunnel landmarks, automation tech, retraining, timed
-reputation pressure, courthouse fire, American Bridge and Clairton as rivals, the patent-truce flag.
+v0.11.2 finished the rest: public housing projects (M8), the URA clearance action, parks (M5), automation and the
+69 kV ring, retraining, endowing the university, the Symphony and Gulf loan rates, timed reputation pressure
+(Donora), the courthouse fire, Prohibition taverns, American Bridge and Clairton as rivals, the patent truce,
+selling to the workers or the Steel Valley Authority, and a "Greenlee Field Torn Down" row (1938).
+Left out by design (§6): X1 per-line transit, X2 highways and the Liberty Tubes as links, X6 outbound freight, X7 taxes.
 
 ## 1. Where things stand
 

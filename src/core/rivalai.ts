@@ -237,12 +237,14 @@ const RIVAL_ACTIONS: ActionDef[] = [
   },
   {
     id: "loan", group: "Rivals", name: "Borrow from the Mellon bank",
-    blurb: "Credit for expansion: cash now, repaid with 25% interest out of profits.",
+    blurb: "Credit for expansion: cash now, repaid with 25% interest out of profits (less once Gulf Oil fills the Mellon vaults, and for Symphony patrons).",
     cost: () => 0,
     blocked: (g) => (!g.rivals.some((r) => r.id === "mellon" && r.active) ? "The Mellons aren't in business yet (1869)" : g.company!.debt > 0 ? "Repay the last loan first" : g.company!.biz.meters.reputation < -40 ? "No bank will lend to you" : null),
     run: (g) => {
       const c = g.company!, loan = Math.round(150000 * era(year(g)));
-      c.cash += loan; c.debt += Math.round(loan * 1.25);
+      // Gulf Oil money makes the Mellons cheaper lenders; a seat on the Symphony board helps too
+      const rate = 0.25 * (g.flags.gulf ? 0.8 : 1) * (g.flags.symphony ? 0.85 : 1);
+      c.cash += loan; c.debt += Math.round(loan * (1 + rate));
       return `T. Mellon & Sons advances $${loan.toLocaleString()}.`;
     },
   },
@@ -259,10 +261,10 @@ export function saleQuote(g: GameState, w: Works): number {
 }
 
 /** sell one of your works: back to its old owners if you bought it, otherwise to whoever will run it */
-export function sellWorks(g: GameState, w: Works, buyer: "market" | "workers"): string {
+export function sellWorks(g: GameState, w: Works, buyer: "market" | "workers" | "authority", mult = 1): string {
   const c = g.company!, y = year(g);
   if (w === c) return "You can't sell the company's first works.";
-  const price = Math.round(saleQuote(g, w) * (buyer === "workers" ? 0.5 : 1));
+  const price = Math.round(saleQuote(g, w) * (buyer === "workers" ? 0.5 : buyer === "authority" ? 0.7 : 1) * mult);
   c.cash += price;
   c.others = c.others.filter((x) => x !== w);
   const m = g.map;
@@ -271,8 +273,10 @@ export function sellWorks(g: GameState, w: Works, buyer: "market" | "workers"): 
   for (let dy = 0; dy < w.footprint; dy++) for (let dx = 0; dx < w.footprint; dx++) g.world.owner[(w.y + dy) * m.width + w.x + dx] = r ? r.ownerId : 0;
   g.world.version++;
   if (buyer === "workers") { g.morale = Math.min(100, g.morale + 6); c.biz.meters.reputation = Math.min(100, c.biz.meters.reputation + 8); }
-  c.biz.record.push(`${cal(g).season} ${y}: Sold ${w.name}${buyer === "workers" ? " to its workers" : ""}`);
-  return `${w.name} is sold${buyer === "workers" ? " to the men who work it" : ""} for $${price.toLocaleString()}.`;
+  if (buyer === "authority") { g.morale = Math.min(100, g.morale + 4); c.biz.meters.reputation = Math.min(100, c.biz.meters.reputation + 5); }
+  const to = buyer === "workers" ? " to its workers" : buyer === "authority" ? " to the Steel Valley Authority" : "";
+  c.biz.record.push(`${cal(g).season} ${y}: Sold ${w.name}${to}`);
+  return `${w.name} is sold${buyer === "workers" ? " to the men who work it" : buyer === "authority" ? " to the Steel Valley Authority, which will keep it running" : ""} for $${price.toLocaleString()}.`;
 }
 
 const SELL_ACTIONS: ActionDef[] = [
@@ -287,8 +291,15 @@ const SELL_ACTIONS: ActionDef[] = [
     id: "sell_workers", group: "Rivals", name: "Sell a works to its workers",
     blurb: "An employee buy-out (like Weirton, 1984): half the price, but the town and the men won't forget it. Morale +6, reputation +8.",
     cost: () => 0,
-    blocked: (g) => (year(g) < 1975 ? "Employee buy-outs come with the collapse (1980s)" : g.company!.others.length ? null : "You have only the one works"),
+    blocked: (g) => (g.company!.others.length ? null : "You have only the one works"),
     run: (g, _rng, arg) => { const w = g.company!.others.find((x) => x.id === arg) ?? g.company!.others[0]; return sellWorks(g, w, "workers"); },
+  },
+  {
+    id: "sell_authority", group: "Rivals", name: "Sell a works to the Steel Valley Authority",
+    blurb: "The mill towns' authority takes a closing works to keep it running: 70% of the price. Morale +4, reputation +5.",
+    cost: () => 0,
+    blocked: (g) => (g.company!.others.length ? null : "You have only the one works"),
+    run: (g, _rng, arg) => { const w = g.company!.others.find((x) => x.id === arg) ?? g.company!.others[0]; return sellWorks(g, w, "authority"); },
   },
 ];
 
