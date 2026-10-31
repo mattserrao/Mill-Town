@@ -63,6 +63,22 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Zoomed out (< 0.375×) only trains, river craft and smoke animate; version shown in the top bar, console and terminal
    - Smooth lines: creeks and rail lines drawn from the source vectors; tile staircases chamfered on streets and
      shorelines; bluffs blend into the woods
+   - Economic connections (`src/core/economy.ts`, `src/render/flows.ts`):
+     - **Supply chain** overlay: raw materials in (orange), utilities in or out (water blue, gas lime, electricity
+       yellow), finished goods out (pink). Routes follow the rivers and the rail lines open that year to real
+       gateways at the map edge (down the Ohio, up the Allegheny/Mon/Yough, PRR east, Fort Wayne line west,
+       Connellsville by the P&C, Murrysville gas). Line width = share; moving dots show direction; off-screen partners
+       are labelled at the edge they lie towards. Before founding it previews the selected site.
+     - Sources and markets change by era and tech (Juniata ore → Lake Superior ore; drift-mine coal → Connellsville
+       coke from Frick; natural gas 1884+; electricity from Westinghouse/Duquesne Light; Heinz bottles; LSTs in WWII);
+       rival works appear as suppliers and customers. A power company's customers are towns and plants in reach.
+     - **Supply chain** panel (right): every link with quantity, share bar, partner, carrier and value; hover
+       highlights it on the map, click flies there.
+     - **Competitors** overlay and panel: every rival works (open or still to come), coloured competitor / supplier /
+       customer / other, with product, estimated output, distance and people; your share of capacity on the map.
+   - Overlay review: grouped Land / Town / Business with a palette chip each; every overlay has its own palette
+     (hypsometric elevation, viridis population, navy→gold land value, soot pollution, stepped walk-time bands,
+     red→green site scores) shown in steps with a legend bar; the ground under an overlay is washed to grey
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
@@ -77,7 +93,8 @@ routing, environment, growth and neighbourhood style.
 
 ## Known gaps in the current build
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
-- Economy numbers are first-pass placeholders
+- Economy numbers are first-pass placeholders; supply-chain routes are a display model (no capacities or
+  congestion yet: that's milestone 2) and rival outputs are estimates from the techs of their year
 - Event effects are first-pass; dates for some events are approximate
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
