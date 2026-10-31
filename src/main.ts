@@ -1,3 +1,4 @@
+import { distance, feet } from "./core/units";
 import { advanceTurn, buildIncline, buildSpur, buildSteps, cal, spurQuote, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
@@ -14,6 +15,9 @@ import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
 import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
+import { marketsView } from "./ui/markets";
+import { districtPanel, zoneAt } from "./ui/district";
+import { drawDistricts } from "./render/districts";
 import { buildProject, checkProject, PROJECTS, type ProjectKind, type Proposal, suggestProject } from "./core/projects";
 import { allWorks } from "./core/game";
 import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
@@ -80,6 +84,7 @@ async function start() {
 function newTown(seed: number) {
   stopPlay();
   game = newGame(map, seed);
+  paperIdx = -1; paperSeen = 0;
   ($<HTMLInputElement>("seed")).value = String(seed);
   seedEdited = false;
   siteTried = [];
@@ -182,6 +187,8 @@ function requestRender() {
     if (overlay === "supply") {
       const sc = currentChain();
       if (sc) drawSupply(ctx, cam, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, reservedRects());
+    } else if (overlay === "districts") {
+      drawDistricts(ctx, cam, game, selected ? zoneAt(game, selected.x, selected.y) : -1);
     } else if (overlay === "rivals") {
       const mine = playerWorks(game);
       drawRivals(ctx, cam, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, reservedRects());
@@ -265,15 +272,32 @@ function row(k: string, v: string, cls = "") {
 }
 
 const PAPERS = ["Pittsburgh Gazette", "Pittsburgh Dispatch", "Pittsburgh Press", "Pittsburgh Post-Gazette"];
+/** which issue of the paper is shown (the archive is game.news, newest last) */
+let paperIdx = -1, paperSeen = 0;
+/** Show the newest issue in the newspaper at the bottom left when a new one comes out. */
 function showNews() {
+  if (game.news.length !== paperSeen) {
+    paperSeen = game.news.length;
+    paperIdx = game.news.length - 1;
+    newsAt = performance.now();
+  }
+  renderPaper();
+}
+
+function renderPaper() {
   const el = $("news");
-  if (!game.headlines.length) { el.hidden = true; return; }
-  const c = cal(game);
+  const issue = game.news[paperIdx];
+  const fresh = !!issue && issue.turn === game.turn;
+  el.classList.toggle("fresh", fresh);
+  const n = game.news.length;
+  $("paperNav").innerHTML = n ? `<button data-p="-1" ${paperIdx <= 0 ? "disabled" : ""} title="Older issue">◀</button><span>${paperIdx + 1}/${n}</span><button data-p="1" ${paperIdx >= n - 1 ? "disabled" : ""} title="Newer issue">▶</button>` : "";
+  if (!issue) { el.innerHTML = `<p class="none">No news yet.</p>`; return; }
+  const c = cal({ ...game, turn: issue.turn });
   const paper = PAPERS[c.year < 1880 ? 0 : c.year < 1920 ? 1 : c.year < 1927 ? 2 : 3];
   el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
-    game.headlines.map((e) => `<div class="kicker">${e.category}</div><h3>${e.name}</h3><p>${e.description}</p>`).join("");
-  el.hidden = false;
-  newsAt = performance.now();
+    (fresh ? "" : `<p class="none">${paperIdx === n - 1 ? "No news this season. The last issue:" : "From the archive:"}</p>`) +
+    issue.items.map((e) => `<div class="kicker">${e.category}</div><h3>${e.name}</h3><p>${e.description}</p>`).join("");
+  el.scrollTop = 0;
 }
 
 function refreshPanels() {
@@ -293,6 +317,7 @@ function refreshPanels() {
   supplyPanel();
   rivalsPanel();
   $("legend").innerHTML = overlayLegend(overlay, game);
+  showNews();
   $("log").innerHTML = game.log.slice(-40).reverse().map((l) => {
     const lc = cal({ ...game, turn: l.turn });
     return `<li>${lc.season.slice(0, 3)} ${lc.year} — <b>${l.text}</b></li>`;
@@ -302,6 +327,7 @@ function refreshPanels() {
 function inspect() {
   const el = $("inspector");
   const site = $("siteSection");
+  $("districtSection").hidden = !selected || !districtPanel(game, $("district"), zoneAt(game, selected.x, selected.y));
   if (!selected) { el.innerHTML = `<p class="hint">Click a tile.</p>`; site.hidden = true; return; }
   const { x, y } = selected;
   const i = y * map.width + x;
@@ -318,7 +344,7 @@ function inspect() {
   el.innerHTML = [
     row("Tile", `${x}, ${y}`),
     row("Lat / Lon", `${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`),
-    row("Elevation", `${map.elevation[i].toFixed(0)} m (${fmt(map.elevation[i] * 3.281)} ft)`),
+    row("Elevation", feet(map.elevation[i])),
     row("Terrain", TERRAIN_NAMES[map.terrain[i]]),
     row("Slope", `${map.slope[i]}°`),
     water ? row("Water", water) : "",
@@ -336,20 +362,20 @@ function inspect() {
     row("Land value", money(w.landValue[i])),
     row("Pollution", w.pollution[i].toFixed(3)),
     row("Owner", owner),
-    row("Nearest place", `${near.name} (${(nd * map.metersPerTile / 1000).toFixed(1)} km)`),
+    row("Nearest place", `${near.name} (${distance(nd * map.metersPerTile)})`),
   ].join("");
 
   site.hidden = false;
   const rep = evaluateSite(map, game.world, game.fields, industry, x, y);
   $("site").innerHTML = [
     row("Industry", INDUSTRIES[industry].name),
-    row("Footprint", `${rep.footprint}×${rep.footprint} tiles (${rep.footprint * map.metersPerTile} m)`),
+    row("Footprint", `${rep.footprint}×${rep.footprint} tiles (${feet(rep.footprint * map.metersPerTile)} square)`),
     row("Score", `${rep.score} / 100`, rep.ok ? "good" : "bad"),
     row("Cost", money(rep.cost), rep.cost > 100000 ? "bad" : ""),
     row("Labor nearby", fmt(rep.labor)),
-    row("River", rep.riverM > 60000 ? "—" : `${fmt(rep.riverM)} m`),
-    row("Coal outcrop", rep.coalM > 60000 ? "—" : `${fmt(rep.coalM)} m`),
-    row("Relief", `${rep.reliefM.toFixed(1)} m`),
+    row("River", rep.riverM > 60000 ? "—" : distance(rep.riverM)),
+    row("Coal outcrop", rep.coalM > 60000 ? "—" : distance(rep.coalM)),
+    row("Relief", feet(rep.reliefM)),
     `<div class="full hint">${rep.reasons.join(" · ")}</div>`,
   ].join("");
   ($<HTMLButtonElement>("found")).disabled = !!game.company || !rep.ok || rep.cost > 100000;
@@ -399,7 +425,7 @@ function companyPanel() {
   const q = spurQuote(game), sp = $<HTMLButtonElement>("spur");
   sp.hidden = !q && !c.spur;
   sp.disabled = !q || c.cash < (q?.cost ?? Infinity);
-  sp.textContent = c.spur ? "Rail siding built" : q ? `Build a rail siding ($${fmt(q.cost)}, ${fmt(q.len * map.metersPerTile)} m)` : "";
+  sp.textContent = c.spur ? "Rail siding built" : q ? `Build a rail siding ($${fmt(q.cost)}, ${distance(q.len * map.metersPerTile)})` : "";
   const inc = $<HTMLButtonElement>("incline");
   inc.disabled = c.cash < INCLINE_COST || cal(game).year < 1870;
   inc.title = cal(game).year < 1870 ? "Inclines arrive in 1870" : "Build an incline from a street near the works up to the hilltop houses";
@@ -435,7 +461,7 @@ function rivalsPanel() {
   $("rivalsList").innerHTML = share + list.map((c) => `
     <div class="sc-row ${c.state ? "" : "later"}" data-rival="${c.def.id}" title="Hover to highlight on the Competitors overlay, click to go there">
       <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${c.def.company.replace(/ \(.*\)$/, "")}</b><span>${label[c.relation]}</span></div>
-      <div class="sc-sub">${c.owned ? `<span class="owned">Yours now</span> · ${c.product}` : c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${c.km.toFixed(1)} km` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
+      <div class="sc-sub">${c.owned ? `<span class="owned">Yours now</span> · ${c.product}` : c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
       <div class="sc-sub">${c.def.figures.join(" & ")} — ${c.def.note}</div>
       ${c.state?.lastMove ? `<div class="sc-sub"><i>Last move ${c.state.lastMove}</i></div>` : ""}
       ${c.state?.damage.length ? `<div class="sc-sub bad">Hurt: ${c.state.damage.map((d) => `${d.why} (−${Math.round((1 - d.mult) * 100)}%)`).join(", ")}</div>` : ""}
@@ -537,7 +563,28 @@ function setupUI() {
     afterChange();
   });
   $("next").addEventListener("click", nextSeason);
-  $("news").addEventListener("click", () => { $("news").hidden = true; });
+  $("paperNav").addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-p]");
+    if (!b) return;
+    e.stopPropagation();
+    paperIdx = Math.max(0, Math.min(game.news.length - 1, paperIdx + Number(b.dataset.p)));
+    renderPaper();
+  });
+  // every section heading folds its section away (remembered between visits)
+  document.querySelectorAll<HTMLElement>("section > h2").forEach((h) => {
+    const sec = h.parentElement!, key = `mt.fold.${sec.id}`;
+    try { if (sec.id && localStorage.getItem(key) === "1") sec.classList.add("collapsed"); } catch { /* private mode */ }
+    h.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      sec.classList.toggle("collapsed");
+      try { if (sec.id) localStorage.setItem(key, sec.classList.contains("collapsed") ? "1" : "0"); } catch { /* private mode */ }
+    });
+  });
+  $("speeds").addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-speed]");
+    if (b) setSpeed(Number(b.dataset.speed));
+  });
+  $("marketsBtn").addEventListener("click", () => toggleMarkets());
   $("regen").addEventListener("click", () => {
     // a typed seed replays that town; otherwise every press is a fresh one
     const v = ($<HTMLInputElement>("seed")).value.trim();
@@ -547,7 +594,6 @@ function setupUI() {
   });
   $("seed").addEventListener("input", () => { seedEdited = true; });
   $("nextYear").addEventListener("click", nextYear);
-  $("play").addEventListener("click", () => (playTimer ? stopPlay() : startPlay()));
   $("bestSite").addEventListener("click", showBestSite);
 
   // mouse: drag to pan, click to select
@@ -621,7 +667,8 @@ function setupUI() {
     else if (k === "-" || k === "_") return setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() - 1);
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
-    else if (k === "escape") { if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; } }
+    else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
+    else if (k === "escape") { if (!$("markets").hidden) toggleMarkets(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; } }
     else if (k === "q") { setQuerying(!querying); return; }
     else return;
     clampCam();
@@ -685,7 +732,7 @@ function updateSound() {
 function industryNote() {
   const ind = INDUSTRIES[industry];
   const fp = footprintTiles(map, industry);
-  $("industryNote").textContent = `Starts as: ${ind.startsAs}. From $${fmt(ind.startCost)} plus land and grading. Needs ${fp}×${fp} tiles (${fp * map.metersPerTile} m) of ground with under ${ind.site.maxReliefM} m of relief${ind.site.riverWithinM ? `, within ${ind.site.riverWithinM} m of a river` : ""}.`;
+  $("industryNote").textContent = `Starts as: ${ind.startsAs}. From $${fmt(ind.startCost)} plus land and grading. Needs ${fp}×${fp} tiles (${feet(fp * map.metersPerTile)} square) of ground with under ${feet(ind.site.maxReliefM)} of relief${ind.site.riverWithinM ? `, within ${feet(ind.site.riverWithinM)} of a river` : ""}.`;
 }
 
 // ---------------------------------------------------------------- building projects
@@ -743,31 +790,48 @@ function nextYear() {
 
 function afterTurn() {
   afterChange();
+  if (!$("markets").hidden) marketsView(game, $("markets"));
   if (querying && selected && !$("query").hidden) { const el = $("query"); el.innerHTML = queryCard({ game, map, renderer }, selected.x, selected.y); }
   showNews();
   if (game.over) { stopPlay(); showFinal(); }
 }
 
-function startPlay() {
-  if (game.over || playTimer) return;
-  // hold a little longer on seasons with a headline so it can be read
-  playTimer = window.setInterval(() => {
-    if (renderer.pending > 40) return;
-    if (!$("news").hidden && performance.now() - newsAt < 4000) return;
-    nextSeason();
-  }, 1500);
-  $("play").classList.add("on"); $("play").textContent = "⏸ Pause";
-}
+/** ms per season at each speed: 1× takes a game (540 seasons) about two hours */
+const SPEED_MS = [0, 13300, 6650, 3300, 900];
+let speed = 0, lastSpeed = 1;
 
-function stopPlay() {
+function setSpeed(k: number) {
   if (playTimer) clearInterval(playTimer);
   playTimer = 0;
-  $("play").classList.remove("on"); $("play").textContent = "⏵ Play";
+  speed = game?.over ? 0 : k;
+  if (speed > 0) {
+    lastSpeed = speed;
+    let due = performance.now() + SPEED_MS[speed];
+    playTimer = window.setInterval(() => {
+      const now = performance.now();
+      if (now < due || renderer.pending > 40) return;
+      // at the fastest speed, hold a moment on seasons with news so the headline can be read
+      if (speed === 4 && game.news[game.news.length - 1]?.turn === game.turn && now - newsAt < 2500) return;
+      due = now + SPEED_MS[speed];
+      nextSeason();
+    }, 100);
+  }
+  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => b.classList.toggle("on", Number(b.dataset.speed) === speed));
 }
+
+function toggleMarkets(force?: boolean) {
+  const el = $("markets");
+  if (force === false || (force === undefined && !el.hidden)) { el.hidden = true; return; }
+  marketsView(game, el);
+}
+
+function startPlay() { if (!game.over) setSpeed(lastSpeed); }
+function stopPlay() { setSpeed(0); }
 
 function updateTimeControls() {
   const over = !!game.over;
-  for (const id of ["next", "nextYear", "play"]) ($<HTMLButtonElement>(id)).disabled = over;
+  for (const id of ["next", "nextYear"]) ($<HTMLButtonElement>(id)).disabled = over;
+  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => { b.disabled = over && b.dataset.speed !== "0"; });
   $("next").textContent = over ? "The end — 1985" : "Next season ▶";
 }
 

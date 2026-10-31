@@ -9,6 +9,7 @@ import { type GameMap, idx, inBounds, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { anchorAt, G, GROUPS, pickGroup, SETTLED_1850 } from "./ancestry";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
+import { districts } from "./districts";
 
 export const enum Use {
   Empty = 0,
@@ -629,40 +630,68 @@ const GROUP_SHOPS: Record<number, ShopSub[]> = {
 };
 const CHURCHES = new Set<number>([CivicSub.Church, CivicSub.OnionChurch, CivicSub.TwinChurch, CivicSub.Synagogue, CivicSub.BlackChurch]);
 
-export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
-  const C = 16, cw = Math.ceil(m.width / C), chh = Math.ceil(m.height / C), NGr = GROUPS.length;
-  const pop = new Float64Array(cw * chh * NGr), tot = new Float64Array(cw * chh);
-  // what each community already has in each cell (and the cells next to it): church, hall, school, shops, boarding
-  const has = new Uint8Array(cw * chh * NGr * 4); // [church, hall, school, boarding]
-  const shops = new Map<number, Set<number>>();   // cell*NG+group -> shop subs
-  const civic: number[] = [];
-  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
-    const i = y * m.width + x, cx = (x / C) | 0, cy = (y / C) | 0, c = cy * cw + cx;
-    if (w.pop[i]) { pop[c * NGr + w.eth[i]] += w.pop[i]; tot[c] += w.pop[i]; }
-    const g = w.eth[i];
-    if (w.use[i] === Use.Civic) {
-      civic.push(i);
+/**
+ * How many of each building a community of `p` people in one neighbourhood earns (shops of each kind, churches,
+ * parish schools, social halls); boarding houses come first while it has no church.
+ */
+export function communityTargets(p: number, gid: number, year: number, churches: number) {
+  return {
+    shops: p >= 300 ? Math.min(3, 1 + Math.floor(p / 2500)) : 0,
+    church: p >= 700 ? Math.min(4, 1 + Math.floor((p - 700) / 4000)) : 0,
+    school: churches && p >= 1200 && year >= 1865 && PARISH_SCHOOL.has(gid) ? Math.min(3, 1 + Math.floor((p - 1200) / 5000)) : 0,
+    hall: churches && p >= 450 && year >= 1870 ? Math.min(3, 1 + Math.floor(p / 6000)) : 0,
+  };
+}
+export const COMMUNITY_STEPS: { what: string; at: number; needsChurch?: boolean; from?: number }[] = [
+  { what: "shops of its own", at: 300 }, { what: "a social hall", at: 450, needsChurch: true, from: 1870 },
+  { what: "a church", at: 700 }, { what: "a parish school", at: 1200, needsChurch: true, from: 1865 },
+];
+
+export interface ZoneCensus { pop: Float64Array; tot: number; church: Int16Array; hall: Int16Array; school: Int16Array; boarding: Int16Array; shops: Map<number, Map<number, number>> }
+
+/** who lives in each zone and what each community has built there */
+export function zoneCensus(m: GameMap, w: World): ZoneCensus[] {
+  const d = districts(m), NGr = GROUPS.length;
+  const out: ZoneCensus[] = [];
+  for (let z = 0; z < d.zones; z++) {
+    const s = d.zoneStart[z], e = d.zoneStart[z + 1];
+    if (s === e) { out.push(null as unknown as ZoneCensus); continue; }
+    const c: ZoneCensus = { pop: new Float64Array(NGr), tot: 0, church: new Int16Array(NGr), hall: new Int16Array(NGr), school: new Int16Array(NGr), boarding: new Int16Array(NGr), shops: new Map() };
+    for (let k = s; k < e; k++) {
+      const i = d.zoneTiles[k], g = w.eth[i];
+      if (w.pop[i]) { c.pop[g] += w.pop[i]; c.tot += w.pop[i]; }
       if (!g) continue;
-      const kind = CHURCHES.has(w.sub[i]) ? 0 : w.sub[i] === CivicSub.Hall ? 1 : w.sub[i] === CivicSub.School ? 2 : -1;
-      if (kind >= 0) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const xx = cx + dx, yy = cy + dy;
-        if (xx >= 0 && yy >= 0 && xx < cw && yy < chh) has[((yy * cw + xx) * NGr + g) * 4 + kind] = 1;
-      }
-    } else if (w.use[i] === Use.Commerce && g && w.sub[i] >= ShopSub.Bakery) {
-      const k = c * NGr + g; if (!shops.has(k)) shops.set(k, new Set()); shops.get(k)!.add(w.sub[i]);
-    } else if ((w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) && w.sub[i] === HouseSub.Boarding && g) has[(c * NGr + g) * 4 + 3]++;
+      const u = w.use[i];
+      if (u === Use.Civic) {
+        if (CHURCHES.has(w.sub[i])) c.church[g]++;
+        else if (w.sub[i] === CivicSub.Hall) c.hall[g]++;
+        else if (w.sub[i] === CivicSub.School) c.school[g]++;
+      } else if (u === Use.Commerce && w.sub[i] >= ShopSub.Bakery) {
+        const mm = c.shops.get(g) ?? new Map<number, number>(); mm.set(w.sub[i], (mm.get(w.sub[i]) ?? 0) + 1); c.shops.set(g, mm);
+      } else if ((u === Use.Houses || u === Use.Rowhouses) && w.sub[i] === HouseSub.Boarding) c.boarding[g]++;
+    }
+    out.push(c);
   }
-  // the best lot in a cell for a new building of community g: one of its homes on a street (a corner for a shop)
-  const lotFor = (cell: number, g: number, corner: boolean) => {
-    const x0 = (cell % cw) * C, y0 = Math.floor(cell / cw) * C;
+  return out;
+}
+
+let zoneCursor = 0;
+export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
+  const d = districts(m), NGr = GROUPS.length;
+  const census = zoneCensus(m, w);
+  // the best lot in a zone for a new building of community g: one of its homes on a street (a corner for a shop)
+  const lotFor = (z: number, g: number, corner: boolean) => {
     let best = -1, bp = -1;
-    for (let y = y0; y < Math.min(m.height, y0 + C); y++) for (let x = x0; x < Math.min(m.width, x0 + C); x++) {
-      const i = y * m.width + x;
+    for (let k = d.zoneStart[z]; k < d.zoneStart[z + 1]; k++) {
+      const i = d.zoneTiles[k];
       if (w.eth[i] !== g || !(w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) || w.owner[i] || w.sub[i] === HouseSub.Boarding) continue;
+      const x = i % m.width, y = (i / m.width) | 0;
       let st = 0, ax = false, ay = false;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) { st++; if (dx) ax = true; else ay = true; }
       if (!st || (corner && !(ax && ay) && st < 2)) continue;
-      if (w.pop[i] > bp) { bp = w.pop[i]; best = i; }
+      // spread a community's buildings out: prefer lots away from its others
+      const score = w.pop[i] + tileNoise(w.year, x, y, 61) * 20;
+      if (score > bp) { bp = score; best = i; }
     }
     return best;
   };
@@ -670,55 +699,61 @@ export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
     w.use[i] = use; w.sub[i] = sub; w.eth[i] = g; w.was[i] = g; w.pop[i] = 0; w.built[i] = w.year;
   };
   let made = 0;
-  for (let cell = 0; cell < cw * chh && made < maxNew; cell++) {
-    if (tot[cell] < 120) continue;
+  for (let n = 0; n < d.zones && made < maxNew; n++) {
+    const z = (zoneCursor + n) % d.zones;
+    const c = census[z];
+    if (!c || c.tot < 120) continue;
     for (let gid = 1; gid < NGr && made < maxNew; gid++) {
-      const p = pop[cell * NGr + gid];
+      const p = c.pop[gid];
       if (p < 120) continue;
-      const k = (cell * NGr + gid) * 4;
+      const t = communityTargets(p, gid, w.year, c.church[gid]);
       // 1. boarding houses while the community is young here (no church yet)
-      if (!has[k] && has[k + 3] < 2 && w.year >= 1860 && gid !== 1) {
-        const i = lotFor(cell, gid, false);
-        if (i >= 0) { w.sub[i] = HouseSub.Boarding; w.use[i] = w.use[i] === Use.Houses ? Use.Houses : Use.Rowhouses; has[k + 3]++; made++; }
+      if (!c.church[gid] && c.boarding[gid] < 2 && w.year >= 1860 && gid !== 1) {
+        const i = lotFor(z, gid, false);
+        if (i >= 0) { w.sub[i] = HouseSub.Boarding; c.boarding[gid]++; made++; }
       }
       // 2. its own shops
-      if (p >= 300) for (const sub of GROUP_SHOPS[gid] ?? []) {
-        if (made >= maxNew || shops.get(cell * NGr + gid)?.has(sub)) continue;
+      const have = c.shops.get(gid) ?? new Map<number, number>();
+      for (const sub of GROUP_SHOPS[gid] ?? []) {
+        if (made >= maxNew || (have.get(sub) ?? 0) >= t.shops) continue;
         if (sub === ShopSub.Saloon && w.year >= 1920 && w.year < 1933) continue; // Prohibition
-        const i = lotFor(cell, gid, true);
+        const i = lotFor(z, gid, true);
         if (i < 0) break;
         build(i, Use.Commerce, sub, gid);
-        if (!shops.has(cell * NGr + gid)) shops.set(cell * NGr + gid, new Set());
-        shops.get(cell * NGr + gid)!.add(sub);
+        have.set(sub, (have.get(sub) ?? 0) + 1); c.shops.set(gid, have);
         made++;
       }
-      // 3. a church
-      if (p >= 700 && !has[k]) {
-        const i = lotFor(cell, gid, false);
-        if (i >= 0) { build(i, Use.Civic, GROUPS[gid].church, gid); has[k] = 1; made++; }
+      // 3. churches, then 4. parish schools and 5. social halls once a church stands
+      if (made < maxNew && c.church[gid] < t.church) {
+        const i = lotFor(z, gid, false);
+        if (i >= 0) { build(i, Use.Civic, GROUPS[gid].church, gid); c.church[gid]++; made++; }
       }
-      // 4. a parish school, then 5. a social hall — both once the church stands
-      if (has[k] && p >= 1200 && !has[k + 2] && w.year >= 1865 && PARISH_SCHOOL.has(gid)) {
-        const i = lotFor(cell, gid, false);
-        if (i >= 0) { build(i, Use.Civic, CivicSub.School, gid); has[k + 2] = 1; made++; }
+      if (made < maxNew && c.school[gid] < t.school) {
+        const i = lotFor(z, gid, false);
+        if (i >= 0) { build(i, Use.Civic, CivicSub.School, gid); c.school[gid]++; made++; }
       }
-      if (has[k] && p >= 450 && !has[k + 1] && w.year >= 1870) {
-        const i = lotFor(cell, gid, false);
-        if (i >= 0) { build(i, Use.Civic, CivicSub.Hall, gid); has[k + 1] = 1; made++; }
+      if (made < maxNew && c.hall[gid] < t.hall) {
+        const i = lotFor(z, gid, false);
+        if (i >= 0) { build(i, Use.Civic, CivicSub.Hall, gid); c.hall[gid]++; made++; }
       }
     }
   }
-  // succession: a community's buildings in a cell it has left
-  for (const i of civic) {
-    const g = w.eth[i];
-    if (!g || !(CHURCHES.has(w.sub[i]) || w.sub[i] === CivicSub.Hall)) continue;
-    const x = i % m.width, y = (i / m.width) | 0, c = ((y / C) | 0) * cw + ((x / C) | 0);
-    if (tot[c] < 200 || pop[c * NGr + g] / tot[c] > 0.12) continue;
+  zoneCursor = (zoneCursor + 7) % Math.max(1, d.zones);
+  // succession: a community's buildings in a neighbourhood it has left pass to the newcomers (or close)
+  for (let z = 0; z < d.zones; z++) {
+    const c = census[z];
+    if (!c || c.tot < 200) continue;
     let top = 0, tp = 0;
-    for (let gI = 1; gI < NGr; gI++) if (pop[c * NGr + gI] > tp) { tp = pop[c * NGr + gI]; top = gI; }
-    if (CHURCHES.has(w.sub[i]) && top && GROUPS[top].church === w.sub[i] && !has[(c * NGr + top) * 4]) { w.eth[i] = top; has[(c * NGr + top) * 4] = 1; } // becomes their parish
-    else w.eth[i] = 0; // closed (the building stands)
-    made++;
+    for (let gI = 1; gI < NGr; gI++) if (c.pop[gI] > tp) { tp = c.pop[gI]; top = gI; }
+    for (let k = d.zoneStart[z]; k < d.zoneStart[z + 1]; k++) {
+      const i = d.zoneTiles[k], g = w.eth[i];
+      if (w.use[i] !== Use.Civic || !g || !(CHURCHES.has(w.sub[i]) || w.sub[i] === CivicSub.Hall)) continue;
+      if (c.pop[g] / c.tot > 0.12) continue;
+      if (CHURCHES.has(w.sub[i]) && top && GROUPS[top].church === w.sub[i] && c.church[top] < communityTargets(tp, top, w.year, 1).church) { w.eth[i] = top; c.church[top]++; } // becomes their parish
+      else w.eth[i] = 0; // closed (the building stands)
+      c.church[g] = Math.max(0, c.church[g] - 1);
+      made++;
+    }
   }
   if (made) w.version++;
   return made;

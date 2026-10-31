@@ -6,6 +6,7 @@
 //   Private dock         a landing of your own on the river: no wagon haul and first call on the barges
 //   A new works          from 1890: found a second works, in any industry, with the processes of the day
 
+import { feet } from "./units";
 import { bump } from "./business";
 import { type Annex, cal, claimFootprint, type Company, type GameState, log, riverSideOf, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
@@ -98,7 +99,7 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
   const relief = hi - lo;
   const site = INDUSTRIES[c.industry].site;
   if (kind === "expand") {
-    if (relief > site.maxReliefM * 1.5) return fail(`Ground too uneven (${relief.toFixed(0)} m)`);
+    if (relief > site.maxReliefM * 1.5) return fail(`Ground too uneven (${feet(relief)})`);
     const touches = [c as Works | Annex, ...c.annexes.filter((a) => a.kind === "expand")].some((a) => {
       const ax = a.x, ay = a.y, af = "footprint" in a ? a.footprint : a.fp;
       const gapX = Math.max(ax - (x + size), x - (ax + af)), gapY = Math.max(ay - (y + size), y - (ay + af));
@@ -110,12 +111,12 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
     if (relief > 20) return fail("Too hilly for a block of houses");
     if (out.displaced > 60) return fail("Too many homes already there");
     const near = [c, ...c.others].some((wk) => Math.hypot(wk.x + wk.footprint / 2 - (x + size / 2), wk.y + wk.footprint / 2 - (y + size / 2)) <= 40);
-    if (!near) return fail("Too far from your works (within 1.2 km)");
+    if (!near) return fail("Too far from your works (within ¾ mile)");
     out.cost = Math.round(18000 * era(year));
   } else if (kind === "dock") {
     if (!water) return fail("Must be on the riverbank");
     const d = Math.max(c.x - (x + size), x - (c.x + c.footprint), c.y - (y + size), y - (c.y + c.footprint));
-    if (d > 12) return fail("Too far from the works (within 350 m)");
+    if (d > 12) return fail("Too far from the works (within 1,150 ft)");
     out.cost = Math.round(25000 * era(year));
   }
   return out;

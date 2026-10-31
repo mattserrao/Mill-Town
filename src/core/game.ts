@@ -1,6 +1,7 @@
 // Game state and the seasonal turn loop. First pass: found a works, produce each season,
 // pay wages, spread smoke, and let the town grow toward the jobs along real street alignments.
 
+import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, tilesFor } from "./map";
 import { RIVALS } from "./rivals";
@@ -12,7 +13,7 @@ import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terr
 import { HILLSIDES, INCLINES, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
 import { growByDesire } from "./growth";
-import { shipSeason, type Shipper, type ShipResult, spurOption } from "./freight";
+import { PRICE, shipSeason, type Shipper, type ShipResult, spurOption } from "./freight";
 import { type Business, businessSeason, type Decision, DECISIONS, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
 import { advanceResearch, marketFactor, rivalMult, rivalTechs, techStanding } from "./market";
 import { rivalSeason } from "./rivalai";
@@ -153,6 +154,51 @@ export interface GameState {
   pendingDecision?: Decision;
   /** permanent share of the market lost to imports (the 1959 strike) */
   priceLoss?: number;
+  /** prices, wages and your accounts each season, for the Markets view */
+  prices: PricePoint[];
+  /** every issue of the paper: the seasons with headlines */
+  news: { turn: number; items: HistEvent[] }[];
+}
+
+export interface PricePoint {
+  turn: number;
+  /** what a unit fetches on the market, by industry */
+  market: Record<IndustryId, number>;
+  /** what your works actually got per unit (by industry, averaged over your works) */
+  yours: Partial<Record<IndustryId, number>>;
+  /** $ per man per season */
+  wage: number;
+  /** $ per ton of coal or ore at the mine, and what you paid per ton delivered */
+  raw: number;
+  delivered?: number;
+  revenue?: number; costs?: number; profit?: number; cash?: number;
+}
+
+/** File this season's prices (called after the season is played). */
+export function recordPrices(g: GameState) {
+  const year = cal(g).year;
+  const market = {} as Record<IndustryId, number>;
+  for (const id of Object.keys(INDUSTRIES) as IndustryId[])
+    market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price") * marketFactor(g, id) * 100) / 100;
+  const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input") * 100) / 100 };
+  const c = g.company;
+  if (c?.totals) {
+    const made: Partial<Record<IndustryId, [number, number]>> = {};
+    let tons = 0, paid = 0;
+    for (const w of allWorks(c)) {
+      const s = w.lastSeason;
+      if (!s || !s.produced) continue;
+      const m = (made[w.industry] ??= [0, 0]); m[0] += s.revenue; m[1] += s.produced;
+      for (const l of w.freight?.lanes ?? []) tons += l.delivered;
+      paid += s.inputCost;
+    }
+    for (const [k, [r, n]] of Object.entries(made) as [IndustryId, [number, number]][]) p.yours[k] = Math.round((r / n) * 100) / 100;
+    if (tons) p.delivered = Math.round((paid / tons) * 100) / 100;
+    const t = c.totals;
+    p.revenue = t.revenue; p.costs = t.revenue - t.profit; p.profit = t.profit; p.cash = Math.round(c.cash);
+  }
+  if (g.prices[g.prices.length - 1]?.turn === g.turn) g.prices[g.prices.length - 1] = p;
+  else g.prices.push(p);
 }
 
 export interface GameStats {
@@ -176,12 +222,13 @@ export function newGame(map: GameMap, seed: number): GameState {
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
-    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} } };
+    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [] };
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
   g.stats.peakPop = totalPopulation(g);
   fireEvents(g);
+  recordPrices(g);
   return g;
 }
 
@@ -189,6 +236,7 @@ export function newGame(map: GameMap, seed: number): GameState {
 export function fireEvents(g: GameState) {
   const c = cal(g);
   g.headlines = eventsFor(c.year, c.season);
+  if (g.headlines.length) fileNews(g);
   g.floodNow = undefined;
   for (const e of g.headlines) {
     const dec = DECISIONS[e.name]?.(g);
@@ -205,6 +253,13 @@ export function fireEvents(g: GameState) {
     }
   }
   g.mods = g.mods.filter((m) => m.until > g.turn);
+}
+
+/** make sure this season's headlines are in the paper's archive (they are shared, so later stories join them) */
+export function fileNews(g: GameState) {
+  const last = g.news[g.news.length - 1];
+  if (last?.turn === g.turn) last.items = g.headlines;
+  else g.news.push({ turn: g.turn, items: g.headlines });
 }
 
 export const mod = (g: GameState, k: Parameters<typeof modMult>[1]) => modMult(g.mods, k, g.turn);
@@ -352,7 +407,7 @@ export function buildIncline(g: GameState): { ok: boolean; reason?: string } {
   w.version++;
   c.cash -= INCLINE_COST;
   updateAccess(g);
-  log(g, `${c.name} opens the ${name}, ${(bd * m.metersPerTile).toFixed(0)} m up the hill.`);
+  log(g, `${c.name} opens the ${name}, ${feet(bd * m.metersPerTile)} up the hill.`);
   return { ok: true };
 }
 
@@ -499,9 +554,11 @@ export function advanceTurn(g: GameState): void {
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"));
   updateRivers(g.map, g.world, g.env, g.plants);
   naturalGrowth(g, rng);
+  recordPrices(g);
   if (g.company?.bankrupt && !last) {
     g.over = true;
     g.headlines = [{ year: c0.year, season: c0.season, name: `Receivers Take ${g.company.name}`, description: `After ${RECEIVERSHIP} seasons overdrawn, the bank has put ${g.company.name} into receivership. The works will be sold.`, category: "Labor" }];
+    fileNews(g);
     updateStats(g, c0.year);
     log(g, `${g.company.name} is in receivership. Your story in the valley is over.`);
     g.world.version++;
@@ -888,7 +945,7 @@ export function buildSpur(g: GameState): { ok: boolean; reason?: string } {
   c.cash -= cost;
   c.spur = o.to;
   g.world.version++;
-  log(g, `${c.name} lays a ${Math.round(o.len * g.map.metersPerTile)} m rail siding to the main line.`);
+  log(g, `${c.name} lays a ${distance(o.len * g.map.metersPerTile)} rail siding to the main line.`);
   return { ok: true };
 }
 

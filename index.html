@@ -15,9 +15,12 @@
       <div class="spacer"></div>
       <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
       <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
+      <button id="marketsBtn" title="Prices, wages and costs over time">Markets</button>
       <button id="soundTop" title="Sound on/off (M)">🔈 Sound</button>
       <div id="timeControls">
-        <button id="play" title="Play: advance a season every 1.5 s (P)">⏵ Play</button>
+        <span id="speeds" title="Game speed (P pauses; 1–4 pick a speed). At 1× a game from 1850 to 1985 takes about two hours.">
+          <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="1× — a season every 13 s (about 2 hours a game)">1×</button><button data-speed="2" title="2× — a season every 6.5 s">2×</button><button data-speed="3" title="4× — a season every 3.3 s">4×</button><button data-speed="4" title="8× — as fast as the map can keep up">8×</button>
+        </span>
         <button id="nextYear" title="Advance one year (Shift+Space)">Next year ▶▶</button>
         <button id="next" class="primary" title="Advance one season (Space)">Next season ▶</button>
       </div>
@@ -37,12 +40,12 @@
           <label><input type="checkbox" id="placing" checked /> Show the works footprint under the cursor</label>
           <button id="bestSite" title="Jump to the best-scoring site for this industry">Show me a good site</button>
         </section>
-        <section>
+        <section id="secOverlay">
           <h2>Overlay</h2>
           <div id="overlays"></div>
           <p id="legend" class="hint"></p>
         </section>
-        <section>
+        <section id="secView">
           <h2>View</h2>
           <label><input type="checkbox" id="labels" checked /> Place names</label>
           <label><input type="checkbox" id="grid" /> Grid</label>
@@ -50,7 +53,7 @@
           <label>Time of day <select id="tod"><option value="day">Day</option><option value="cycle">Day/night cycle</option><option value="night">Night</option></select></label>
           <p class="hint">Drag or WASD/arrows to pan · scroll, +/- or the ± buttons to zoom · click a tile to inspect</p>
         </section>
-        <section>
+        <section id="secSound">
           <h2>Sound</h2>
           <button id="sound">Sound on</button>
           <label>Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
@@ -58,7 +61,16 @@
           <p class="hint" id="nowPlaying">Music follows the era, the neighbourhood in view and how close you are.</p>
         </section>
         </div>
-        <div id="news" hidden></div>
+        <div id="leftDock">
+          <section id="secPaper">
+            <h2>Newspaper <span id="paperNav"></span></h2>
+            <div id="news"></div>
+          </section>
+          <section id="secLog">
+            <h2>Log</h2>
+            <ol id="log"></ol>
+          </section>
+        </div>
       </aside>
       <div id="viewport">
         <canvas id="view"></canvas>
@@ -69,9 +81,10 @@
         <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button><button id="queryBtn" title="Query tool (Q): click a tile to inspect its building, objects, land and neighbourhood">?</button></div>
         <div id="query" hidden></div>
         <div id="placeBar" hidden></div>
+        <div id="markets" hidden></div>
       </div>
       <aside id="right">
-        <section>
+        <section id="secTile">
           <h2>Tile</h2>
           <div id="inspector" class="kv"><p class="hint">Click a tile.</p></div>
         </section>
@@ -89,6 +102,10 @@
           <button id="spur" title="Lay a siding from the works to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full" hidden></button>
           <div class="btn-row"><button id="showSupply" title="Show where your raw materials come from and where your goods go">Supply chain map</button><button id="showRivals" title="Show the rival works in your industry and related ones">Competitors map</button></div>
         </section>
+        <section id="districtSection" hidden>
+          <h2>Neighbourhood</h2>
+          <div id="district"></div>
+        </section>
         <section id="worksSection" hidden>
           <h2>Your works &amp; technology</h2>
           <div id="works"></div>
@@ -104,10 +121,6 @@
         <section id="rivalsSection">
           <h2 id="rivalsTitle">Competitors</h2>
           <div id="rivalsList"></div>
-        </section>
-        <section>
-          <h2>Log</h2>
-          <ol id="log"></ol>
         </section>
       </aside>
     </main>

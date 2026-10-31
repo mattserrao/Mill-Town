@@ -4,7 +4,7 @@
 import { Rng } from "../core/rng";
 import { drum, type Drum, type Inst, note } from "./synth";
 
-type CompStyle = "oompah" | "waltz" | "arp" | "stab" | "pad" | "stride" | "triplets" | "none";
+type CompStyle = "oompah" | "waltz" | "arp" | "stab" | "pad" | "stride" | "triplets" | "drone" | "harp" | "none";
 type BassStyle = "rootfifth" | "walking" | "funk" | "eighths" | "one" | "none";
 
 export interface Style {
@@ -28,6 +28,10 @@ export interface Style {
   density: number;    // melody note density 0..1
   gain?: number;      // level trim
   range: [number, number]; // melody range in scale steps around the tonic
+  /** a mood piece rather than a song: drifts, few notes, long tones */
+  atmospheric?: boolean;
+  /** instruments that can take the lead in a variant of this style */
+  leads?: Inst[];
 }
 
 const MAJ = [0, 2, 4, 5, 7, 9, 11], MIN = [0, 2, 3, 5, 7, 8, 10], HMIN = [0, 2, 3, 5, 7, 8, 11];
@@ -52,6 +56,17 @@ export const STYLES: Record<string, Style> = {
   funk: { id: "funk", label: "Funk & disco", gain: 0.5, bpm: 112, meter: 4, sub: 4, scale: DOR, key: 57, prog: [0, 0, 3, 3], sevenths: true, lead: "synth", comp: "eguitar", compStyle: "stab", bass: "synthbass", bassStyle: "funk", drums: { kick: "x...x...x...x...", snare: "....x.......x...", hat: "..x...x...x...x.", clap: "....x.......x..." }, density: 0.35, range: [0, 8] },
   synthpop: { id: "synthpop", label: "Synth-pop", bpm: 116, meter: 4, sub: 2, scale: MIN, key: 57, prog: [0, 5, 2, 6], lead: "synth", comp: "synth", compStyle: "arp", bass: "synthbass", bassStyle: "eighths", drums: { kick: "x...x...", snare: "..x...x.", hat: "xxxxxxxx" }, density: 0.4, range: [0, 9] },
   elegy: { id: "elegy", label: "Mill-town elegy", gain: 1.6, bpm: 62, meter: 4, sub: 2, scale: MIN, key: 57, prog: [0, 5, 3, 4, 0, 5, 6, 4], lead: "piano", comp: "harmonium", compStyle: "pad", bass: "upright", bassStyle: "one", density: 0.3, range: [0, 8] },
+  // ---- atmosphere: quiet pieces between songs, at night, in the country, over the river, in the end years
+  rivermist: { id: "rivermist", label: "River mist", atmospheric: true, gain: 1.4, bpm: 56, meter: 4, sub: 2, scale: MAJ, key: 62, prog: [0, 3, 0, 4, 5, 3, 0, 0], lead: "harp", leads: ["harp", "flute", "piano"], comp: "pad", compStyle: "pad", bass: "upright", bassStyle: "none", density: 0.22, range: [0, 11] },
+  furnacenight: { id: "furnacenight", label: "Furnaces at night", atmospheric: true, gain: 1.5, bpm: 50, meter: 4, sub: 2, scale: MIN, key: 57, prog: [0, 0, 5, 5, 3, 3, 4, 4], lead: "bell", leads: ["bell", "piano", "clarinet"], comp: "drone", compStyle: "drone", bass: "upright", bassStyle: "none", density: 0.14, range: [0, 9] },
+  hillsnow: { id: "hillsnow", label: "Snow on the hillsides", atmospheric: true, gain: 1.6, bpm: 60, meter: 3, sub: 2, scale: MAJ, key: 67, prog: [0, 5, 3, 4, 0, 5, 1, 4], lead: "piano", leads: ["piano", "harp", "bell"], comp: "pad", compStyle: "pad", bass: "upright", bassStyle: "none", density: 0.25, range: [2, 12] },
+  sundaybells: { id: "sundaybells", label: "Sunday morning", atmospheric: true, gain: 1.3, bpm: 66, meter: 4, sub: 2, scale: MAJ, key: 64, prog: [0, 3, 4, 0, 5, 3, 4, 0], lead: "bell", leads: ["bell", "flute"], comp: "organ", compStyle: "pad", bass: "upright", bassStyle: "one", density: 0.2, range: [0, 9] },
+  smokehaze: { id: "smokehaze", label: "Smoke over the valley", atmospheric: true, gain: 1.5, bpm: 54, meter: 4, sub: 2, scale: DOR, key: 59, prog: [0, 0, 3, 3, 0, 0, 6, 4], lead: "flute", leads: ["flute", "clarinet", "strings"], comp: "drone", compStyle: "drone", bass: "upright", bassStyle: "none", density: 0.18, range: [0, 9] },
+  nightshift: { id: "nightshift", label: "Night shift", atmospheric: true, gain: 1.5, bpm: 58, meter: 4, sub: 2, scale: MIN, key: 55, prog: [0, 5, 3, 6, 0, 5, 4, 4], lead: "piano", leads: ["piano", "sax", "harp"], comp: "harmonium", compStyle: "pad", bass: "upright", bassStyle: "one", density: 0.24, range: [0, 10] },
+  riverfog: { id: "riverfog", label: "Fog on the Monongahela", atmospheric: true, gain: 1.5, bpm: 52, meter: 4, sub: 2, scale: MIN, key: 52, prog: [0, 6, 5, 6, 0, 3, 4, 0], lead: "clarinet", leads: ["clarinet", "strings", "harp"], comp: "pad", compStyle: "harp", bass: "upright", bassStyle: "none", density: 0.17, range: [2, 10] },
+  countryside: { id: "countryside", label: "Fields above the river", atmospheric: true, gain: 1.3, bpm: 70, meter: 3, sub: 2, scale: MAJ, key: 65, prog: [0, 3, 0, 4, 0, 3, 4, 0], lead: "flute", leads: ["flute", "harp", "fiddle"], comp: "harp", compStyle: "harp", bass: "upright", bassStyle: "one", density: 0.3, range: [0, 10] },
+  lastlight: { id: "lastlight", label: "Last light", atmospheric: true, gain: 1.0, bpm: 60, meter: 4, sub: 2, scale: MIN, key: 57, prog: [0, 5, 2, 6, 0, 5, 3, 4], lead: "synth", leads: ["synth", "bell", "piano"], comp: "pad", compStyle: "pad", bass: "synthbass", bassStyle: "one", density: 0.18, range: [0, 9] },
+  emptymill: { id: "emptymill", label: "The empty mill", atmospheric: true, gain: 1.6, bpm: 48, meter: 4, sub: 2, scale: MIN, key: 50, prog: [0, 0, 5, 5, 3, 3, 4, 4], lead: "piano", leads: ["piano", "strings", "bell"], comp: "drone", compStyle: "drone", bass: "upright", bassStyle: "none", density: 0.13, range: [0, 8] },
   march: { id: "march", label: "Civic brass march", bpm: 112, meter: 2, sub: 2, scale: MAJ, key: 58, prog: [0, 0, 4, 4, 0, 3, 4, 0], lead: "brass", lead2: "brass", comp: "brass", compStyle: "oompah", bass: "tuba", bassStyle: "rootfifth", drums: { kick: "x...", snare: "x.xx" }, density: 0.6, range: [0, 9] },
 };
 
@@ -95,7 +110,7 @@ function makePhrase(st: Style, rng: Rng, bars: number, startBar: number): Phrase
     for (let s = 0; s < spb;) {
       const strong = s % st.sub === 0;
       if (rng.next() > st.density * (strong ? 1.15 : 0.8)) { s++; continue; }
-      const len = rng.chance(0.25) ? Math.min(spb - s, st.sub * (rng.chance(0.5) ? 2 : 1)) : 1;
+      const len = st.atmospheric ? Math.min(spb - s, st.sub * rng.pick([1, 2, 2, 3, 4])) : rng.chance(0.25) ? Math.min(spb - s, st.sub * (rng.chance(0.5) ? 2 : 1)) : 1;
       if (strong && rng.chance(0.65)) {
         // land on a chord tone near the current note
         const n = st.scale.length;
@@ -184,6 +199,8 @@ export class MusicPlayer {
       case "arp": for (let s = 0; s < spb; s++) note(ctx, out, st.comp, stepTime(s), st.key + chord[s % chord.length] + (s % 6 >= 3 ? 12 : 0), stepLen * 0.9, cv * 0.7); break;
       case "stab": for (const s of st.meter === 4 ? [st.sub * 1, st.sub * 3 + Math.floor(st.sub / 2)] : [st.sub]) playChord(stepTime(s), stepLen * 1.2, cv * 0.7); break;
       case "pad": playChord(t0, beat * st.meter * 0.95, cv * 0.6, -12); break;
+      case "drone": if (bar % 2 === 0) { note(ctx, out, st.comp, t0, st.key - 12 + chord[0], beat * st.meter * 2, cv); note(ctx, out, st.comp, t0, st.key - 12 + chord[2], beat * st.meter * 2, cv * 0.6); } break;
+      case "harp": chord.slice(0, 3).concat(chord[0] + 12).forEach((c, k) => note(ctx, out, st.comp, t0 + k * (beat * st.meter) / 4, st.key + c - 12, beat * 1.5, cv * 0.6)); break;
       case "stride": for (let b = 0; b < st.meter; b++) { note(ctx, out, st.comp, stepTime(b * st.sub), (b % 2 ? fifth : root), stepLen * 1.5, 0.7); playChord(stepTime(b * st.sub + st.sub / 2), stepLen * 1.4, 0.45); } break;
       case "none": break;
     }

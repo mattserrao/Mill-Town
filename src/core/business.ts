@@ -9,7 +9,7 @@
 // Pinkertons, blacklists, dumping slag in the river, buying newspapers and officials — and everything has a price.
 
 import { GROUPS } from "./ancestry";
-import { allWorks, cal, type GameState, log, totalEmployees } from "./game";
+import { allWorks, cal, fileNews, type GameState, log, totalEmployees } from "./game";
 import type { GatewayId } from "./freight";
 import type { Rng } from "./rng";
 
@@ -209,6 +209,7 @@ const year = (g: GameState) => cal(g).year;
 export function pushHeadline(g: GameState, name: string, description: string) {
   const c = cal(g);
   g.headlines.push({ year: c.year, season: c.season, name, description, category: "Labor" });
+  fileNews(g);
 }
 
 export const ACTIONS: ActionDef[] = [

@@ -1,6 +1,7 @@
 // The "?" query tool: click a tile to see the building on it, everything drawn on it, the land under it,
 // and the neighbourhood around it (who lives there, when each community arrived, how it grew).
 
+import { feet } from "../core/units";
 import { commuteWeight, type GameState, walkMinutes } from "../core/game";
 import { GROUPS } from "../core/ancestry";
 import { tileLatLon, type GameMap } from "../core/map";
@@ -113,7 +114,7 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
   const water = m.water[i] ? m.waterNames[String(m.water[i])] : "";
   const lRows: [string, string][] = [
     ["Terrain", water ? `${TERRAIN_NAMES[m.terrain[i]]} — ${water}` : TERRAIN_NAMES[m.terrain[i]]],
-    ["Elevation", `${m.elevation[i].toFixed(0)} m (${fmt(m.elevation[i] * 3.281)} ft), slope ${m.slope[i]}°`],
+    ["Elevation", `${feet(m.elevation[i])}, slope ${m.slope[i]}°`],
     ["Coal", ["None", "Pittsburgh seam underground", "Pittsburgh seam outcrop"][m.coal[i]]],
     ["Land value", `$${fmt(w.landValue[i])}`],
     ["Soot (years of smoke)", smokeWord(w.pollution[i])],

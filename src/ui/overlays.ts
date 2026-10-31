@@ -12,7 +12,7 @@ import type { OverlayFn } from "../render/renderer";
 import { blockGrid, blockOf } from "../core/blocks";
 import { RIVER_REF, SOOT_SCALE } from "../core/environment";
 
-export type OverlayId = "none" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | `site:${IndustryId}`;
+export type OverlayId = "none" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
 
 type RGB = [number, number, number];
 type RGBA = [number, number, number, number];
@@ -61,6 +61,7 @@ export const OVERLAYS: OverlayDef[] = [
   { id: "elevation", label: "Elevation", group: "Land", swatch: grad(P.elevation) },
   { id: "terrain", label: "Terrain class", group: "Land", swatch: steps(Object.values(TERRAIN).map((t) => t[0])) },
   { id: "coal", label: "Coal seam", group: "Land", swatch: steps([[60, 48, 36], [12, 10, 10]]) },
+  { id: "districts", label: "Cities & neighbourhoods", group: "Town", swatch: steps([[255, 214, 90], [235, 235, 235], [150, 150, 160]]) },
   { id: "population", label: "Population", group: "Town", swatch: grad(P.population) },
   { id: "ancestry", label: "Ancestry", group: "Town", swatch: steps(GROUPS.slice(1, 7).map((g) => g.colour as RGB)) },
   { id: "landValue", label: "Land value", group: "Town", swatch: grad(P.landValue) },
@@ -79,7 +80,7 @@ export const OVERLAYS: OverlayDef[] = [
 ];
 
 /** Vector overlays keep the town visible and draw on top of it. */
-export const isVectorOverlay = (id: OverlayId) => id === "supply" || id === "rivals";
+export const isVectorOverlay = (id: OverlayId) => id === "supply" || id === "rivals" || id === "districts";
 
 export interface OverlayCache { site?: { key: string; scores: Uint8Array } }
 
@@ -87,7 +88,7 @@ export interface OverlayCache { site?: { key: string; scores: Uint8Array } }
 export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): { fn: OverlayFn; key: string } {
   const m = g.map, w = g.world;
   switch (id) {
-    case "none": case "supply": case "rivals": return { fn: null, key: "none" };
+    case "none": case "supply": case "rivals": case "districts": return { fn: null, key: "none" };
     case "elevation": {
       const lo = m.minHeight, hi = m.maxHeight;
       return { key: id, fn: (i) => m.terrain[i] === Terrain.Water ? null : ramp(P.elevation, (m.elevation[i] - lo) / (hi - lo), 0.8, 10) };
@@ -195,7 +196,9 @@ const stepsOf = (stops: RGB[], n: number) => Array.from({ length: n }, (_, k) =>
 export function overlayLegend(id: OverlayId, g?: GameState): string {
   switch (id) {
     case "none": return "";
-    case "elevation": return bar(steps(stepsOf(P.elevation, 10)), `${Math.round(g?.map.minHeight ?? 216)} m river`, `${Math.round(g?.map.maxHeight ?? 390)} m hilltops`);
+    case "elevation": return bar(steps(stepsOf(P.elevation, 10)), `${Math.round((g?.map.minHeight ?? 216) * 3.281).toLocaleString()} ft river`, `${Math.round((g?.map.maxHeight ?? 390) * 3.281).toLocaleString()} ft hilltops`);
+    case "districts": return keys([["#ffd65a", "city & borough limits", "height:4px"], ["rgba(235,235,235,0.8)", "neighbourhoods", "height:2px"]]) +
+      `<p class="hint">Click a neighbourhood to see who lives there and what each community has built. Pittsburgh takes in Lawrenceville, East Liberty and Hazelwood (1868), Birmingham (1872) and Allegheny City (1907).</p>`;
     case "terrain": return keys(Object.values(TERRAIN).map(([c, n]) => [css(c), n]));
     case "coal": return keys([["rgb(12,10,10)", "seam outcrop (drift mines)"], ["rgb(60,48,36)", "seam underground"]]);
     case "transport": return keys([["rgb(200,30,40)", "rail open this year"], ["rgb(190,110,230)", "rail still to come"], ["rgb(250,205,60)", "streets & pikes"], ["rgba(255,255,255,0.5)", "where streets will come"]]);

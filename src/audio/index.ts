@@ -8,6 +8,7 @@ import { Use } from "../core/town";
 import { type Camera, BASE_M, HH, HW, ZPX } from "../render/iso";
 import { cityStyle, communityStyle, MusicPlayer, STYLES } from "./music";
 import { type Scene, Soundscape } from "./soundscape";
+import { atmosphereFor, SONGS_BY_FAMILY } from "./songs";
 
 export interface ViewSummary extends Scene { group: number; groupShare: number; idleMills: number; place: string }
 
@@ -49,6 +50,8 @@ export function summarizeView(g: GameState, m: GameMap, cam: Camera, cw: number,
 
 /** Which music fits the view. */
 export function chooseMusic(v: ViewSummary): string {
+  // deep night away from the busy streets: only mood pieces
+  if (v.night > 0.7 && v.town < 0.35 && v.zoom >= 0.375) return "atmos";
   if (v.year >= 1979 && v.industry > 0.1 && v.zoom >= 0.375) return "elegy";
   if (v.zoom < 0.375 || v.town < 0.15) {
     if (v.country > 0.6 && v.year < 1930 && v.zoom >= 0.375) return "oldtime";
@@ -70,6 +73,12 @@ export class SoundController {
   private player: MusicPlayer | null = null;
   private timer = 0;
   private lastSwitch = -Infinity; // so the first style starts at once
+  /** the music the view asks for (a style family, or "atmos"), the current track's start and length */
+  private family = "";
+  private trackStart = 0;
+  private trackLen = 0;
+  private counter = Math.floor(Math.random() * 1000);
+  private interlude = false;
   nowPlaying = "";
   musicVol = 0.6;
   ambVol = 0.7;
@@ -126,13 +135,27 @@ export class SoundController {
     const duck = 1 - Math.min(0.6, v.industry * Math.min(1, v.zoom));
     this.musicBus.gain.setTargetAtTime(this.musicVol * 0.6 * duck, t, 0.5);
     const want = chooseMusic(v);
-    if (this.player?.style.id !== want && t - this.lastSwitch > 6) {
+    const fresh = want !== this.family;
+    const due = t - this.trackStart > this.trackLen;
+    if ((fresh || due) && t - this.lastSwitch > 6) {
+      // after a song, often a quiet mood piece; then the next tune in the style the view calls for
+      const atmosChance = Math.min(0.7, 0.3 + 0.25 * v.night + (v.zoom < 0.375 ? 0.15 : 0) + 0.2 * v.country);
+      const k = this.counter++;
+      let fam: string;
+      if (want === "atmos") fam = atmosphereFor(v, k);
+      else if (!fresh && !this.interlude && ((k * 2654435761) % 1000) / 1000 < atmosChance) fam = atmosphereFor(v, k);
+      else fam = want;
+      const book = SONGS_BY_FAMILY[fam] ?? SONGS_BY_FAMILY[cityStyle(v.year)];
+      const song = book[k % book.length];
+      this.interlude = fam !== want;
+      this.family = want;
       this.player?.stop(t);
-      this.player = new MusicPlayer(ctx, this.musicBus, STYLES[want], `${v.year}:${v.place}`);
-      this.player.start(t + 0.1);
-      this.lastSwitch = t;
+      this.player = new MusicPlayer(ctx, this.musicBus, song.style, `${v.year}:${v.place}:${k}`);
+      this.player.start(t + 0.1, song.style.atmospheric ? 4 : 2);
+      this.lastSwitch = t; this.trackStart = t;
+      this.trackLen = song.style.atmospheric ? 70 + (k % 4) * 12 : 120 + (k % 5) * 15;
     }
-    const playing = this.player?.style ?? STYLES[want];
+    const playing = this.player?.style ?? STYLES[cityStyle(v.year)];
     this.nowPlaying = `${playing.label}${v.place ? ` — ${v.place}` : ""}, ${v.year}`;
   }
 

@@ -44,7 +44,7 @@ function railCapacity(m: GameMap, year: number): number {
   return lines * 8000 * (year < 1900 ? 1 : year < 1925 ? 1.5 : 2);
 }
 
-const PRICE = (year: number) => 3 * (1 + (year - 1850) * 0.004); // $ per ton at the mine / quarry
+export const PRICE = (year: number) => 3 * (1 + (year - 1850) * 0.004); // $ per ton at the mine / quarry
 // $ per ton: a fixed charge for the haul beyond the edge of the map, plus the run inside it.
 // Barges are the cheap way to move coal and ore; the railroads cost more but don't freeze or run dry.
 const COST = {

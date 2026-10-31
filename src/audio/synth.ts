@@ -2,7 +2,8 @@
 
 export type Inst =
   | "fiddle" | "accordion" | "clarinet" | "brass" | "tuba" | "flute" | "piano" | "mandolin" | "tamburica"
-  | "cimbalom" | "bass" | "upright" | "organ" | "sax" | "eguitar" | "synth" | "synthbass" | "harmonium" | "banjo";
+  | "cimbalom" | "bass" | "upright" | "organ" | "sax" | "eguitar" | "synth" | "synthbass" | "harmonium" | "banjo"
+  | "pad" | "harp" | "bell" | "drone" | "strings";
 
 export type Drum = "kick" | "snare" | "hat" | "ohat" | "brush" | "bodhran" | "tamb" | "clap";
 
@@ -147,6 +148,42 @@ export function note(ctx: BaseAudioContext, out: AudioNode, inst: Inst, t: numbe
       l.frequency.setValueAtTime(3500, t); l.frequency.exponentialRampToValueAtTime(900, t + 0.4);
       [o1, o2, o3].forEach((o) => o.connect(l)); l.connect(g);
       env(g, t, 0.01, 0.2, 0.6, dur, 0.2, vel * 0.09); start([o1, o2, o3], end);
+      break;
+    }
+    case "pad": case "strings": {
+      // slow-blooming detuned saws, softened: for atmosphere
+      const os = [osc("sawtooth", f, -9), osc("sawtooth", f, 9), osc(inst === "pad" ? "triangle" : "sawtooth", f / 2)];
+      const l = filt("lowpass", inst === "pad" ? 900 : 1600, 0.5);
+      if (inst === "strings") os.forEach((o) => vib(o, 4.5, f * 0.004, 0.3));
+      os.forEach((o) => o.connect(l)); l.connect(g);
+      const a = Math.min(1.2, dur * 0.4);
+      env(g, t, a, 0.3, 0.85, dur, 1.4, vel * (inst === "pad" ? 0.08 : 0.07));
+      end = t + dur + 1.6; start(os, end);
+      break;
+    }
+    case "harp": {
+      const o1 = osc("triangle", f), o2 = osc("sine", f * 2, 2), m2 = ctx.createGain(); m2.gain.value = 0.2;
+      const l = filt("lowpass", 2600);
+      o1.connect(l); o2.connect(m2); m2.connect(l); l.connect(g);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.26, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+      end = t + 2.3; start([o1, o2], end);
+      break;
+    }
+    case "bell": {
+      // inharmonic partials with a long ring
+      const ps: [number, number][] = [[1, 0.5], [2.76, 0.25], [5.4, 0.12], [8.93, 0.06]];
+      const os = ps.map(([r]) => osc("sine", f * r));
+      os.forEach((o, k) => { const x = ctx.createGain(); x.gain.value = ps[k][1]; o.connect(x); x.connect(g); });
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.22, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+      end = t + 3.3; start(os, end);
+      break;
+    }
+    case "drone": {
+      const o1 = osc("sine", f / 2), o2 = osc("triangle", f, 3), o3 = osc("sine", f * 1.5, -2);
+      const l = filt("lowpass", 500, 0.4);
+      [o1, o2, o3].forEach((o) => o.connect(l)); l.connect(g);
+      env(g, t, Math.min(2, dur * 0.5), 0.5, 0.9, dur, 2, vel * 0.12);
+      end = t + dur + 2.2; start([o1, o2, o3], end);
       break;
     }
   }

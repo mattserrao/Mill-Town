@@ -1,5 +1,6 @@
 // Site evaluation: how good is this tile as the north-west corner of a new plant?
 
+import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, distanceField, inBounds, sat, satSum, tilesFor, vh } from "./map";
 import { BUILD_COST_MULT, Coal, Terrain } from "./terrain";
@@ -92,9 +93,9 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
     for (const [vx, vy] of [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]]) { const h = vh(m, vx, vy); lo = Math.min(lo, h); hi = Math.max(hi, h); }
   }
   const relief = isFinite(hi) ? hi - lo : 0;
-  if (ok && relief > ind.site.maxReliefM) { ok = false; reasons.add(`Ground too uneven (${relief.toFixed(0)} m of relief)`); }
+  if (ok && relief > ind.site.maxReliefM) { ok = false; reasons.add(`Ground too uneven (${feet(relief)} of relief)`); }
   const riverM = minRiver * mpt, coalM = minCoal * mpt;
-  if (ok && ind.site.riverWithinM && riverM > ind.site.riverWithinM) { ok = false; reasons.add(`No river frontage (${riverM} m away)`); }
+  if (ok && ind.site.riverWithinM && riverM > ind.site.riverWithinM) { ok = false; reasons.add(`No river frontage (${distance(riverM)} away)`); }
 
   const R = tilesFor(m, ind.site.laborRadiusM);
   const labor = Math.round(satSum(m, pSat ?? popSAT(m, w), x - R, y - R, x + fp - 1 + R, y + fp - 1 + R));
@@ -113,7 +114,7 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
     if (coalScore < 0.3) reasons.add("Coal is far — higher fuel haulage");
     if (laborScore < 0.5) reasons.add("Thin labor pool — wages will be higher");
     if (displaced > 0) reasons.add(`Displaces ${displaced} residents`);
-    if (relief > 2) reasons.add(`Needs grading (${relief.toFixed(0)} m)`);
+    if (relief > 2) reasons.add(`Needs grading (${feet(relief)})`);
     if (reasons.size === 0) reasons.add("Good site");
   }
   return { ok, score: Math.round(score), reasons: [...reasons], cost, labor, riverM, coalM, reliefM: relief, displaced, footprint: fp };

@@ -115,6 +115,20 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
        works outright (runs as a second works with its own panel; Carnegie and Frick won't sell); Mellon loans
      - Upkeep on capacity; eight seasons overdrawn and the receivers take the company (game over)
      - One route model: the supply-chain map shows the lanes the freight simulation actually used
+   - Interface and views (v0.11):
+     - Game speeds: pause, 1× (a season every 13 s: a whole game in about two hours), 2×, 4×, 8×; keys P and 1–4
+     - Markets view: prices by industry (index and $), what your works actually got, wages, coal and ore at the
+       mine and delivered, and your revenue, costs and profit, season by season since 1850 (hover to read)
+     - Cities & neighbourhoods overlay: borough limits that change with incorporations and annexations
+       (Pittsburgh takes in Lawrenceville, East Liberty, Hazelwood 1868, Birmingham 1872, Allegheny City 1907),
+       named neighbourhoods with their population and leading community; a Neighbourhood panel lists each
+       community, what it has built and what it builds next. Communities now build per neighbourhood: boarding
+       houses, then shops (300 people), a church (700), a social hall, a parish school (1,200), more as they grow
+     - Music: 145 tunes — five of every style (own key, tempo, chords, lead and title) plus ten quiet mood pieces
+       (river mist, furnaces at night, snow, Sunday bells, the empty mill…) played between songs and at night
+     - English units throughout (feet and miles)
+     - Every panel heading folds its section (remembered); the newspaper (with its back issues) and the log sit
+       permanently at the bottom left
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI

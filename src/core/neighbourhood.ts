@@ -4,6 +4,7 @@
 // in every cell is recorded, and the first year a group reaches a foothold in a cell (its "seed") is kept.
 // A neighbourhood view adds up the cells around a place to show how it was seeded and how it grew.
 
+import { distance } from "./units";
 import { ANCHORS, anchorAt, GROUPS } from "./ancestry";
 import { latLonToTile } from "./features";
 import type { GameMap } from "./map";
@@ -76,7 +77,7 @@ export function areaAt(m: GameMap, x: number, y: number): Area {
     if (d < nd) { nd = d; near = an.name; }
   }
   const km = (nd * m.metersPerTile) / 1000;
-  return { name: km < 0.4 ? near : `${km.toFixed(1)} km from ${near}`, named: false, x, y, r: NEAR_RADIUS };
+  return { name: km < 0.4 ? near : `${distance(km * 1000)} from ${near}`, named: false, x, y, r: NEAR_RADIUS };
 }
 
 export interface AreaReport {
