@@ -115,12 +115,12 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
        works outright (runs as a second works with its own panel; Carnegie and Frick won't sell); Mellon loans
      - Upkeep on capacity; eight seasons overdrawn and the receivers take the company (game over)
      - One route model: the supply-chain map shows the lanes the freight simulation actually used
-2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); next: finished-goods shipping out, player-built docks, and one gateway/route model shared by the supply-chain map (`economy.ts`) and the freight simulation (`freight.ts`)
+2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
-4. Tech tree UI and research; era transitions and market prices
+4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
 5. Rival AI behaviour: ~~price wars, cornering supply, lending, revenge (v0.10)~~; next: rivals bidding for land and
    buying each other (U.S. Steel 1901), rival strikes and lockouts shown at their works
-6. Second industry purchase (Era II) and cross-industry supply (power → mills, steel → shipyards)
+6. ~~Second industry: buy or found (Era II)~~ (v0.10); next: cross-industry supply (power → mills, steel → shipyards)
 7. Historical events (1877 rail strike, 1892 Homestead, 1936 flood, wars, 1950s peak, 1980s collapse) and legacy choices
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
 
