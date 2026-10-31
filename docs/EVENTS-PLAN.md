@@ -5,6 +5,15 @@ how to make them play. Every event is classified one by one in `EVENTS-ACTIONS.m
 status, effort); this file is the summary: what exists, the few engine capabilities that unlock most of the list,
 the order to build them in, and the design calls that need an answer first.
 
+## 0. Done in v0.11.1
+
+All of sections 2–5 below are built: the effects engine, rules and politics, decision queue, new rivals and dated
+closures, landmarks and sprites, places and stand-ins, morale, sports, strike contagion, layoffs and selling a works.
+Data is in `src/core/eventdata/era1–4.ts`: 289 events with effects, 44 with decision cards (294 in all), 66 landmarks.
+Date fixes: Turnpike to Ohio → Winter 1951; East Busway → Winter 1982; Weirton → Winter 1983.
+Still open: public housing / URA clearance, park and tunnel landmarks, automation tech, retraining, timed
+reputation pressure, courthouse fire, American Bridge and Clairton as rivals, the patent-truce flag.
+
 ## 1. Where things stand
 
 | Status | Events | What it means |

@@ -16,7 +16,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 /** what a rival works is producing relative to its standard: expansions, damage, the collapse */
 export function rivalMult(g: GameState, r: RivalState): number {
-  let m = 1 + r.expand;
+  let m = (1 + r.expand) * (r.partial ?? 1);
   for (const d of r.damage) if (d.until > g.turn) m *= d.mult;
   return m;
 }
@@ -24,7 +24,7 @@ export function rivalMult(g: GameState, r: RivalState): number {
 /** the processes a rival in this industry runs this year */
 export function rivalTechs(ind: IndustryId, id: string, year: number): string[] {
   const def = RIVALS.find((d) => d.id === id);
-  return techsForYear(ind, def?.style === "innovator" ? year + 2 : year);
+  return techsForYear(ind, (def?.style === "innovator" ? year + 2 : year) - (def?.techLag ?? 0));
 }
 
 /** the industry's standard processes: what every serious works has (the innovator sets it early) */
@@ -53,7 +53,7 @@ export function marketFactor(g: GameState, ind: IndustryId): number {
     const def = RIVALS.find((d) => d.id === r.id);
     if (!def || def.industry !== ind || def.id === "frick") continue;
     if (r.owned) { owned++; continue; }
-    if (!r.active) continue;
+    if (!r.active || r.closed) continue;
     nominal += 1 + r.expand;
     lost += Math.max(0, 1 + r.expand - rivalMult(g, r));
   }
@@ -103,7 +103,7 @@ export function commission(g: GameState, w: Works, techId: string): { ok: boolea
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
   c.biz.actionsLeft--;
-  w.research = { id: t.id, left: Math.max(1, t.seasons) };
+  w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons * (c.biz.flags.lab ? 0.75 : 1))) };
   c.biz.record.push(`${cal(g).season} ${cal(g).year}: Commissioned ${t.name} at ${w.name}`);
   log(g, `${w.name} commissions ${t.name} ($${cost.toLocaleString()}, ${t.seasons} seasons).`);
   return { ok: true, text: `Work begins on ${t.name}: ready in ${t.seasons} seasons.` };

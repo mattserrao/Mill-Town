@@ -10,6 +10,7 @@
 
 import { GROUPS } from "./ancestry";
 import { allWorks, cal, fileNews, type GameState, log, totalEmployees } from "./game";
+import { modMult } from "./events";
 import type { GatewayId } from "./freight";
 import type { Rng } from "./rng";
 
@@ -17,7 +18,7 @@ import type { Rng } from "./rng";
 
 export interface Meters { reputation: number; labour: number; influence: number }
 
-export type WageLevel = "low" | "market" | "high";
+export type WageLevel = "low" | "market" | "high" | "scale";
 export type Hours = "twelve" | "ten" | "eight";
 export type UnionStance = "fight" | "tolerate" | "recognise";
 export type Safety = "none" | "basic" | "programme";
@@ -31,6 +32,10 @@ export interface Policy {
   childLabour: boolean;
   companyStore: boolean;
   waste: Waste;
+  /** Coal & Iron Police commissioned for the works (1865–1935) */
+  police: boolean;
+  /** Saturday half-holiday (from 1871) */
+  halfHoliday: boolean;
 }
 
 export interface Business {
@@ -44,10 +49,14 @@ export interface Business {
   tariffUntil: number;
   /** seasons the works stays locked out */
   lockout: number;
+  /** a quarter of the men laid off until this turn */
+  layoffUntil: number;
   /** newcomers recruited by agents, still to arrive: [group, people] */
   recruits: [number, number][];
   /** the decisions you have taken (for the record and the final summary) */
   record: string[];
+  /** lasting choices that later events and rules read (party, ring, contracts, company union…) */
+  flags: Record<string, number | string | boolean>;
 }
 
 export const ACTIONS_PER_SEASON = 3;
@@ -55,9 +64,9 @@ export const ACTIONS_PER_SEASON = 3;
 export function newBusiness(year: number): Business {
   return {
     meters: { reputation: 0, labour: 10, influence: 5 },
-    policy: { wages: "market", hours: year < 1923 ? "twelve" : year < 1937 ? "ten" : "eight", union: "tolerate", safety: "none", childLabour: year < 1905, companyStore: false, waste: "standard" },
+    policy: { wages: "market", hours: year < 1923 ? "twelve" : year < 1937 ? "ten" : "eight", union: "tolerate", safety: "none", childLabour: year < 1905, companyStore: false, waste: "standard", police: false, halfHoliday: false },
     actionsLeft: ACTIONS_PER_SEASON,
-    blacklistUntil: 0, pressUntil: 0, tariffUntil: 0, lockout: 0, recruits: [], record: [],
+    blacklistUntil: 0, pressUntil: 0, tariffUntil: 0, lockout: 0, layoffUntil: 0, recruits: [], record: [], flags: {},
   };
 }
 
@@ -93,26 +102,29 @@ export interface PolicyEffects {
   priceMult: number;
 }
 
-export const WAGE_MULT: Record<WageLevel, number> = { low: 0.85, market: 1, high: 1.15 };
+export const WAGE_MULT: Record<WageLevel, number> = { low: 0.85, market: 1, high: 1.15, scale: 1 };
 const HOURS_WPU: Record<Hours, number> = { twelve: 0.87, ten: 1, eight: 1.14 };
 
 export function policyEffects(g: GameState): PolicyEffects {
   const b = g.company!.biz, p = b.policy, year = cal(g).year;
   const labour = b.meters.labour;
-  let wageMult = WAGE_MULT[p.wages];
+  // the sliding scale: puddlers' pay follows the price of iron (good years pay more, bad years less)
+  let wageMult = p.wages === "scale" ? clamp(modMult(g.mods, "price", g.turn, { industry: g.company!.industry }), 0.7, 1.4) : WAGE_MULT[p.wages];
   if (p.union === "recognise") wageMult *= 1.08; // the union scale
   if (p.childLabour) wageMult *= 0.94;          // boys at half pay on the light jobs
   let strikeMult = clamp(1 - labour / 120, 0.2, 2);
   if (p.union === "recognise") strikeMult *= 0.5;
   if (p.union === "fight") strikeMult *= 1.3;
   if (b.blacklistUntil > g.turn) strikeMult *= 0.6;
+  if (p.police) strikeMult *= 0.7;
+  if (p.wages === "scale") strikeMult *= 0.85;
   strikeMult *= 0.9 ** g.company!.annexes.filter((a) => a.kind === "housing").length; // a striker can be evicted
   return {
     wageMult,
-    wpuMult: HOURS_WPU[p.hours],
+    wpuMult: HOURS_WPU[p.hours] * (p.halfHoliday ? 1.04 : 1),
     participationMult: clamp(1 + labour / 400 + (p.wages === "high" ? 0.08 : p.wages === "low" ? -0.1 : 0), 0.7, 1.3),
     strikeMult,
-    extraCostPerWorker: (p.safety === "programme" ? 6 : p.safety === "basic" ? 2 : 0) * era(year),
+    extraCostPerWorker: ((p.safety === "programme" ? 6 : p.safety === "basic" ? 2 : 0) + (p.police ? 1.5 : 0)) * era(year),
     storeIncomeShare: p.companyStore ? 0.05 : 0,
     pollutionMult: p.waste === "abate" ? 0.7 : 1,
     outfallMult: p.waste === "dump" ? 3 : p.waste === "abate" ? 0.4 : 1,
@@ -130,6 +142,8 @@ function targets(g: GameState): Meters {
     + (p.union === "fight" ? -15 : p.union === "recognise" ? 20 : 0)
     + (p.safety === "none" ? (year < 1880 ? 0 : -10) : p.safety === "programme" ? 10 : 0)
     + (p.companyStore ? -10 : 0) + (p.childLabour ? -5 : 0)
+    + (p.police ? -8 : 0) + (p.halfHoliday ? 6 : 0) + (p.wages === "scale" ? 5 : 0)
+    + (g.morale - 50) / 10
     + 4 * c.annexes.filter((a) => a.kind === "housing").length
     - c.unrest * 30;
   // what decent opinion expects keeps rising: child labour and dumping look worse every decade
@@ -139,7 +153,7 @@ function targets(g: GameState): Meters {
     + (p.safety === "programme" ? 8 : p.safety === "none" && year >= 1908 ? -6 : 0)
     + (p.wages === "high" ? 5 : 0) + (p.union === "recognise" && year >= 1937 ? 5 : 0)
     + (p.hours === "twelve" && year >= 1908 ? -8 : 0)
-    + (c.library ? 10 : 0);
+    + (c.library ? 10 : 0) + (p.police ? -3 : 0) + (p.halfHoliday ? 2 : 0);
   return { labour, reputation, influence: 0 };
 }
 
@@ -169,6 +183,12 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
     bump(g, "reputation", -(deaths >= 3 ? 2 * deaths : deaths * 0.5));
     out.notes.push(deaths === 1 ? "A man was killed at the works." : `${deaths} men were killed at the works.`);
     if (deaths >= 3) { log(g, `Disaster at ${c.name}: ${deaths} dead.`); pushHeadline(g, `${deaths} Killed at ${c.name}`, `An accident at the works kills ${deaths} men. The coroner's jury finds no one at fault; the men's lodges bury them.`); }
+  }
+  // company police on a picket line: sometimes they shoot
+  if (p.police && allWorks(c).some((w) => w.status === "strike") && rng.chance(0.3)) {
+    const dead = rng.int(1, 4);
+    bump(g, "reputation", -10); bump(g, "labour", -10); g.morale = Math.max(0, g.morale - 4);
+    pushHeadline(g, `Company Police Fire on Strikers`, `Coal & Iron Police at ${c.name} open fire on a picket line; ${dead} ${dead === 1 ? "man is" : "men are"} killed.`);
   }
   // the law catches up: child labour (Pennsylvania 1905/1915), river dumping (1965 / Clean Water Act 1972)
   if (p.childLabour && year >= 1915 && rng.chance(0.25)) {
@@ -229,7 +249,7 @@ export const ACTIONS: ActionDef[] = [
   {
     id: "pinkertons", group: "Labour", name: "Send in the Pinkertons",
     blurb: "Armed guards to break the strike. Often works; sometimes there is shooting.",
-    cost: (g) => Math.round(8000 * era(year(g))), blocked: (g) => needStrike(g) ?? (year(g) >= 1937 ? "After the Wagner Act and the La Follette hearings, private armies are finished" : null),
+    cost: (g) => Math.round(8000 * era(year(g))), blocked: needStrike,
     run: (g, rng) => {
       const c = g.company!;
       const violence = rng.chance(0.4);
@@ -259,7 +279,7 @@ export const ACTIONS: ActionDef[] = [
   {
     id: "lockout", group: "Labour", name: "Lock out the union",
     blurb: "Close the gates for a season and reopen non-union. Strikes rarer for years; labour −25, reputation −10.",
-    cost: () => 0, blocked: (g) => (onStrike(g) ? "Not during a strike" : g.company!.biz.policy.union === "recognise" ? "You have recognised the union" : year(g) < 1876 ? "No union to lock out yet (the Amalgamated forms in 1876)" : null),
+    cost: () => 0, blocked: (g) => (onStrike(g) ? "Not during a strike" : g.company!.biz.policy.union === "recognise" ? "You have recognised the union" : null),
     run: (g) => {
       const b = g.company!.biz;
       b.lockout = 1; b.policy.union = "fight"; b.blacklistUntil = g.turn + 16;
@@ -285,6 +305,23 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
+    id: "layoff", group: "Labour", name: "Lay off a quarter of the men",
+    blurb: "Cut the payroll for two years: wages and output down a quarter. Labour −15, morale −6, reputation −5; the jobless stay in town.",
+    cost: () => 0, blocked: (g) => (g.company!.biz.layoffUntil > g.turn ? "Already laid off" : null),
+    run: (g) => {
+      const c = g.company!, n = Math.round(allWorks(c).reduce((s, w) => s + w.employees, 0) * 0.25);
+      c.biz.layoffUntil = g.turn + 8; g.jobless += n; c.biz.flags.laidOff = true;
+      bump(g, "labour", -15); bump(g, "reputation", -5); g.morale = Math.max(0, g.morale - 6);
+      return `${n.toLocaleString()} men are laid off.`;
+    },
+  },
+  {
+    id: "recall", group: "Labour", name: "Call the men back",
+    blurb: "End the layoff early. Labour +8, morale +3.",
+    cost: () => 0, blocked: (g) => (g.company!.biz.layoffUntil > g.turn ? null : "No one is laid off"),
+    run: (g) => { g.company!.biz.layoffUntil = 0; g.jobless = Math.max(0, Math.round(g.jobless * 0.5)); bump(g, "labour", 8); g.morale = Math.min(100, g.morale + 3); return "The men come back through the gate."; },
+  },
+  {
     id: "picnic", group: "Labour", name: "Company picnic and turkeys",
     blurb: "Kennywood picnic in summer, a turkey at Christmas. Labour +8, reputation +2.",
     cost: (g) => Math.round(2000 * era(year(g))), blocked: () => null,
@@ -308,15 +345,19 @@ export const ACTIONS: ActionDef[] = [
     id: "lobby", group: "Politics", name: "Lobby City Hall and Harrisburg",
     blurb: "Campaign money and dinners. Influence +12 (more if your reputation is good).",
     cost: (g) => Math.round(5000 * era(year(g))), blocked: () => null,
-    run: (g) => { bump(g, "influence", 12 * (1 + g.company!.biz.meters.reputation / 200)); return "The Republican organisation counts you a friend."; },
+    run: (g) => {
+      bump(g, "influence", 12 * (1 + g.company!.biz.meters.reputation / 200) * (g.rules.lobby?.yield ?? 1));
+      return g.politics === "machine" ? "The Magee–Flinn organisation counts you a friend." : g.politics === "newdeal" ? "The Democrats at City Hall take your money, and your measure." : g.politics === "renaissance" ? "Mayor Lawrence and the Mellon men welcome you to the table." : "The Republican organisation counts you a friend.";
+    },
   },
   {
     id: "bribe", group: "Politics", name: "Bribe an official",
     blurb: "Fast influence (+20) — and a one-in-five chance it ends up in the papers.",
     cost: (g) => Math.round(3000 * era(year(g))), blocked: () => null,
     run: (g, rng) => {
-      bump(g, "influence", 20);
-      if (rng.chance(0.2)) {
+      bump(g, "influence", 20 * (g.rules.bribe?.yield ?? 1));
+      g.company!.biz.flags.bribed = year(g);
+      if (rng.chance(g.rules.bribe?.risk ?? 0.2)) {
         const fine = Math.round(10000 * era(year(g)));
         g.company!.cash -= fine; bump(g, "reputation", -20); bump(g, "influence", -15);
         pushHeadline(g, "Graft Exposed", `A councilman's bank book shows payments from ${g.company!.name}. A $${fine.toLocaleString()} settlement follows.`);
@@ -337,6 +378,30 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
+    id: "advertise", group: "Public", name: "Advertise on the radio",
+    blurb: "Sponsor a program on KDKA and buy space in the magazines: your prices +4% for a year.",
+    cost: (g) => Math.round(6000 * era(year(g))), blocked: () => null,
+    run: (g) => { for (const w of allWorks(g.company!)) if (!g.mods.some((m) => m.source === "Your advertising" && m.industry?.includes(w.industry))) g.mods.push({ kind: "price", mult: 1.04, until: g.turn + 4, source: "Your advertising", industry: [w.industry] }); return "Your name goes out over the air."; },
+  },
+  {
+    id: "lab", group: "Public", name: "Found a research laboratory",
+    blurb: "Chemists and engineers of your own: every new process is built a quarter faster. Once.",
+    cost: (g) => Math.round(60000 * era(year(g))), blocked: (g) => (g.company!.biz.flags.lab ? "You have a laboratory" : null),
+    run: (g) => { g.company!.biz.flags.lab = true; return "The laboratory opens beside the works."; },
+  },
+  {
+    id: "contract_research", group: "Public", name: "Commission research at the Mellon Institute",
+    blurb: "Hire a fellowship to work on your problem: the process you're building is ready two seasons sooner.",
+    cost: (g) => Math.round(25000 * era(year(g))), blocked: (g) => (allWorks(g.company!).some((w) => w.research) ? null : "No process is being built"),
+    run: (g) => { for (const w of allWorks(g.company!)) if (w.research) w.research.left = Math.max(1, w.research.left - 2); return "The Institute's fellows go to work on your process."; },
+  },
+  {
+    id: "relief", group: "Public", name: "Fund relief for the jobless",
+    blurb: "Soup kitchens, coal and rent for the families out of work. Morale +5, reputation +6, labour +4.",
+    cost: (g) => Math.round(15000 * era(year(g))), blocked: () => null,
+    run: (g) => { g.morale = Math.min(100, g.morale + 5); g.company!.biz.flags.relief = true; return "Your relief committee feeds the mill towns."; },
+  },
+  {
     id: "tariff", group: "Politics", name: "Lobby for a higher tariff",
     blurb: "Spend influence (30): import duties lift your prices 6% for five years.",
     cost: (g) => Math.round(10000 * era(year(g))), blocked: (g) => (g.company!.biz.meters.influence < 30 ? "Needs 30 influence" : null),
@@ -345,7 +410,16 @@ export const ACTIONS: ActionDef[] = [
 ];
 
 /** the meter changes that are simple constants */
-const SIMPLE: Record<string, Partial<Meters>> = { picnic: { labour: 8, reputation: 2 }, donate: { reputation: 8, labour: 4 }, press: { reputation: 5 } };
+const SIMPLE: Record<string, Partial<Meters>> = { picnic: { labour: 8, reputation: 2 }, donate: { reputation: 8, labour: 4 }, press: { reputation: 5 }, relief: { reputation: 6, labour: 4 } };
+
+/** why an action can't be taken now: the law and the era first (rules set by events), then its own conditions */
+export function actionBlocked(g: GameState, a: ActionDef, arg?: string): string | null {
+  return g.rules[a.id]?.blocked ?? a.blocked(g, arg);
+}
+/** what an action costs now (laws and eras can make it dearer) */
+export function actionCost(g: GameState, a: ActionDef, arg?: string): number {
+  return Math.round(a.cost(g, arg) * (g.rules[a.id]?.cost ?? 1));
+}
 
 /** Take an action: checks the budget, cash and conditions; returns what happened (or why not). */
 export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { ok: boolean; text: string } {
@@ -354,9 +428,9 @@ export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { 
   const a = ACTIONS.find((x) => x.id === id);
   if (!a) return { ok: false, text: "Unknown action" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
-  const why = a.blocked(g, arg);
+  const why = actionBlocked(g, a, arg);
   if (why) return { ok: false, text: why };
-  const cost = a.cost(g, arg);
+  const cost = actionCost(g, a, arg);
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
   c.biz.actionsLeft--;
@@ -375,7 +449,11 @@ export function setPolicy(g: GameState, next: Partial<Policy>): { ok: boolean; t
   if (!changed.length) return { ok: true, text: "No change" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
   const y = cal(g).year;
-  if (next.union && next.union !== "tolerate" && y < 1876) return { ok: false, text: "There is no union yet (the Amalgamated forms in 1876)" };
+  void y;
+  if (next.union && next.union !== "tolerate" && g.rules.union?.blocked) return { ok: false, text: g.rules.union.blocked };
+  if (next.police && g.rules.police?.blocked) return { ok: false, text: g.rules.police.blocked };
+  if (next.halfHoliday && g.rules.halfHoliday?.blocked) return { ok: false, text: g.rules.halfHoliday.blocked };
+  if (next.wages === "scale" && g.rules.scale?.blocked) return { ok: false, text: g.rules.scale.blocked };
   c.biz.actionsLeft--;
   Object.assign(c.biz.policy, next);
   // a change of heart is felt at once, a little
@@ -452,11 +530,12 @@ export const DECISIONS: Record<string, (g: GameState) => Decision | null> = {
 /** Take one of a decision's options (or the historical one if `k` is undefined). */
 export function resolveDecision(g: GameState, rng: Rng, k?: number): string {
   const d = g.pendingDecision;
-  if (!d || !g.company) return "";
+  if (!d) return "";
   const opt = d.options[k ?? d.historical] ?? d.options[d.historical];
   const text = opt.apply(g, rng);
-  g.company.biz.record.push(`${cal(g).year}: ${d.title} — ${opt.label}`);
+  g.company?.biz.record.push(`${cal(g).year}: ${d.title} — ${opt.label}`);
   log(g, `${d.title}: ${opt.label}. ${text}`);
-  g.pendingDecision = undefined;
+  // the next decision waiting this season, if any
+  g.pendingDecision = g.moreDecisions.shift();
   return text;
 }

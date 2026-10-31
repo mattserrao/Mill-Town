@@ -4,20 +4,27 @@
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, tilesFor } from "./map";
-import { RIVALS } from "./rivals";
+import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { calendar, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, type World } from "./town";
-import { HILLSIDES, INCLINES, PARKS, regionTarget, tileLine } from "./features";
+import { HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
 import { growByDesire } from "./growth";
-import { PRICE, shipSeason, type Shipper, type ShipResult, spurOption } from "./freight";
-import { type Business, businessSeason, type Decision, DECISIONS, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
+import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOption } from "./freight";
+import { placeNamed } from "./places";
+import { hospitals, type PlacedLandmark } from "./landmarks";
+import { clearRuins } from "./mapfx";
+import { sportsSeason, type TeamState } from "./sports";
+import { type Business, businessSeason, type Decision, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
+import { applyEffects, cond, applyPendingRivalFx, type PoliticalEra, type Rule } from "./effects";
+import { allDecisions, allEffects, initialRules } from "./eventdata";
+import type { ModContext } from "./events";
 import { advanceResearch, marketFactor, rivalMult, rivalTechs, techStanding } from "./market";
 import { rivalSeason } from "./rivalai";
-import { EFFECTS, eventsFor, type HistEvent, type Mod, modMult } from "./events";
+import { eventsFor, type HistEvent, type Mod, modMult } from "./events";
 import { GROUPS, immigrationPressure, pickGroup } from "./ancestry";
 import { type History, newHistory, recordHistory } from "./neighbourhood";
 import { type Env, newEnv, type Plant, SOOT_SCALE, updateAir, updateHealth, updateRivers } from "./environment";
@@ -100,6 +107,17 @@ export interface RivalState {
   grudge: number;
   /** what they did last (for the panel) */
   lastMove?: string;
+  /** out on strike (or locked out) until this turn */
+  strikeUntil?: number;
+  /** shut down for good (by history or by you) */
+  closed?: boolean;
+  /** lasting cut in output (a partial closure): multiplier */
+  partial?: number;
+  /** personality, if events have changed it */
+  style?: RivalDef["style"];
+  /** name, if it has changed (J&L → LTV Steel) */
+  name?: string;
+  nameYear?: number;
 }
 
 export interface SeasonReport {
@@ -158,6 +176,28 @@ export interface GameState {
   prices: PricePoint[];
   /** every issue of the paper: the seasons with headlines */
   news: { turn: number; items: HistEvent[] }[];
+  /** decisions waiting behind the one on the table */
+  moreDecisions: Decision[];
+  /** town morale 0..100 (50 = ordinary): titles, openings, disasters, layoffs */
+  morale: number;
+  /** states of the world that events set and later effects read */
+  flags: Record<string, number | string | boolean>;
+  /** what actions cost, whether they're allowed, what they yield (set by events: laws, eras) */
+  rules: Record<string, Rule>;
+  politics: PoliticalEra;
+  /** timed unrest/health offsets for named places */
+  placeFx: { place: string; unrest: number; health: number; until: number; source: string }[];
+  /** works on strike this season, and last season (for strike contagion) */
+  strikeAt: [number, number][];
+  lastStrikes: [number, number][];
+  /** men out of work after layoffs and closures (drift away or find work over time) */
+  jobless: number;
+  /** dated landmarks on the map */
+  landmarks: PlacedLandmark[];
+  /** sports teams (sports.ts) */
+  teams: TeamState[];
+  /** rival effects waiting for their rival to open */
+  pendingRivalFx: { source: string; ef: unknown }[];
 }
 
 export interface PricePoint {
@@ -179,8 +219,8 @@ export function recordPrices(g: GameState) {
   const year = cal(g).year;
   const market = {} as Record<IndustryId, number>;
   for (const id of Object.keys(INDUSTRIES) as IndustryId[])
-    market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price") * marketFactor(g, id) * 100) / 100;
-  const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input") * 100) / 100 };
+    market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price", { industry: id }) * marketFactor(g, id) * 100) / 100;
+  const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input", { good: "coal" }) * 100) / 100 };
   const c = g.company;
   if (c?.totals) {
     const made: Partial<Record<IndustryId, [number, number]>> = {};
@@ -222,7 +262,8 @@ export function newGame(map: GameMap, seed: number): GameState {
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
-    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [] };
+    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [],
+    moreDecisions: [], morale: 50, flags: {}, rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
@@ -238,21 +279,16 @@ export function fireEvents(g: GameState) {
   g.headlines = eventsFor(c.year, c.season);
   if (g.headlines.length) fileNews(g);
   g.floodNow = undefined;
+  const effects = allEffects(), decisions = allDecisions();
   for (const e of g.headlines) {
-    const dec = DECISIONS[e.name]?.(g);
-    if (dec && !g.pendingDecision) g.pendingDecision = dec;
+    const dec = decisions[e.name]?.(g);
+    if (dec) { if (!g.pendingDecision) g.pendingDecision = dec; else g.moreDecisions.push(dec); }
     log(g, `${e.name}. ${e.description}`);
-    for (const ef of EFFECTS[e.name] ?? []) {
-      if ("mods" in ef) for (const [kind, mult, dur] of ef.mods) g.mods.push({ kind, mult, until: g.turn + dur, source: e.name });
-      else if ("flood" in ef) g.floodNow = ef.flood;
-      else if ("epidemic" in ef) {
-        const w = g.world;
-        for (let i = 0; i < w.pop.length; i++) if (w.pop[i] > 30) w.pop[i] = Math.round(w.pop[i] * (1 - ef.epidemic * 2));
-        w.version++;
-      }
-    }
+    const fx = effects[e.name];
+    if (fx) applyEffects(g, e.name, fx);
   }
   g.mods = g.mods.filter((m) => m.until > g.turn);
+  g.placeFx = g.placeFx.filter((p) => p.until > g.turn);
 }
 
 /** make sure this season's headlines are in the paper's archive (they are shared, so later stories join them) */
@@ -262,7 +298,7 @@ export function fileNews(g: GameState) {
   else g.news.push({ turn: g.turn, items: g.headlines });
 }
 
-export const mod = (g: GameState, k: Parameters<typeof modMult>[1]) => modMult(g.mods, k, g.turn);
+export const mod = (g: GameState, k: Parameters<typeof modMult>[1], ctx?: ModContext) => modMult(g.mods, k, g.turn, ctx);
 
 export function cal(g: GameState): Calendar {
   return calendar(g.turn);
@@ -541,18 +577,32 @@ export function advanceTurn(g: GameState): void {
   const fx = SEASON_EFFECTS[c0.season];
 
   // a decision left open takes the course history took
-  if (g.pendingDecision) resolveDecision(g, rng.fork("decision"));
+  for (let k = 0; g.pendingDecision && k < 10; k++) resolveDecision(g, rng.fork(`decision${k}`));
+  g.morale += (50 - g.morale) * 0.05;
+  // the jobless find other work, or leave; while they're many, the town is low
+  g.jobless = Math.round(g.jobless * 0.93);
+  if (g.jobless > 500) g.morale = Math.max(0, g.morale - Math.min(2, g.jobless / 5000));
   g.plants = [];
+  g.lastStrikes = g.strikeAt; g.strikeAt = [];
+  clearRuins(g);
+  sportsSeason(g, rng.fork("sports"));
+  for (const r of g.rivals) if (r.active && !r.owned && (r.strikeUntil ?? 0) > g.turn) g.strikeAt.push([r.x, r.y]);
   spawnRivals(g, c0.year);
+  // dated closures: the works shuts for good
+  for (const r of g.rivals) {
+    const def = RIVALS.find((d) => d.id === r.id);
+    if (def?.closes !== undefined && c0.year >= def.closes && !r.closed && !r.owned) { r.closed = true; r.lastMove = `${c0.year}: closed`; log(g, `${nameNow(def, c0.year, r.name, r.nameYear)} closes for good.`); }
+  }
+  applyPendingRivalFx(g);
   // the rivals make their moves (by personality) before the season's work
   rivalSeason(g, rng.fork("rivals"));
   const rivals = rivalPlants(g, c0.year);
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk, rivals);
-  else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks);
+  else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link }));
   g.plants.push(...rivals);
   const season = g.turn % 4;
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"));
-  updateRivers(g.map, g.world, g.env, g.plants);
+  updateRivers(g.map, g.world, g.env, g.plants, mod(g, "riverLoad"));
   naturalGrowth(g, rng);
   recordPrices(g);
   if (g.company?.bankrupt && !last) {
@@ -601,7 +651,7 @@ export function advanceTurn(g: GameState): void {
     for (const pk of PARKS) if (pk.year === c1.year) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     recordHistory(g.map, g.world, g.history);
-    updateHealth(g.map, g.world, g.env);
+    updateHealth(g.map, g.world, g.env, hospitals(g));
     updateAccess(g);
     if (g.company) for (const w of g.company.others) updateWorksAccess(g, w);
   }
@@ -667,7 +717,17 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   w.health = pool ? healthSum / pool : 1;
   w.unrest = pool ? unrestSum / pool : 0;
   // other works share the pool with the first one where their districts overlap: count a little less
-  const workersHired = Math.round(Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult * (main ? 1 : 0.8)));
+  // named places with trouble (or good news) of their own
+  if (g.placeFx.length) {
+    const fx = placeOffsets(g, cx, cy);
+    w.unrest = Math.max(0, Math.min(1, w.unrest + fx.unrest));
+    w.health = Math.max(0.1, Math.min(1, w.health + fx.health));
+  }
+  // town morale steadies the men (or sours them)
+  w.unrest = Math.max(0, Math.min(1, w.unrest - (g.morale - 50) / 500));
+  const ctx = { industry: w.industry };
+  const laidOff = g.company!.biz.layoffUntil > g.turn ? 0.75 : 1;
+  const workersHired = Math.round(laidOff * Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult * mod(g, "labour", ctx) * (main ? 1 : 0.8)));
   let output = Math.min(capacity, workersHired / wpu);
   const year = cal(g).year;
   w.status = "running";
@@ -680,7 +740,7 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
     output = 0;
     w.status = "strike";
     notes.push("The men are out on strike. The works stand cold.");
-  } else if (year >= 1877 && w.employees > 300 && rng.chance((0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike") * (0.4 + 1.6 * w.unrest) * pe.strikeMult)) {
+  } else if (year >= 1877 && w.employees > 300 && rng.chance((0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike", ctx) * (0.4 + 1.6 * w.unrest) * pe.strikeMult * strikeContagion(g, w))) {
     w.strikeTurns = rng.int(1, 3); // long enough to negotiate, call the Pinkertons or bring in strikebreakers
     g.stats.strikes++;
     output = 0;
@@ -693,17 +753,19 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   let flood = 0;
   for (let dy = 0; dy < w.footprint; dy++) for (let dx = 0; dx < w.footprint; dx++)
     if (m.terrain[(w.y + dy) * m.width + w.x + dx] === Terrain.Floodplain) flood++;
+  const guard = flood ? mod(g, "floodRisk", { gateway: worksRiver(g, w) }) : 1;
   if (flood && g.floodNow !== undefined) {
-    output *= g.floodNow;
+    output *= 1 - (1 - g.floodNow) * guard;
     w.status = "flooded";
     notes.push("The great flood put the works under water.");
-  } else if (flood && rng.chance(floodRisk)) {
+  } else if (flood && rng.chance(floodRisk * guard)) {
     output *= 0.6;
     w.status = "flooded";
     notes.push("Flood! The works stood in water for weeks.");
     log(g, `Flood damaged ${w.name}.`);
   }
-  output = Math.floor(output * Math.min(1, mod(g, "output")));
+  // wartime orders can push a works past its rated capacity (a little)
+  output = Math.floor(output * Math.min(1.2, mod(g, "output", ctx)));
   if (output === 0 && w.status === "running") w.status = "idle";
   const needs: Shipper["needs"] = {};
   for (const [good, per] of Object.entries(ind.inputs)) needs[good as keyof typeof needs] = output * (per ?? 0);
@@ -725,12 +787,17 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   }
   const era = 1 + (year - 1850) * PRICE_TREND;
   const standing = techStanding(g, w);
-  const price = ind.basePrice * era * mod(g, "price") * pe.priceMult * (w.industry === "steel" ? 1 - (g.priceLoss ?? 0) : 1) * standing.factor * marketFactor(g, w.industry);
-  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * pe.wageMult;
+  const ctx = { industry: w.industry };
+  const price = ind.basePrice * era * mod(g, "price", ctx) * pe.priceMult * (w.industry === "steel" ? 1 - (g.priceLoss ?? 0) : 1) * standing.factor * marketFactor(g, w.industry);
+  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage", ctx) * pe.wageMult;
   const revenue = Math.round(output * price);
   // what was bought and hauled, less what better furnaces save (and more if someone has cornered the supply)
-  const inputCost = Math.round(fr ? (fr.purchaseCost + fr.freightCost) * (1 - mods.efficiency) * pe.inputCostMult * mod(g, "input") : 0);
+  // each good at its own price (Frick's coke, a mine disaster) and each lane at its own haulage rate
+  let bought = 0;
+  if (fr) for (const l of fr.lanes) bought += l.delivered * (PRICE(year) * mod(g, "input", { ...ctx, good: l.good }) + l.costPerTon * mod(g, "freightCost", { gateway: l.mode === "rail" ? "rail" : l.gateway }));
+  const inputCost = Math.round(bought * (1 - mods.efficiency) * pe.inputCostMult);
   // no work, no pay: strikers and locked-out men draw nothing from the company
+  if (w.status === "strike") g.strikeAt.push([w.x, w.y]);
   const working = w.status !== "lockout" && w.status !== "strike";
   const wages = working ? Math.round(p.workersHired * wage) : 0;
   const upkeep = Math.round(p.capacity * ind.basePrice * UPKEEP * (1 + (year - 1850) * 0.008));
@@ -739,7 +806,7 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   w.employees = working ? p.workersHired : 0;
   w.produced += output;
   w.seasonsOperating++;
-  g.plants.push({ x: w.x, y: w.y, fp: w.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution) * pe.pollutionMult, owner: w.id, outfall: pe.outfallMult });
+  g.plants.push({ x: w.x, y: w.y, fp: w.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution) * pe.pollutionMult * (cond(g, "flag:conference") ? 0.85 : 1), owner: w.id, outfall: pe.outfallMult });
   const done = advanceResearch(g, w);
   if (done) p.notes.push(done);
   return { produced: output, revenue, inputCost, wages, upkeep, other: 0, profit, workersWanted: p.workersWanted, workersHired: p.workersHired, migrants: 0, notes: p.notes };
@@ -760,7 +827,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const ship = shipSeason(m, year0, riverMult, [
     ...rivalShippers(g, rivals),
     ...plans.map((p) => ({ id: p.w.id, site: { x: p.w.x, y: p.w.y, fp: p.w.footprint, spur: p.w.spur, dock: p.w.dock }, needs: p.needs })),
-  ], g.env.freight, "p", g.publicWorks.locks);
+  ], g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link }));
   g.env.freightNorm = ship.norm;
   const reports = plans.map((p) => settleWorks(g, p, ship.players[p.w.id], riverMult, pe));
   const sum = (k: "revenue" | "inputCost" | "wages" | "upkeep" | "produced" | "workersHired" | "workersWanted") => reports.reduce((s, r) => s + r[k], 0);
@@ -817,7 +884,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
 }
 
 /** Add people near (cx,cy): fill existing homes first, then new lots beside streets. */
-function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: number, group?: number): number {
+export function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: number, group?: number): number {
   if (count <= 0) return 0;
   const { map: m, world: w } = g;
   const cands: { i: number; d: number }[] = [];
@@ -966,16 +1033,22 @@ function rivalPlants(g: GameState, year: number): Plant[] {
   const out: Plant[] = [];
   for (const r of g.rivals) {
     const def = RIVALS.find((d) => d.id === r.id);
-    if (!def || !r.active) continue;
+    if (!def || !r.active || r.closed) continue;
     const ind = INDUSTRIES[def.industry];
     let cap = 1, pol = 1;
     for (const id of rivalTechs(def.industry, def.id, year)) { const t = ind.tech.find((x) => x.id === id); cap += t?.effects.capacity ?? 0; pol += t?.effects.pollution ?? 0; }
-    const struck = year === 1892 && (r.id === "frick" || r.id === "carnegie");
-    const closed = year >= 1983 && def.industry === "steel";
-    const running = struck || closed ? 0 : year >= 1979 && def.industry === "steel" ? 0.55 : 0.85;
-    out.push({ x: r.x, y: r.y, fp: r.footprint, output: ind.baseCapacity * cap * running * rivalMult(g, r), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
+    const opening = def.opens !== undefined && year < def.opens; // still being built
+    out.push({ x: r.x, y: r.y, fp: r.footprint, output: opening ? 0 : ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
   }
   return out;
+}
+
+/** how hard a rival works is running in a year: full (0.85) until its decline, then its dated cutbacks */
+export function rivalRunning(def: RivalDef, year: number): number {
+  if (def.closes !== undefined && year >= def.closes) return 0;
+  let run = 0.85;
+  for (const [y, m] of def.decline ?? []) if (year >= y) run = 0.85 * m;
+  return run;
 }
 
 /** Start the air and rivers in their 1850 state (the city's coal fires have been burning for decades). */
@@ -991,12 +1064,14 @@ function warmEnvironment(g: GameState) {
 
 function spawnRivals(g: GameState, year: number) {
   for (const def of RIVALS) {
-    if (def.entryYear !== year || g.rivals.some((r) => r.id === def.id)) continue;
-    const lm = g.map.landmarks.find((l) => l.name === def.site);
+    // a rival that found no room on its entry year keeps looking, further out, for ten years
+    if (year < def.entryYear || year > def.entryYear + 10 || g.rivals.some((r) => r.id === def.id)) continue;
+    const named = g.map.landmarks.find((l) => l.name === def.site);
+    const lm = def.at ? (() => { const [x, y] = latLonToTile(g.map, def.at![0], def.at![1]); return { x: Math.max(4, Math.min(g.map.width - 12, x)), y: Math.max(4, Math.min(g.map.height - 12, y)) }; })() : named;
     if (!lm) continue;
     const ps = popSAT(g.map, g.world);
     let best: { x: number; y: number; s: number } | null = null;
-    const R = 24;
+    const R = 24 + (year - def.entryYear) * 4;
     for (let dy = -R; dy <= R; dy += 2) for (let dx = -R; dx <= R; dx += 2) {
       const x = lm.x + dx, y = lm.y + dy;
       const rep = evaluateSite(g.map, g.world, g.fields, def.industry, x, y, ps);
@@ -1010,7 +1085,34 @@ function spawnRivals(g: GameState, year: number) {
     claimFootprint(g, best.x, best.y, fp, ownerId, Use.Rival);
     g.rivals.push({ id: def.id, ownerId, x: best.x, y: best.y, footprint: fp, active: true, riverSide: riverSideOf(g.map, best.x, best.y, fp), expand: 0, damage: [], grudge: 0 });
     log(g, `${def.figures.join(" & ")} open ${def.company} near ${def.site}.`);
+    applyPendingRivalFx(g);
   }
+}
+
+/** unrest/health offsets from events at named places near (x, y) */
+function placeOffsets(g: GameState, x: number, y: number) {
+  let unrest = 0, health = 0;
+  for (const f of g.placeFx) {
+    const p = placeNamed(g.map, f.place);
+    if (!p || Math.hypot(p.x - x, p.y - y) > p.r + 40) continue;
+    unrest += f.unrest; health += f.health;
+  }
+  return { unrest, health };
+}
+
+/** the river a works stands on (its flood risk is that river's) */
+function worksRiver(g: GameState, w: Works): string | undefined {
+  const a = siteAccess(g.map, { x: w.x, y: w.y, fp: w.footprint, dock: w.dock }, cal(g).year);
+  let best: string | undefined, bd = Infinity;
+  for (const [k, d] of Object.entries(a.dock?.dist ?? {})) if (d! < bd) { bd = d!; best = k; }
+  return best;
+}
+
+/** strikes nearby last season make one here likelier (the men talk; the organisers move on) */
+function strikeContagion(g: GameState, w: Works): number {
+  let n = 0;
+  for (const [x, y] of g.lastStrikes) if (Math.hypot(x - w.x, y - w.y) < 70 && (x !== w.x || y !== w.y)) n++;
+  return Math.min(2.5, 1 + 0.5 * n);
 }
 
 export function totalPopulation(g: GameState): number {

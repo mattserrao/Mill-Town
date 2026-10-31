@@ -1,6 +1,7 @@
 // Vector overlays drawn over the live map: the works' supply chain (goods in, utilities, goods out)
 // and the competitors around it.
 
+import { nameNow } from "../core/rivals";
 import { distance } from "../core/units";
 import { type Competitor, type Flow, flowPath, type Relation, type WorksRef } from "../core/economy";
 import type { GameState } from "../core/game";
@@ -212,7 +213,7 @@ export function drawRivals(ctx: CanvasRenderingContext2D, cam: Camera, g: GameSt
     const la = anchor(myC ? [myC, at] : [at, at], ctx.canvas.width, ctx.canvas.height);
     if (!faded) labels.push({
       x: la[0], y: la[1], col,
-      lines: [c.def.company.replace(/ \(.*\)$/, ""), c.state ? `${c.product} · ~${fmt(c.capacity)}/season` : c.def.entryYear > g.world.year ? `opens ${c.def.entryYear} near ${c.def.site}` : `never opened: no site near ${c.def.site}`, `${c.def.figures.join(" & ")}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}`],
+      lines: [nameNow(c.def, g.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, ""), c.state ? `${c.product} · ~${fmt(c.capacity)}/season` : c.def.entryYear > g.world.year ? `opens ${c.def.entryYear} near ${c.def.site}` : `never opened: no site near ${c.def.site}`, `${c.def.figures.join(" & ")}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}`],
     });
   }
   if (mine) {

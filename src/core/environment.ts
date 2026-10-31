@@ -199,7 +199,7 @@ const OUTFALL_K = 0.05;
 export const RIVER_REF = 1.2;
 
 /** One season of river water: outfalls and sewage, carried downstream. */
-export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[]) {
+export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[], sewageMult = 1) {
   const r = riverStatics(m);
   const load = new Float32Array(r.order.length);
   for (const p of plants) {
@@ -211,7 +211,7 @@ export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[]) {
   for (let i = 0; i < w.pop.length; i++) {
     if (!w.pop[i] || r.nearDist[i] > 80) continue;
     const wi = r.nearWater[i];
-    if (wi >= 0 && r.pos[wi] >= 0) load[r.pos[wi]] += w.pop[i] * SEWAGE_K;
+    if (wi >= 0 && r.pos[wi] >= 0) load[r.pos[wi]] += w.pop[i] * SEWAGE_K * sewageMult;
   }
   const v = new Float32Array(r.order.length);
   for (let k = 0; k < r.order.length; k++) {
@@ -246,7 +246,7 @@ export function eraGrievance(year: number): number {
 }
 
 /** Yearly: health from air, water and crowding; unrest from health, crowding and the era. */
-export function updateHealth(m: GameMap, w: World, env: Env) {
+export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: number; y: number }[] = []) {
   const g = blockGrid(m);
   const air = new Float32Array(g.n), water = new Float32Array(g.n), pop = new Float32Array(g.n), homes = new Float32Array(g.n);
   for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
@@ -264,7 +264,10 @@ export function updateHealth(m: GameMap, w: World, env: Env) {
     const airT = Math.min(1, air[b] / pop[b] / 1.2);
     const waterT = water[b] / pop[b];
     const crowd = Math.max(0, Math.min(1, pop[b] / Math.max(1, homes[b]) / 50 - 0.3));
-    const health = Math.max(0.15, Math.min(1, 1 - 0.35 * airT - 0.45 * waterT - 0.25 * crowd));
+    // a hospital within reach (about 1½ miles) takes the edge off sickness
+    const bx = (b % g.bw) * 4 + 2, by = Math.floor(b / g.bw) * 4 + 2;
+    const care = hospitals.some((h) => Math.abs(h.x - bx) < 50 && Math.abs(h.y - by) < 50) ? 0.08 : 0;
+    const health = Math.max(0.15, Math.min(1, 1 - 0.35 * airT - 0.45 * waterT - 0.25 * crowd + care));
     env.health[b] = health;
     env.unrest[b] = Math.max(0, Math.min(1, 0.5 * (1 - health) + 0.25 * crowd + grievance));
   }

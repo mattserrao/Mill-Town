@@ -12,12 +12,12 @@ import { ACTIONS, type ActionDef, bump, pushHeadline } from "./business";
 import { allWorks, cal, type Company, type GameState, log, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { rivalMult, rivalTechs } from "./market";
-import { RIVALS, type RivalDef } from "./rivals";
+import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import type { Rng } from "./rng";
 
 const era = (year: number) => 1 + (year - 1850) * 0.012;
 const defOf = (r: RivalState) => RIVALS.find((d) => d.id === r.id)!;
-export const rivalName = (d: RivalDef) => d.company.replace(/ \(.*\)$/, "");
+export const rivalName = (d: RivalDef, year?: number) => (year ? nameNow(d, year) : d.company).replace(/ \(.*\)$/, "");
 const year = (g: GameState) => cal(g).year;
 const myIndustries = (c?: Company): IndustryId[] => (c ? [...new Set(allWorks(c).map((w) => w.industry))] : []);
 
@@ -30,8 +30,8 @@ export function rivalSeason(g: GameState, rng: Rng) {
   const c = g.company, y = year(g);
   for (const r of g.rivals) {
     r.damage = r.damage.filter((d) => d.until > g.turn);
-    if (!r.active || r.owned) continue;
-    const def = defOf(r), name = rivalName(def);
+    if (!r.active || r.owned || r.closed) continue;
+    const def = defOf(r), name = rivalName(def, y);
     const rivalOfYours = !!c && myIndustries(c).includes(def.industry);
     // a grudge is paid back first: arson for arson
     if (c && r.grudge >= 2 && rng.chance(0.25)) {
@@ -74,7 +74,7 @@ export function rivalSeason(g: GameState, rng: Rng) {
         } else {
           const others = g.rivals.filter((o) => o !== r && o.active && !o.owned);
           const t = others.length ? others[rng.int(0, others.length - 1)] : null;
-          move = t ? `financed ${rivalName(defOf(t))}: ${expand(t, 0.2)}` : expand(r, 0.1);
+          move = t ? `financed ${rivalName(defOf(t), year(g))}: ${expand(t, 0.2)}` : expand(r, 0.1);
         }
         break;
       case "innovator":
@@ -104,10 +104,10 @@ const totalMen = (c: Company) => allWorks(c).reduce((s, w) => s + w.employees, 0
 
 /** the rival works you could act against now */
 export function targets(g: GameState): RivalState[] {
-  return g.rivals.filter((r) => r.active && !r.owned);
+  return g.rivals.filter((r) => r.active && !r.owned && !r.closed);
 }
 
-const target = (g: GameState, arg?: string) => g.rivals.find((r) => r.id === arg && r.active && !r.owned);
+const target = (g: GameState, arg?: string) => g.rivals.find((r) => r.id === arg && r.active && !r.owned && !r.closed);
 const sameIndustry = (g: GameState, r: RivalState) => myIndustries(g.company).includes(defOf(r).industry);
 const needTarget = (g: GameState, arg?: string) => (target(g, arg) ? null : "Choose a rival works");
 
@@ -117,7 +117,7 @@ function caught(g: GameState, r: RivalState, what: string, rep: number, infl: nu
   bump(g, "reputation", rep); bump(g, "influence", infl);
   c.cash -= fine;
   r.grudge += grudge;
-  pushHeadline(g, `${what} Traced to ${c.name}`, `Detectives hired by ${rivalName(def)} have followed the money to ${c.name}.${fine ? ` A court orders $${fine.toLocaleString()} in damages.` : ""}`);
+  pushHeadline(g, `${what} Traced to ${c.name}`, `Detectives hired by ${rivalName(def, year(g))} have followed the money to ${c.name}.${fine ? ` A court orders $${fine.toLocaleString()} in damages.` : ""}`);
 }
 
 /** what a rival's owners would take for their works, or why they won't sell */
@@ -135,6 +135,7 @@ export function acquisitionQuote(g: GameState, r: RivalState): { price: number }
   if (def.style === "financier") price *= 1.5;
   if (rivalMult(g, r) < 1 + r.expand - 0.01) price *= 0.75; // in trouble: they'll take less
   if (y >= 1975) price *= 0.4;
+  price *= g.rules.buy?.cost ?? 1; // antitrust scrutiny raises the price
   return { price: Math.round(price / 1000) * 1000 };
 }
 
@@ -145,7 +146,7 @@ export function acquire(g: GameState, r: RivalState): Works {
   const m = g.map;
   for (let dy = 0; dy < r.footprint; dy++) for (let dx = 0; dx < r.footprint; dx++) g.world.owner[(r.y + dy) * m.width + r.x + dx] = 1;
   const w: Works = {
-    id: `p:${c.others.length + 1}`, name: rivalName(def), industry: def.industry, x: r.x, y: r.y, footprint: r.footprint,
+    id: `p:${c.others.length + 1}`, name: rivalName(def, year(g)), industry: def.industry, x: r.x, y: r.y, footprint: r.footprint,
     techs: techsForYear(def.industry, y), employees: 0, produced: 0, seasonsOperating: 0, riverSide: r.riverSide, status: "running",
     strikeTurns: 0, health: 1, unrest: 0, annexes: [], fromRival: def.id, founded: y,
   };
@@ -168,7 +169,7 @@ const RIVAL_ACTIONS: ActionDef[] = [
       g.mods.push({ kind: "price", mult: 0.94, until: g.turn + 4, source: "Your price cut" });
       damage(g, r, 0.8, 4, "your price cut");
       if (defOf(r).style === "aggressive") r.grudge++;
-      return `You undersell ${rivalName(defOf(r))}; their order books thin.`;
+      return `You undersell ${rivalName(defOf(r), year(g))}; their order books thin.`;
     },
   },
   {
@@ -220,7 +221,7 @@ const RIVAL_ACTIONS: ActionDef[] = [
       const r = target(g, arg)!, def = defOf(r), y = year(g);
       damage(g, r, 0.35, 2, "fire");
       const dead = rng.chance(0.3) ? rng.int(1, 5) : 0;
-      pushHeadline(g, `Fire Guts ${rivalName(def)} Works`, `Fire swept the ${rivalName(def)} works overnight${dead ? `, killing ${dead}` : ""}. The cause is not known.`);
+      pushHeadline(g, `Fire Guts ${rivalName(def, year(g))} Works`, `Fire swept the ${rivalName(def, year(g))} works overnight${dead ? `, killing ${dead}` : ""}. The cause is not known.`);
       const p = 0.3 + (y >= 1910 ? 0.2 : 0) + (y >= 1950 ? 0.2 : 0);
       if (rng.chance(p)) { caught(g, r, "Arson", -40, -30, Math.round(50000 * era(y)), 3); return "The fire did its work. Then the detectives did theirs."; }
       r.grudge++;
@@ -247,6 +248,50 @@ const RIVAL_ACTIONS: ActionDef[] = [
   },
 ];
 
+/** what a buyer would pay for one of your works (none of them will take the first works: that's the company) */
+export function saleQuote(g: GameState, w: Works): number {
+  const ind = INDUSTRIES[w.industry], y = year(g);
+  let cap = 1;
+  for (const t of ind.tech) if (w.techs.includes(t.id)) cap += t.effects.capacity ?? 0;
+  let price = ind.baseCapacity * cap * ind.basePrice * (1 + (y - 1850) * 0.008) * 5;
+  if (y >= 1975) price *= 0.3; // who buys a mill in the collapse?
+  return Math.round(price / 1000) * 1000;
+}
+
+/** sell one of your works: back to its old owners if you bought it, otherwise to whoever will run it */
+export function sellWorks(g: GameState, w: Works, buyer: "market" | "workers"): string {
+  const c = g.company!, y = year(g);
+  if (w === c) return "You can't sell the company's first works.";
+  const price = Math.round(saleQuote(g, w) * (buyer === "workers" ? 0.5 : 1));
+  c.cash += price;
+  c.others = c.others.filter((x) => x !== w);
+  const m = g.map;
+  const r = w.fromRival ? g.rivals.find((x) => x.id === w.fromRival) : undefined;
+  if (r) { r.owned = false; r.active = true; r.closed = false; }
+  for (let dy = 0; dy < w.footprint; dy++) for (let dx = 0; dx < w.footprint; dx++) g.world.owner[(w.y + dy) * m.width + w.x + dx] = r ? r.ownerId : 0;
+  g.world.version++;
+  if (buyer === "workers") { g.morale = Math.min(100, g.morale + 6); c.biz.meters.reputation = Math.min(100, c.biz.meters.reputation + 8); }
+  c.biz.record.push(`${cal(g).season} ${y}: Sold ${w.name}${buyer === "workers" ? " to its workers" : ""}`);
+  return `${w.name} is sold${buyer === "workers" ? " to the men who work it" : ""} for $${price.toLocaleString()}.`;
+}
+
+const SELL_ACTIONS: ActionDef[] = [
+  {
+    id: "sell", group: "Rivals", name: "Sell one of your works",
+    blurb: "Raise cash: a buyer takes one of your other works (a works you bought goes back to its old owners).",
+    cost: () => 0,
+    blocked: (g) => (g.company!.others.length ? null : "You have only the one works"),
+    run: (g, _rng, arg) => { const w = g.company!.others.find((x) => x.id === arg) ?? g.company!.others[0]; return sellWorks(g, w, "market"); },
+  },
+  {
+    id: "sell_workers", group: "Rivals", name: "Sell a works to its workers",
+    blurb: "An employee buy-out (like Weirton, 1984): half the price, but the town and the men won't forget it. Morale +6, reputation +8.",
+    cost: () => 0,
+    blocked: (g) => (year(g) < 1975 ? "Employee buy-outs come with the collapse (1980s)" : g.company!.others.length ? null : "You have only the one works"),
+    run: (g, _rng, arg) => { const w = g.company!.others.find((x) => x.id === arg) ?? g.company!.others[0]; return sellWorks(g, w, "workers"); },
+  },
+];
+
 // buying is special: its price depends on the target
 const buy = RIVAL_ACTIONS.find((a) => a.id === "buy")!;
 buy.blocked = (g, arg) => {
@@ -270,4 +315,4 @@ buy.run = (g, _rng, arg) => {
 };
 for (const a of RIVAL_ACTIONS) if (a.target) { const b = a.blocked; a.blocked = (g, arg) => needTarget(g, arg) ?? b(g, arg); }
 
-ACTIONS.push(...RIVAL_ACTIONS);
+ACTIONS.push(...RIVAL_ACTIONS, ...SELL_ACTIONS);

@@ -18,6 +18,11 @@ import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
 import { marketsView } from "./ui/markets";
 import { districtPanel, zoneAt } from "./ui/district";
 import { drawDistricts } from "./render/districts";
+import { teamGround, teamName } from "./core/sports";
+import { nameNow } from "./core/rivals";
+import { type LandmarkKind, placeLandmark } from "./core/landmarks";
+import { allDecisions, allEffects } from "./core/eventdata";
+import { applyEffects } from "./core/effects";
 import { buildProject, checkProject, PROJECTS, type ProjectKind, type Proposal, suggestProject } from "./core/projects";
 import { allWorks } from "./core/game";
 import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
@@ -302,11 +307,13 @@ function renderPaper() {
 
 function refreshPanels() {
   const c = cal(game);
-  $("calendar").innerHTML = `<b>${c.season} ${c.year}</b> · Era ${c.era.id}: ${c.era.name}`;
-  $("population").innerHTML = `Population <b>${fmt(totalPopulation(game))}</b>`;
+  $("calendar").innerHTML = `<b>${c.season} ${c.year}</b> · Era ${c.era.id}`;
+  $("calendar").title = `Era ${c.era.id}: ${c.era.name}`;
+  $("population").innerHTML = `Pop. <b>${fmt(totalPopulation(game))}</b>`;
   $("cash").innerHTML = game.company ? `Cash <b>${money(game.company.cash)}</b>` : `Capital <b>$100,000</b>`;
   const bz = game.company?.biz.meters;
-  $("standing").innerHTML = bz ? ["Rep", "Labour", "Infl"].map((k, i) => { const v = Math.round([bz.reputation, bz.labour, bz.influence][i]); return `${k} <b class="${i < 2 ? (v >= 0 ? "up" : "down") : ""}">${i < 2 && v > 0 ? "+" : ""}${v}</b>`; }).join(" · ") : "";
+  $("standing").innerHTML = (bz ? ["Rep", "Labour", "Infl"].map((k, i) => { const v = Math.round([bz.reputation, bz.labour, bz.influence][i]); return `${k} <b class="${i < 2 ? (v >= 0 ? "up" : "down") : ""}">${i < 2 && v > 0 ? "+" : ""}${v}</b>`; }).join(" · ") + " · " : "") + `Morale <b class="${game.morale >= 50 ? "up" : "down"}">${Math.round(game.morale)}</b>`;
+  townPanel();
   $("businessSection").hidden = !game.company;
   $("worksSection").hidden = !game.company;
   worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
@@ -322,6 +329,17 @@ function refreshPanels() {
     const lc = cal({ ...game, turn: l.turn });
     return `<li>${lc.season.slice(0, 3)} ${lc.year} — <b>${l.text}</b></li>`;
   }).join("");
+}
+
+/** morale, the jobless, the teams and their grounds */
+function townPanel() {
+  const g = game, y = g.world.year, mo = Math.round(g.morale);
+  const word = mo < 25 ? "Despairing" : mo < 40 ? "Low" : mo < 60 ? "Steady" : mo < 75 ? "Proud" : "Jubilant";
+  const teams = g.teams.filter((t) => t.active);
+  $("town").innerHTML = `<div class="bz-meter"><div class="bz-k">Town morale</div><div class="bz-bar"><b style="left:0;width:${mo}%;background:${mo >= 50 ? "#5aa860" : "#c8a040"}"></b></div><div class="bz-v">${mo} · ${word}</div></div>
+    ${g.jobless > 50 ? `<div class="kv"><div class="k">Out of work</div><div class="v bad">${fmt(g.jobless)}</div></div>` : ""}
+    ${teams.length ? `<div class="kv">${teams.map((t) => `<div class="k">${teamName(t.id, y)}</div><div class="v">${teamGround(t.id, y)}${t.last ? ` · ${t.last}` : ""}${t.titles.length ? ` · 🏆 ${t.titles.join(", ")}` : ""}</div>`).join("")}</div>` : `<p class="hint">No professional teams yet (the Alleghenys take the field in 1887).</p>`}
+    ${g.landmarks.length ? `<p class="hint">${g.landmarks.length} landmarks built${g.landmarks.some((l) => l.state !== "open") ? `, ${g.landmarks.filter((l) => l.state !== "open").length} closed or ruined` : ""}.</p>` : ""}`;
 }
 
 function inspect() {
@@ -454,13 +472,13 @@ function rivalsPanel() {
   const myCap = game.company ? allWorks(game.company).filter((w) => w.industry === ind).reduce((t, w) => t + capacityOf(w.industry, w.techs), 0) : 0;
   const total = myCap + direct.reduce((s, c) => s + c.capacity, 0);
   const share = mine && total ? `<div class="full hint">Your share of ${INDUSTRIES[ind].name.toLowerCase()} capacity on the map</div>
-    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: c.def.company.replace(/ \(.*\)$/, ""), v: c.capacity, c: RELATION_COLOUR.competitor }))]
+    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, ""), v: c.capacity, c: RELATION_COLOUR.competitor }))]
       .map((p, k) => `<div title="${p.n}: ~${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? 1 - k * 0.15 : 1}"></div>`).join("")}</div>
     <div class="hint">You ${Math.round((myCap / total) * 100)}% · ${direct.length} rival works open</div>` : "";
   const label: Record<string, string> = { competitor: "Competitor", supplier: "Supplier", customer: "Customer", other: "Other industry" };
   $("rivalsList").innerHTML = share + list.map((c) => `
     <div class="sc-row ${c.state ? "" : "later"}" data-rival="${c.def.id}" title="Hover to highlight on the Competitors overlay, click to go there">
-      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${c.def.company.replace(/ \(.*\)$/, "")}</b><span>${label[c.relation]}</span></div>
+      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, "")}${c.state?.closed ? " (closed)" : ""}</b><span>${label[c.relation]}</span></div>
       <div class="sc-sub">${c.owned ? `<span class="owned">Yours now</span> · ${c.product}` : c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
       <div class="sc-sub">${c.def.figures.join(" & ")} — ${c.def.note}</div>
       ${c.state?.lastMove ? `<div class="sc-sub"><i>Last move ${c.state.lastMove}</i></div>` : ""}
@@ -716,7 +734,8 @@ function soundUI() {
   const top = $("soundTop");
   top.classList.toggle("on", on);
   top.classList.toggle("waiting", soundWanted && !on);
-  top.textContent = on ? "🔊 Sound on" : soundWanted ? "🔈 Click to start" : "🔇 Sound off";
+  top.textContent = on ? "🔊" : soundWanted ? "🔈 Start" : "🔇";
+  top.title = (on ? "Sound on" : soundWanted ? "Click to start the sound" : "Sound off") + " (M)";
   top.title = on ? "Sound is on — click or press M to mute" : soundWanted ? "Browsers start audio on your first click or key press" : "Sound is off — click or press M to turn it on";
   $("sound").textContent = on ? "Sound off" : "Sound on";
   if (!on && !soundWanted) $("nowPlaying").textContent = "Music follows the era, the neighbourhood in view and how close you are.";
@@ -832,7 +851,7 @@ function updateTimeControls() {
   const over = !!game.over;
   for (const id of ["next", "nextYear"]) ($<HTMLButtonElement>(id)).disabled = over;
   document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => { b.disabled = over && b.dataset.speed !== "0"; });
-  $("next").textContent = over ? "The end — 1985" : "Next season ▶";
+  $("next").textContent = over ? "The end — 1985" : "Season ▶";
 }
 
 /** jump to the best affordable site for the chosen industry (press again for the next one) */
@@ -920,6 +939,10 @@ Object.assign(window, {
     get pending() { return renderer.pending; },
     query: (x: number, y: number) => { if (!querying) setQuerying(true); selected = { x, y }; const [sx, sy] = tileScreen(x, y); showQuery(x, y, sx, sy); requestRender(); },
     get traffic() { return traffic; },
+    /** place a test landmark of a kind at a named place (for checking sprites) */
+    landmark: (kind: LandmarkKind, place: string) => { const r = placeLandmark(game, { id: `test-${kind}-${place}`, name: kind, kind, place }); renderer.invalidateAll(); afterChange(); return r; },
+    /** fire an event's effects by name (for testing) */
+    fire: (name: string) => { const fx = allEffects()[name]; if (fx) applyEffects(game, name, fx); const d = allDecisions()[name]?.(game); if (d) game.pendingDecision = d; afterChange(); return { effects: fx?.length ?? 0, decision: !!d }; },
     sound,
   },
 });

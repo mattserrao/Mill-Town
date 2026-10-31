@@ -52,7 +52,12 @@ export const SUB_NAMES: Record<number, Record<number, string>> = {
 
 export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4 }
 
-export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitentiary"] as const;
+export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitentiary",
+  // dated landmarks (src/core/landmarks.ts): one sprite per kind, struct:<kind>
+  "hospital", "library", "college", "tower", "museum", "conservatory", "ballpark", "stadium", "arena", "terminal", "chapel",
+  "school", "theatre", "observatory", "zoo", "amusement", "airport", "plant", "office", "housing", "fountain", "factory",
+  "shipyard", "planetarium", "church", "hall", "ruin1", "ruin2", "ruin3", "ruin4"] as const;
+export type StructureKind = (typeof STRUCTURES)[number];
 const STRUCTURE_SIZE: Record<string, number> = { blockhouse: 1, courthouse: 2, arsenal: 3, penitentiary: 3 };
 
 /** 1850 settlements (populations approximate; ± variation by seed). Reach in metres. */

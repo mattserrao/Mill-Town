@@ -13,7 +13,7 @@
       <div id="cash" class="stat"></div>
       <div id="standing" class="stat" title="Reputation · labour relations · influence"></div>
       <div class="spacer"></div>
-      <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
+      <label class="seed" title="Seed">Seed <input id="seed" type="text" size="8" /></label>
       <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
       <button id="marketsBtn" title="Prices, wages and costs over time">Markets</button>
       <button id="soundTop" title="Sound on/off (M)">🔈 Sound</button>
@@ -21,8 +21,8 @@
         <span id="speeds" title="Game speed (P pauses; 1–4 pick a speed). At 1× a game from 1850 to 1985 takes about two hours.">
           <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="1× — a season every 13 s (about 2 hours a game)">1×</button><button data-speed="2" title="2× — a season every 6.5 s">2×</button><button data-speed="3" title="4× — a season every 3.3 s">4×</button><button data-speed="4" title="8× — as fast as the map can keep up">8×</button>
         </span>
-        <button id="nextYear" title="Advance one year (Shift+Space)">Next year ▶▶</button>
-        <button id="next" class="primary" title="Advance one season (Space)">Next season ▶</button>
+        <button id="nextYear" title="Advance one year (Shift+Space)">Year ▶▶</button>
+        <button id="next" class="primary" title="Advance one season (Space)">Season ▶</button>
       </div>
     </header>
     <main>
@@ -101,6 +101,10 @@
           <button id="incline" title="Build an incline from a street near the works up to the hilltop houses">Build an incline ($60,000)</button>
           <button id="spur" title="Lay a siding from the works to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full" hidden></button>
           <div class="btn-row"><button id="showSupply" title="Show where your raw materials come from and where your goods go">Supply chain map</button><button id="showRivals" title="Show the rival works in your industry and related ones">Competitors map</button></div>
+        </section>
+        <section id="townSection">
+          <h2>The town</h2>
+          <div id="town"></div>
         </section>
         <section id="districtSection" hidden>
           <h2>Neighbourhood</h2>

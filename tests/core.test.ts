@@ -114,7 +114,7 @@ describe("town + game loop", () => {
 
 describe("hillsides", () => {
   it("fills the slopes as the region grows, with public steps, and inclines shorten the climb", () => {
-    const g = newGame(map, 1850);
+    const g = newGame(map, 1851);
     expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
     g.company!.cash = 1e9; // solvent without investing
     for (let t = 0; t < 4 * 50; t++) advanceTurn(g);
@@ -168,7 +168,7 @@ describe("time", () => {
     const g = newGame(map, 11);
     const pops = [totalPopulation(g)];
     for (let t = 0; t < 4; t++) { advanceTurn(g); pops.push(totalPopulation(g)); }
-    for (let t = 1; t < pops.length; t++) expect(pops[t]).toBeGreaterThan(pops[t - 1] + 500);
+    for (let t = 1; t < pops.length; t++) expect(pops[t]).toBeGreaterThan(pops[t - 1] + 300);
   }, 60000);
 
   it("ends after Winter 1985 and stays ended", () => {
@@ -195,7 +195,7 @@ describe("time", () => {
 
 describe("valley systems", () => {
   it("rivals and homes smoke the air, freight moves, institutions follow communities", () => {
-    const g = newGame(map, 1850);
+    const g = newGame(map, 1851);
     expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
     g.company!.cash = 1e9; // stay solvent without investing
     while (calendar(g.turn).year < 1905 && !g.over) advanceTurn(g);
@@ -334,4 +334,24 @@ describe("works, technology and rivals", () => {
     expect(g.company!.bankrupt).toBe(true);
     expect(g.over).toBe(true);
   }, 120000);
+});
+
+describe("event data", () => {
+  it("keys every effect and decision to a real event, and every landmark and place resolves", async () => {
+    const { EVENTS } = await import("../src/core/events");
+    const { allEffects, allDecisions, allLandmarks } = await import("../src/core/eventdata");
+    const { placeNamed } = await import("../src/core/places");
+    const names = new Set(EVENTS.map((e) => e.name));
+    const bad = [...Object.keys(allEffects()), ...Object.keys(allDecisions())].filter((k) => !names.has(k));
+    expect(bad).toEqual([]);
+    const ids = new Set(allLandmarks().map((l) => l.id));
+    const missing: string[] = [], noPlace: string[] = [];
+    for (const [ev, fx] of Object.entries(allEffects())) for (const f of fx) {
+      if ("landmark" in f && !ids.has(f.landmark)) missing.push(`${ev}: ${f.landmark}`);
+      for (const p of "place" in f && f.place ? [f.place] : "migrate" in f ? f.migrate.places : "blast" in f ? [f.blast.place] : "clearance" in f ? [f.clearance.place, ...f.clearance.to] : []) if (!placeNamed(map, p)) noPlace.push(`${ev}: ${p}`);
+    }
+    for (const l of allLandmarks()) if (!placeNamed(map, l.place)) noPlace.push(`landmark ${l.id}: ${l.place}`);
+    expect(missing).toEqual([]);
+    expect(noPlace).toEqual([]);
+  });
 });

@@ -169,16 +169,16 @@ type LinkId = GatewayId | "rail";
  * Ship every works' inputs for the season. Rivals take their cheapest lane; the player too, overflowing
  * to the next lane when the first is full. Returns the player's result and marks freight along the routes.
  */
-export function shipSeason(m: GameMap, year: number, riverFactor: number, shippers: Shipper[], freight: Float32Array, playerId = "p", locks: Partial<Record<GatewayId, number>> = {}): { player?: ShipResult; players: Record<string, ShipResult>; norm: number } {
+export function shipSeason(m: GameMap, year: number, riverFactor: number, shippers: Shipper[], freight: Float32Array, playerId = "p", locks: Partial<Record<GatewayId, number>> = {}, capMult: (link: string) => number = () => 1): { player?: ShipResult; players: Record<string, ShipResult>; norm: number } {
   // the player's works are "p", "p:1", "p:2"…
   const mine = (id: string) => id === playerId || id.startsWith(playerId + ":");
   // locks and dams won by lobbying add 35% each to a river's capacity
   const lk = (gw: GatewayId) => 1 + 0.35 * (locks[gw] ?? 0);
   const cap: Record<LinkId, number> = {
-    upper_mon: riverCapacity("upper_mon", year) * riverFactor * lk("upper_mon"),
-    allegheny: riverCapacity("allegheny", year) * riverFactor * lk("allegheny"),
-    ohio: riverCapacity("ohio", year) * riverFactor * lk("ohio"),
-    rail: railCapacity(m, year),
+    upper_mon: riverCapacity("upper_mon", year) * riverFactor * lk("upper_mon") * capMult("upper_mon"),
+    allegheny: riverCapacity("allegheny", year) * riverFactor * lk("allegheny") * capMult("allegheny"),
+    ohio: riverCapacity("ohio", year) * riverFactor * lk("ohio") * capMult("ohio"),
+    rail: railCapacity(m, year) * capMult("rail"),
   };
   type Opt = { link: LinkId; mode: "river" | "rail"; gateway?: GatewayId; costPerTon: number; path: [number, Int32Array] };
   const st = statics(m), rd = railDist(m, year);

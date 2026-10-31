@@ -5,7 +5,7 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { lineIndex, segDist, type Seg } from "../core/lines";
-import { techsForYear, type GameState } from "../core/game";
+import { rivalRunning, techsForYear, type GameState } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
 import { RIVALS } from "../core/rivals";
@@ -168,7 +168,7 @@ export class Renderer {
     // only what the plant drawings depend on: layout, status, how full the yards are, and the year (soot, rival tech)
     const fillOf = (co: NonNullable<typeof c>) => Math.min(2, Math.round(((co.lastSeason?.produced ?? 0) / INDUSTRIES[co.industry].baseCapacity) * 2));
     const extra = c ? [...c.others.map((w) => `${w.id}:${w.x},${w.y}:${w.techs.length}:${w.status}`), ...c.annexes.map((a) => `${a.kind}${a.x},${a.y}`)].join(";") : "";
-    const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.rivals.filter((r) => r.owned).length}|${extra}|${g.world.year}`;
+    const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.rivals.filter((r) => r.owned).length}|${g.rivals.map((r) => `${r.closed ? 1 : 0}${(r.strikeUntil ?? 0) > g.turn ? 1 : 0}`).join("")}|${extra}|${g.world.year}`;
     if (key === this.plantsKey) return;
     this.plantsKey = key;
     this.plants.clear();
@@ -205,7 +205,7 @@ export class Renderer {
       this.rivalIndustry.set(r.ownerId, def.industry);
       if (r.owned) continue;
       // Homestead, 1892: the lockout at the Frick/Carnegie works
-      const status = g.world.year === 1892 && (r.id === "frick" || r.id === "carnegie") ? "strike" : g.world.year >= 1983 && def.industry === "steel" ? "idle" : "running";
+      const status = (r.strikeUntil ?? 0) > g.turn ? "strike" : r.closed || rivalRunning(def, g.world.year) === 0 || (def.opens !== undefined && g.world.year < def.opens) ? "idle" : "running";
       add(r.x, r.y, r.footprint, { ind: def.industry, techs: techsForYear(def.industry, g.world.year), fp: r.footprint, side: r.riverSide, owner: r.id, status, fill: status === "running" ? 1 : 0 },
         status === "running", g.world.year - def.entryYear);
     }

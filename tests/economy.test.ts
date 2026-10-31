@@ -41,7 +41,7 @@ describe("economy", () => {
     const list = competitors(g, "glass");
     expect(list[0].relation).toBe("competitor");
     expect(list[0].def.id).toBe("ppg");
-    expect(list.find((c) => c.def.id === "westinghouse")!.relation).toBe("supplier");
+    expect(list.find((c) => c.def.id === "dlight")!.relation).toBe("supplier");
     expect(list.every((c) => !c.state)).toBe(true); // nobody has opened in 1850
   });
 });

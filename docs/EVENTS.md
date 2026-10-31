@@ -9,18 +9,18 @@ Columns: `Year, Season, Event Name, Description, Category, Suggested Action`
   An event in January or February belongs in the **previous** year's Winter.
 - Category is one of: Industry, Economy, Labor, Politics, Parks, Libraries, Universities, Culture, Health,
   Infrastructure, Disaster, Society. It is shown above the headline.
-- Suggested Action is a design note, not read by the game (yet: `EVENTS-PLAN.md` is the plan for making them play, and
-  `EVENTS-ACTIONS.md` classifies every event). It proposes what the event should do in play, tagged:
+- Suggested Action is a design note, not read by the game. Since v0.11.1 the era files implement them
+  (`EVENTS-PLAN.md` has the plan and what is still open; `EVENTS-ACTIONS.md` classifies every event). It proposes what the event should do in play, tagged:
   **Spawn** (something appears on the map), **Rival** (an AI company acts), **Choice** (a player decision),
   **Effect** (an economy or town modifier; "Effect (existing)" means `events.ts` already does it),
   **Unlock** (a new option or technology) and **Off-map** (it happens beyond the map edge, so it acts through
   prices, rivals or migrants instead of buildings).
 - Keep rows in date order (the tests check this).
 - Events fire at the start of their season, shown as a headline and logged.
-- Some events also change the game. The effect is matched by Event Name in `src/core/events.ts`
-  (panics, wars, floods, strikes, epidemics, immigration waves, smoke control, unions, private police,
-  labor law, tariffs, pollution decrees).
-  Renaming one of those events in the CSV removes its effect until the name in `events.ts` is updated too.
+- Most events also change the game. Effects, decision cards and landmarks are matched by Event Name in the era
+  files `src/core/eventdata/era1.ts` (1850–1892), `era2.ts` (1893–1917), `era3.ts` (1918–1951) and `era4.ts`
+  (1952–1985). Renaming an event in the CSV removes its effect until the name there is updated too (a test checks
+  that every name in the era files is a real event).
 - Dates and figures are approximate.
 
 ## Sources
