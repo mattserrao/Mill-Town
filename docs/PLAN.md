@@ -58,6 +58,9 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Time: Next season / Next year / Play (auto-advance, holds on headlines); the town grows every season; the game ends
      after Winter 1985 with a final newspaper summary (company record, peak and final valley population)
    - Start: "Found your company" steps at the top of the panel, footprint shown under the cursor, "Show me a good site"
+   - Query tool (? / Q): click a tile for its building, everything on it, the land, and its neighbourhood —
+     composition, which communities seeded it and when, and a growth chart by community (5-yearly history)
+   - Zoomed out (< 0.375×) only trains, river craft and smoke animate; version shown in the top bar, console and terminal
    - Smooth lines: creeks and rail lines drawn from the source vectors; tile staircases chamfered on streets and
      shorelines; bluffs blend into the woods
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
@@ -67,6 +70,10 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 6. Second industry purchase (Era II) and cross-industry supply (power → mills, steel → shipyards)
 7. Historical events (1877 rail strike, 1892 Homestead, 1936 flood, wars, 1950s peak, 1980s collapse) and legacy choices
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
+
+## Mechanics review
+See `docs/MECHANICS.md` — comparison with SimCity (Micropolis) and the recommended next steps for ticks,
+routing, environment, growth and neighbourhood style.
 
 ## Known gaps in the current build
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw

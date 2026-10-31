@@ -12,6 +12,7 @@ import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terr
 import { HILLSIDES, INCLINES, PARKS, tileLine } from "./features";
 import { EFFECTS, eventsFor, type HistEvent, type Mod, modMult } from "./events";
 import { GROUPS, immigrationPressure, pickGroup } from "./ancestry";
+import { type History, newHistory, recordHistory } from "./neighbourhood";
 
 export type RiverSide = "N" | "S" | "E" | "W";
 export type PlantStatus = "running" | "idle" | "strike" | "flooded";
@@ -77,6 +78,8 @@ export interface GameState {
   /** true once the last season (Winter 1985) has been played */
   over?: boolean;
   stats: GameStats;
+  /** neighbourhood composition over time (5-yearly) and when each community first arrived */
+  history: History;
 }
 
 export interface GameStats {
@@ -99,7 +102,9 @@ export function newGame(map: GameMap, seed: number): GameState {
   const world = generateTown(map, seed, 1850);
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
-    stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 } };
+    stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
+    history: newHistory(map) };
+  recordHistory(map, world, g.history);
   g.stats.peakPop = totalPopulation(g);
   fireEvents(g);
   return g;
@@ -407,6 +412,7 @@ export function advanceTurn(g: GameState): void {
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
     for (const pk of PARKS) if (pk.year === c1.year) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
+    recordHistory(g.map, g.world, g.history);
     updateAccess(g);
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);

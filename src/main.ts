@@ -11,6 +11,7 @@ import { Traffic } from "./render/traffic";
 import { SoundController, summarizeView } from "./audio";
 import { ANCHORS } from "./core/ancestry";
 import { HILLSIDES, latLonToTile } from "./core/features";
+import { queryCard } from "./ui/query";
 import { makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -38,10 +39,20 @@ let placing = true;
 let playTimer = 0;
 let seedEdited = false;
 let newsAt = 0;
+let querying = false;
 let soundWanted = (() => { try { return localStorage.getItem("mt.sound") !== "off"; } catch { return true; } })();
 let siteTried: { x: number; y: number }[] = [];
 
+function announceVersion() {
+  const v = window.__MT_VERSION__;
+  const label = v ? v.label : "dev";
+  console.log(`%cMILL TOWN%c ${label}${v?.date ? ` · committed ${v.date}` : ""}`, "color:#e0a243;font-weight:bold;letter-spacing:2px", "color:inherit");
+  $("version").textContent = v ? `v${v.version}·${v.sha}${v.dirty ? "*" : ""}` : "";
+  $("version").title = v ? `${v.label}, committed ${v.date}` : "";
+}
+
 async function start() {
+  announceVersion();
   $("zoom").textContent = "Loading map…";
   const params = new URLSearchParams(location.search);
   const seed = Number(params.get("seed") ?? Math.floor(Math.random() * 1e6));
@@ -81,6 +92,12 @@ function centerOn(tx: number, ty: number, zoom = cam.zoom) {
   cam.y = sy - canvas.height / 2 / zoom;
   clampCam();
   requestRender();
+}
+
+/** screen position (canvas px) of a tile's centre */
+function tileScreen(x: number, y: number): [number, number] {
+  const [wx, wy] = project(x + 0.5, y + 0.5, map.elevation[y * map.width + x]);
+  return [(wx - cam.x) * cam.zoom, (wy - cam.y) * cam.zoom];
 }
 
 function clampCam() {
@@ -330,7 +347,7 @@ function setupUI() {
   sel.innerHTML = INDUSTRY_IDS.map((k) => `<option value="${k}">${INDUSTRIES[k].name}</option>`).join("");
   sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); inspect(); requestRender(); });
   industryNote();
-  $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; requestRender(); });
+  $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; if (placing && querying) setQuerying(false); requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
   for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline]] as const) $(id).addEventListener("click", () => {
     const r = fn(game);
@@ -400,6 +417,7 @@ function setupUI() {
     if (down && !dragged && e.target === canvas) {
       selected = pickTile(map, cam.x + e.offsetX / cam.zoom, cam.y + e.offsetY / cam.zoom);
       inspect();
+      if (querying && selected) showQuery(selected.x, selected.y, e.offsetX, e.offsetY);
       requestRender();
     }
     down = null;
@@ -438,6 +456,8 @@ function setupUI() {
     const ty = Math.floor((e.clientY - r.top) / r.height * map.height);
     centerOn(Math.max(0, Math.min(map.width - 1, tx)), Math.max(0, Math.min(map.height - 1, ty)));
   });
+  $("queryBtn").addEventListener("click", () => setQuerying(!querying));
+  $("query").addEventListener("click", (e) => { if ((e.target as HTMLElement).classList.contains("q-close")) $("query").hidden = true; });
   $("zoomIn").addEventListener("click", () => setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() + 1));
   $("zoomOut").addEventListener("click", () => setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() - 1));
 
@@ -453,7 +473,8 @@ function setupUI() {
     else if (k === "-" || k === "_") return setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() - 1);
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
-    else if (k === "escape") { placing = false; ($<HTMLInputElement>("placing")).checked = false; }
+    else if (k === "escape") { if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; } }
+    else if (k === "q") { setQuerying(!querying); return; }
     else return;
     clampCam();
     requestRender();
@@ -472,6 +493,27 @@ function placeName(): string {
   for (const h of HILLSIDES) { const [x, y] = latLonToTile(map, h.lat, h.lon); consider(h.name, x, y); }
   for (const l of map.landmarks) if (l.kind === "town") consider(l.name.replace(/ \(.*\)$/, ""), l.x, l.y);
   return best;
+}
+
+/** Query tool on/off: while on, clicks open a card at the tile instead of placing works */
+function setQuerying(on: boolean) {
+  querying = on;
+  $("queryBtn").classList.toggle("on", on);
+  canvas.classList.toggle("querying", on);
+  if (on) { placing = false; ($<HTMLInputElement>("placing")).checked = false; }
+  else $("query").hidden = true;
+  requestRender();
+}
+
+/** open the query card for a tile, beside the click point but kept inside the map view */
+function showQuery(x: number, y: number, px: number, py: number) {
+  const el = $("query");
+  el.innerHTML = queryCard({ game, map, renderer }, x, y);
+  el.hidden = false;
+  const vw = canvas.width, vh = canvas.height, w = el.offsetWidth, h = el.offsetHeight;
+  const left = px + 24 + w < vw ? px + 24 : Math.max(8, px - 24 - w);
+  el.style.left = `${left}px`;
+  el.style.top = `${Math.max(8, Math.min(vh - h - 8, py - 40))}px`;
 }
 
 function soundUI() {
@@ -513,6 +555,7 @@ function nextYear() {
 
 function afterTurn() {
   afterChange();
+  if (querying && selected && !$("query").hidden) { const el = $("query"); el.innerHTML = queryCard({ game, map, renderer }, selected.x, selected.y); }
   showNews();
   if (game.over) { stopPlay(); showFinal(); }
 }
@@ -619,6 +662,7 @@ Object.assign(window, {
     tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
     tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
     get pending() { return renderer.pending; },
+    query: (x: number, y: number) => { if (!querying) setQuerying(true); selected = { x, y }; const [sx, sy] = tileScreen(x, y); showQuery(x, y, sx, sy); requestRender(); },
     get traffic() { return traffic; },
     sound,
   },

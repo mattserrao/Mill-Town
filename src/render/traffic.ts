@@ -148,13 +148,16 @@ export class Traffic {
     this.updateDecks(year);
     this.cam = cam; this.cw = cw; this.ch = ch;
     const v = this.view(cam, cw, ch);
-    this.agents = this.agents.filter((a) => this.inView(a, v));
     const z = cam.zoom;
+    // zoomed out, only the big movers stay: trains and river craft (and the smoke, drawn elsewhere);
+    // people, horses, wagons, streetcars and cars appear from 0.375× in, where they're legible
+    const small = z >= SMALL_AGENT_ZOOM;
+    this.agents = this.agents.filter((a) => this.inView(a, v) && (small || BIG.has(a.kind)));
     const tiles = (cw * ch) / (2048 * z * z); // tiles on screen
     const want = {
-      street: z >= 0.375 ? Math.min(420, tiles * 0.9) : z >= 0.25 ? Math.min(90, tiles * 0.05) : 0,
-      train: z >= 0.1875 ? Math.min(6, tiles / 1500 + 1) : 0,
-      boat: z >= 0.1875 ? Math.min(14, tiles / 900 + 2) : 0,
+      street: small ? Math.min(420, tiles * 0.9) : 0,
+      train: Math.min(z >= 0.25 ? 6 : 10, tiles / 1500 + 1),
+      boat: Math.min(z >= 0.25 ? 14 : 22, tiles / 900 + 2),
     };
     let streetN = 0, trainN = 0, boatN = 0;
     for (const a of this.agents) { if (a.kind === "train") trainN++; else if (a.kind === "steamboat" || a.kind === "tow") boatN++; else streetN++; }
@@ -361,7 +364,7 @@ export class Traffic {
       const [sx, sy] = S(px, py, this.height(i));
       const loco = k === 0;
       const col = loco ? "#1e1e22" : a.col;
-      const w = 9 * z, h = 6 * z;
+      const w = Math.max(3, 9 * z), h = Math.max(2, 6 * z); // stays visible zoomed right out
       ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(sx - w / 2 + z, sy - h + z, w, h);
       ctx.fillStyle = col; ctx.fillRect(sx - w / 2, sy - h - 2 * z, w, h);
       if (loco) { ctx.fillStyle = "#3a3a40"; ctx.fillRect(sx - 1.5 * z, sy - h - 6 * z, 3 * z, 4 * z); ctx.fillStyle = "rgba(200,200,200,0.5)"; ctx.beginPath(); ctx.arc(sx - 4 * z, sy - h - 9 * z, 4 * z, 0, Math.PI * 2); ctx.fill(); }
@@ -506,6 +509,10 @@ export class Traffic {
 }
 
 /** Deck height profile (m) along a span, f = 0..1 — shared with the bridge renderer. */
+/** below this zoom, small street agents (people, horses, cars) are not shown */
+export const SMALL_AGENT_ZOOM = 0.375;
+const BIG = new Set<string>(["train", "steamboat", "tow"]);
+
 export function spanProfile(m: GameMap, sp: Span, type: string, built: number) {
   const elevAt = (x: number, y: number) => m.elevation[Math.max(0, Math.min(m.height - 1, Math.floor(y))) * m.width + Math.max(0, Math.min(m.width - 1, Math.floor(x)))];
   const [ax, ay] = sp.a, [bx, by] = sp.b;

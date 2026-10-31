@@ -729,6 +729,14 @@ export class Renderer {
     };
   }
 
+  /** What is drawn on a tile (sprite keys and the plant part, if any), for the query tool. */
+  tileObjects(g: GameState, x: number, y: number): { keys: string[]; plant?: { part: string; owner: string } } {
+    this.updatePlants(g);
+    const i = y * this.map.width + x;
+    const pr = this.plants.get(i);
+    return { keys: this.tileSprites(g, x, y, i).map((s) => s.key), plant: pr ? { part: pr.t.part, owner: pr.c.owner } : undefined };
+  }
+
   // ------------------------------------------------------------ sprites per tile
   private houseSpecFor(g: GameState, x: number, y: number, i: number, kind: HouseKind, sub: number) {
     const m = this.map, w = g.world, W = m.width, V = W + 1;
