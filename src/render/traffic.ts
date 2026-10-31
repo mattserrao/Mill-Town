@@ -39,6 +39,13 @@ export class Traffic {
   private rng = new Rng("traffic");
   private last = 0;
 
+  /** forget everything from the last game (New town): agents, the freight field and the bridge decks */
+  reset() {
+    this.agents = [];
+    this.freightTurn = -1; this.freightBlock = undefined;
+    this.deck.clear(); this.deckYear = -1;
+  }
+
   constructor(private m: GameMap) {
     const n = m.width * m.height;
     this.shore = new Uint8Array(n);

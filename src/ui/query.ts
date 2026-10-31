@@ -14,9 +14,8 @@ import type { Renderer } from "../render/renderer";
 import { stageOf } from "../render/renderer";
 import { blockGrid, blockOf } from "../core/blocks";
 import { RIVER_REF, SOOT_SCALE } from "../core/environment";
+import { esc, fmt } from "../core/text";
 
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const STYLE_NAMES = ["Federal", "Italianate", "Queen Anne", "Interwar", "Postwar"];
 const SOOT = ["clean", "lightly sooted", "sooty", "black with soot"];
 const STREET_NAMES = ["", "Lane", "Pike / main road", "Bridge approach", "Public steps"];

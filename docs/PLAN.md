@@ -169,6 +169,9 @@ routing, environment, growth and neighbourhood style.
   ends rich (cash still piles up from the 1940s unless spent on works, rivals or the town)
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
+- Season loop cost (~200–300 ms a season late in the game): the biggest costs are town growth (`growByDesire`,
+  three full-map passes a season), the per-tile labour-pool scan around each works, repeated population totals,
+  and freight's site-access scans; all could be done per block or cached
 - Finished goods: the markets on the supply-chain map are still a display model (inputs follow the freight simulation)
 - Event effects are first-pass; dates for some events are approximate. The Steel Valley Authority (founded Jan 1986)
   is kept in Autumn 1985 so it appears

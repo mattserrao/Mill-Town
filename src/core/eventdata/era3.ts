@@ -14,9 +14,10 @@ import type { LandmarkDef } from "../landmarks";
 import type { DecisionFn } from "./index";
 import { decision, option, when, year } from "./helpers";
 import type { GameState } from "../game";
+import { priceLevel } from "../time";
 
 /** wage and price level, as business.ts prices its actions */
-const era = (g: GameState) => 1 + (year(g) - 1850) * 0.012;
+const era = (g: GameState) => priceLevel(year(g));
 const usd = (n: number) => `$${n.toLocaleString()}`;
 
 const STEEL: Scope = { industry: ["steel", "metalworks"] };
@@ -102,7 +103,6 @@ export const EFFECTS: Record<string, Effect[]> = {
   "Ohio River Canalized": [{ mods: [["freightCost", 0.85, 400]], scope: { gateway: "ohio" } }],
   "Pinchot Strips the Private Police": [
     { mods: [["strike", 1.2, 400]] },
-    { clear: "Coal and Iron Police Authorized" },
     { rule: "police", set: { blocked: "Governor Pinchot issues no Coal and Iron Police commissions (1931)" } },
     { rule: "pinkertons", set: { blocked: "No private police commissions under Pinchot (1931)" } },
   ],
@@ -151,6 +151,11 @@ export const EFFECTS: Record<string, Effect[]> = {
     { mods: [["strike", 1.4, 6]], if: "flag:companyUnion" },
   ],
   "Steel Workers Organizing Committee": [{ mods: [["strike", 1.4, 3]], scope: STEEL, if: "!union:recognise" }],
+  // the worst flood in the city's history (46 ft against 1907's 36): floodplain works keep a fifth of their output
+  "The Great St. Patrick's Day Flood": [
+    { flood: 0.2 }, { meters: { morale: -6 } },
+    { place: "Downtown", health: -0.15, seasons: 3 }, { place: "The Point", unrest: 0.05, seasons: 2 },
+  ],
   "Flood Control Act": [
     // the reservoirs come in over the next decades: the first already cut flood damage (Tygart takes it further)
     { mods: [["floodRisk", 0.75, 400]] },

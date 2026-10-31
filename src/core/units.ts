@@ -1,7 +1,7 @@
 // English units for everything the player reads (the model works in metres internally).
 
+import { fmt } from "./text";
 const FT = 3.28084;
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /** feet, e.g. "790 ft" */
 export const feet = (metres: number) => `${fmt(metres * FT)} ft`;

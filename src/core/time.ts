@@ -38,9 +38,10 @@ export const ERAS: readonly Era[] = [
 
 export const START_YEAR = ERAS[0].startYear;
 export const END_YEAR = ERAS[ERAS.length - 1].endYear;
+/** the general wage and price level against 1850 (+1.2% a year): scales action costs, wages and quotes */
+export const priceLevel = (year: number) => 1 + (year - 1850) * 0.012;
+
 export const TOTAL_TURNS = (END_YEAR - START_YEAR + 1) * SEASONS.length;
-/** Buying into a second industry unlocks at the start of Era II. */
-export const DIVERSIFY_YEAR = ERAS[1].startYear;
 
 export interface Calendar {
   turn: number;

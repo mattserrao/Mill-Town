@@ -8,32 +8,44 @@ Turn-based (one turn = one season), 1850–1985, on a real-geography map of Pitt
 ```
 npm install
 npm run dev        # http://localhost:5173  (add ?seed=1234 for a specific town)
-npm test           # core model tests
+npm test           # core model tests (about 3 minutes)
+npm run typecheck  # TypeScript only
+npm run build      # typecheck + production build into dist/
+npm run preview    # serve the production build
 ```
 
-## Controls
-- Overlays now include smoke this season, river water, health, unrest, commuter traffic and freight
-- Query tool: ? button under the zoom buttons, or Q — click a tile for building, objects, land and neighbourhood history
-- Version: shown next to the title, printed in the browser console and in the terminal running `npm run dev`
-- Time: Space = next season, Shift+Space = next year, P = play/pause; the game ends after Winter 1985
+The version (from package.json and the git commit) is shown next to the title, printed in the browser console and
+in the terminal running `npm run dev`.
 
-- Drag / WASD / arrows: pan · scroll, +/- keys or the on-screen ± buttons: zoom (trackpad-friendly) · click: inspect a tile · Space: next season
-- Overlays (left panel): elevation, terrain class, coal seam, rail & roads by year, population, land value, pollution, site scores per industry, ancestry
-- Sound: on by default — browsers start audio on your first click or key press; 🔊 button in the top bar or M to mute (remembered); music and ambience volumes in the left panel
-- Found a company: pick an industry, click a tile, check the site report, press **Found company here**
-- Browser console: `mt` exposes the game for quick iteration (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`)
+## Play
+
+- Found a company: pick an industry, click a tile (or "Show me a good site"), check the site report, press **Found company here**
+- Time: Space = next season, Shift+Space = next year; speeds pause / 1× / 2× / 4× / 8× in the top bar (P pauses,
+  keys 1–4 pick a speed; at 1× a game takes about two hours). The game ends after Winter 1985
+- Run the business from the right panel: standing policies, three actions a season, building projects, technology,
+  rivals; historical decisions appear as cards (the owners' historical choice is marked and taken if you skip)
+- Markets (top bar): prices, wages and your accounts since 1850 · the newspaper and the log sit at the bottom left
+- Overlays (left panel): land, town (cities & neighbourhoods, population, ancestry, smoke, health, unrest, traffic…)
+  and business (supply chain, freight, competitors, site scores)
+- Map: drag / WASD / arrows to pan; scroll, +/- or the on-screen buttons to zoom; click a tile to inspect it;
+  ? or Q for the query tool; Esc closes views
+- Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in the left panel
+- Browser console: `mt` exposes the game (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`, `mt.fire("Event Name")`)
 
 ## Layout
 
 ```
 public/maps/mon-valley.*      generated map: 720x720 tiles at 30 m (JSON metadata + gzip'd binary layers)
 tools/mapgen/                 Python builder: USGS 10 m DEM + NHD hydrography + transportation -> map
-src/core/                     game model (no DOM): map, rng, terrain, town gen, site scoring,
-                              industries + tech trees, rivals, eras/seasons, turn loop
-src/render/                   iso projection, procedural pixel-art sprites, chunked software rasterizer
-src/ui/                       overlays
+src/core/                     game model (no DOM): map, town growth, industries and technology, business,
+                              rivals, freight, environment, events engine (effects.ts) and event data
+                              (eventdata/era1-4.ts), landmarks, sports, the season loop (game.ts)
+src/render/                   iso projection, procedural pixel-art sprites, chunked renderer, traffic, flows
+src/ui/                       panels: overlays, business, works, markets, query, district
+src/audio/                    procedural music and ambience
 src/main.ts                   app wiring, camera, panels, minimap
-docs/PLAN.md                  design plan and milestones
+docs/EVENTS.csv               the historical timeline the game reads (edit it to change history; see docs/EVENTS.md)
+docs/PLAN.md                  design plan and milestones · docs/EVENTS-PLAN.md, MECHANICS.md: design notes
 ```
 
 ## Data

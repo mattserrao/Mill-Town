@@ -5,8 +5,8 @@ import { GROUPS } from "../core/ancestry";
 import { cityName, districts, zoneName } from "../core/districts";
 import type { GameState } from "../core/game";
 import { CivicSub, communityTargets, zoneCensus } from "../core/town";
+import { fmt } from "../core/text";
 
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
 export function zoneAt(g: GameState, x: number, y: number): number {

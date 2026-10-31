@@ -8,14 +8,15 @@
 //
 // And your moves against them: undercut, poach, rumours, espionage, sabotage — and buying their works outright.
 
-import { ACTIONS, type ActionDef, bump, pushHeadline } from "./business";
-import { allWorks, cal, type Company, type GameState, log, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
+import { type ActionDef, bump, pushHeadline } from "./business";
+import { allWorks, cal, PRICE_TREND, type Company, type GameState, log, nextWorksId, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { rivalMult, rivalTechs } from "./market";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import type { Rng } from "./rng";
+import { priceLevel } from "./time";
 
-const era = (year: number) => 1 + (year - 1850) * 0.012;
+const era = priceLevel;
 const defOf = (r: RivalState) => RIVALS.find((d) => d.id === r.id)!;
 export const rivalName = (d: RivalDef, year?: number) => (year ? nameNow(d, year) : d.company).replace(/ \(.*\)$/, "");
 const year = (g: GameState) => cal(g).year;
@@ -36,7 +37,7 @@ export function rivalSeason(g: GameState, rng: Rng) {
     // a grudge is paid back first: arson for arson
     if (c && r.grudge >= 2 && rng.chance(0.25)) {
       r.grudge--;
-      g.mods.push({ kind: "output", mult: 0.6, until: g.turn + 1, source: `Fire set at your works (${name})` });
+      g.mods.push({ kind: "output", mult: 0.6, until: g.turn + 1, source: `Fire set at your works (${name})`, industry: [def.industry] });
       bump(g, "labour", -3);
       pushHeadline(g, `Fire at ${c.name}`, `A fire breaks out in the stockhouse at ${c.name}. The company blames "outside agitators"; the men whisper the name ${def.figures[0]}.`);
       r.lastMove = `${y}: paid you back with a fire at your works`;
@@ -44,10 +45,10 @@ export function rivalSeason(g: GameState, rng: Rng) {
     }
     if (!rng.chance(0.07 + (r.grudge > 0 ? 0.1 : 0))) continue;
     let move = "";
-    switch (def.style) {
+    switch (r.style ?? def.style) {
       case "aggressive":
         if (rivalOfYours && rng.chance(0.5)) {
-          g.mods.push({ kind: "price", mult: 0.92, until: g.turn + 4, source: `${name} price war` });
+          g.mods.push({ kind: "price", mult: 0.92, until: g.turn + 4, source: `${name} price war`, industry: [def.industry] });
           pushHeadline(g, `${def.figures[0].split(" ").pop()} Cuts Prices`, `${name} undersells every mill in the valley to fill its order books. Rivals must follow or lose their customers.`);
           move = "cut prices to take your customers (−8% for a year)";
         } else if (c && totalMen(c) > 300 && rng.chance(0.5)) {
@@ -72,7 +73,7 @@ export function rivalSeason(g: GameState, rng: Rng) {
           pushHeadline(g, "Mellon Bank Extends Credit", `With ${c.name} short of cash, T. Mellon & Sons advances $${loan.toLocaleString()} — on terms.`);
           move = `lent you $${loan.toLocaleString()}`;
         } else {
-          const others = g.rivals.filter((o) => o !== r && o.active && !o.owned);
+          const others = g.rivals.filter((o) => o !== r && o.active && !o.owned && !o.closed);
           const t = others.length ? others[rng.int(0, others.length - 1)] : null;
           move = t ? `financed ${rivalName(defOf(t), year(g))}: ${expand(t, 0.2)}` : expand(r, 0.1);
         }
@@ -129,10 +130,10 @@ export function acquisitionQuote(g: GameState, r: RivalState): { price: number }
   if (y < (same ? 1880 : 1890)) return { refused: same ? "Buying rival works begins in the 1880s" : "Buying into another industry opens in 1890" };
   const ind = INDUSTRIES[def.industry];
   let cap = 1;
-  for (const id of rivalTechs(def.industry, def.id, y)) cap += ind.tech.find((t) => t.id === id)?.effects.capacity ?? 0;
+  for (const id of rivalTechs(def.industry, def.id, y, r.style)) cap += ind.tech.find((t) => t.id === id)?.effects.capacity ?? 0;
   const out = ind.baseCapacity * cap * (1 + r.expand);
-  let price = out * ind.basePrice * (1 + (y - 1850) * 0.008) * 8;
-  if (def.style === "financier") price *= 1.5;
+  let price = out * ind.basePrice * (1 + (y - 1850) * PRICE_TREND) * 8;
+  if ((r.style ?? def.style) === "financier") price *= 1.5;
   if (rivalMult(g, r) < 1 + r.expand - 0.01) price *= 0.75; // in trouble: they'll take less
   if (y >= 1975) price *= 0.4;
   price *= g.rules.buy?.cost ?? 1; // antitrust scrutiny raises the price
@@ -146,7 +147,7 @@ export function acquire(g: GameState, r: RivalState): Works {
   const m = g.map;
   for (let dy = 0; dy < r.footprint; dy++) for (let dx = 0; dx < r.footprint; dx++) g.world.owner[(r.y + dy) * m.width + r.x + dx] = 1;
   const w: Works = {
-    id: `p:${c.others.length + 1}`, name: rivalName(def, year(g)), industry: def.industry, x: r.x, y: r.y, footprint: r.footprint,
+    id: nextWorksId(c), name: rivalName(def, year(g)), industry: def.industry, x: r.x, y: r.y, footprint: r.footprint,
     techs: techsForYear(def.industry, y), employees: 0, produced: 0, seasonsOperating: 0, riverSide: r.riverSide, status: "running",
     strikeTurns: 0, health: 1, unrest: 0, annexes: [], fromRival: def.id, founded: y,
   };
@@ -157,7 +158,7 @@ export function acquire(g: GameState, r: RivalState): Works {
   return w;
 }
 
-const RIVAL_ACTIONS: ActionDef[] = [
+export const RIVAL_ACTIONS: ActionDef[] = [
   {
     id: "undercut", group: "Rivals", name: "Undercut their prices",
     blurb: "Sell below them for a year: your price −6%, their output −20%. Aggressive owners answer in kind.",
@@ -166,9 +167,9 @@ const RIVAL_ACTIONS: ActionDef[] = [
     run: (g, _rng, arg) => {
       const r = target(g, arg)!;
       if (!sameIndustry(g, r)) return "They don't sell what you sell; there is nothing to undercut.";
-      g.mods.push({ kind: "price", mult: 0.94, until: g.turn + 4, source: "Your price cut" });
+      g.mods.push({ kind: "price", mult: 0.94, until: g.turn + 4, source: "Your price cut", industry: [defOf(r).industry] });
       damage(g, r, 0.8, 4, "your price cut");
-      if (defOf(r).style === "aggressive") r.grudge++;
+      if ((r.style ?? defOf(r).style) === "aggressive") r.grudge++;
       return `You undersell ${rivalName(defOf(r), year(g))}; their order books thin.`;
     },
   },
@@ -203,7 +204,7 @@ const RIVAL_ACTIONS: ActionDef[] = [
       const r = target(g, arg)!, c = g.company!, def = defOf(r);
       const w = allWorks(c).find((x) => x.industry === def.industry);
       if (!w) return "Their processes are no use to your works.";
-      const theirs = rivalTechs(def.industry, def.id, year(g));
+      const theirs = rivalTechs(def.industry, def.id, year(g), r.style);
       const ind = INDUSTRIES[def.industry];
       const t = ind.tech.find((x) => theirs.includes(x.id) && !w.techs.includes(x.id) && x.requires.every((q) => w.techs.includes(q)));
       if (!t) return "They have nothing you could use yet.";
@@ -255,7 +256,7 @@ export function saleQuote(g: GameState, w: Works): number {
   const ind = INDUSTRIES[w.industry], y = year(g);
   let cap = 1;
   for (const t of ind.tech) if (w.techs.includes(t.id)) cap += t.effects.capacity ?? 0;
-  let price = ind.baseCapacity * cap * ind.basePrice * (1 + (y - 1850) * 0.008) * 5;
+  let price = ind.baseCapacity * cap * ind.basePrice * (1 + (y - 1850) * PRICE_TREND) * 5;
   if (y >= 1975) price *= 0.3; // who buys a mill in the collapse?
   return Math.round(price / 1000) * 1000;
 }
@@ -279,7 +280,7 @@ export function sellWorks(g: GameState, w: Works, buyer: "market" | "workers" | 
   return `${w.name} is sold${buyer === "workers" ? " to the men who work it" : buyer === "authority" ? " to the Steel Valley Authority, which will keep it running" : ""} for $${price.toLocaleString()}.`;
 }
 
-const SELL_ACTIONS: ActionDef[] = [
+export const SELL_ACTIONS: ActionDef[] = [
   {
     id: "sell", group: "Rivals", name: "Sell one of your works",
     blurb: "Raise cash: a buyer takes one of your other works (a works you bought goes back to its old owners).",
@@ -326,4 +327,3 @@ buy.run = (g, _rng, arg) => {
 };
 for (const a of RIVAL_ACTIONS) if (a.target) { const b = a.blocked; a.blocked = (g, arg) => needTarget(g, arg) ?? b(g, arg); }
 
-ACTIONS.push(...RIVAL_ACTIONS, ...SELL_ACTIONS);

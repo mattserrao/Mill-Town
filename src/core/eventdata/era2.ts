@@ -17,6 +17,7 @@ import type { LandmarkDef } from "../landmarks";
 import { sellWorks } from "../rivalai";
 import { decision, option, when } from "./helpers";
 import type { DecisionFn } from "./index";
+import { priceLevel } from "../time";
 
 const STEEL = { industry: "steel" as const };
 const MILLS = { industry: ["steel", "metalworks"] as ("steel" | "metalworks")[] };
@@ -78,8 +79,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   "Reform Mayor Guthrie": [{ politics: "reform" }, { rule: "bribe", set: { blocked: "Reform mayor Guthrie: no one at City Hall will take it" } }],
   "Westinghouse Research Department": [{ rule: "lab", set: { blocked: null } }],
   "Gulf Oil Corporation": [{ rival: "mellon", expand: 0.1 }, { flag: "gulf" }],
-  // (era3.ts also carries this 1907 flood from the old table; setting the flood twice is harmless)
-  "St. Patrick's Day Flood": [{ flood: 0.35 }, { meters: { morale: -4 } }, { place: "Downtown", health: -0.1, seasons: 2 }],
+  "St. Patrick's Day Flood": [{ flood: 0.45 }, { meters: { morale: -4 } }, { place: "Downtown", health: -0.1, seasons: 2 }],
   "Carrie Furnaces 6 and 7": [{ rival: "carrie", expand: 0.1 }],
   // the puddlers' own union: fewer walkouts at iron works (no Bessemer yet)
   "Puddlers Secede": [{ mods: [["strike", 0.85, 20]], scope: STEEL, if: "!tech:bessemer" }],
@@ -146,7 +146,7 @@ const bribedSince = (g: GameState, y: number) =>
   Number(g.company!.biz.flags.bribed ?? 0) >= y || g.company!.biz.record.some((r) => r.includes("Bribe an official") && Number(/(\d{4})/.exec(r)?.[1] ?? 0) >= y);
 
 /** wage and price level (as business.ts) */
-const era = (g: GameState) => 1 + (cal(g).year - 1850) * 0.012;
+const era = (g: GameState) => priceLevel(cal(g).year);
 
 export const DECISIONS: Record<string, DecisionFn> = {
   "Pittsburgh Symphony Founded": (g) => !when(g, "men>=100") ? null : decision("symphony1895", "A subscription for the orchestra",

@@ -10,7 +10,7 @@
 // in summer and ice in winter cut it). All the works in the valley share it: when a lane is over-full, every
 // shipper gets the same fraction and pays a congestion premium. Your output is limited by the scarcest input.
 
-import { blockGrid, percentile } from "./blocks";
+import { percentile } from "./blocks";
 import type { Good } from "./industries";
 import { inBounds, type GameMap } from "./map";
 import { Terrain } from "./terrain";
@@ -255,7 +255,6 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
       player.notes.push(`No river landing or railroad near the works: ${b.good} comes by wagon.`);
     }
   }
-  void blockGrid;
   return { player: players[playerId], players, norm: percentile(freight, 0.95) };
 }
 

@@ -8,7 +8,7 @@
 //         Allegheny, away from it on the Ohio) and slowly clears. Until filtration (1908) the riverside towns drink it.
 // Health: air + water + crowding. Unrest: poor health, crowding and the grievances of the era.
 
-import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsample, type BlockGrid } from "./blocks";
+import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsample } from "./blocks";
 import type { GameMap } from "./map";
 import { Terrain } from "./terrain";
 import { Use, type World } from "./town";
@@ -271,17 +271,6 @@ export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: num
     env.health[b] = health;
     env.unrest[b] = Math.max(0, Math.min(1, 0.5 * (1 - health) + 0.25 * crowd + grievance));
   }
-}
-
-/** population-weighted average of a block field over the tiles where `weight(i)` > 0 */
-export function averageOver(m: GameMap, g: BlockGrid, f: Float32Array, weight: (i: number) => number, box?: [number, number, number, number]): number {
-  const [x0, y0, x1, y1] = box ?? [0, 0, m.width - 1, m.height - 1];
-  let s = 0, n = 0;
-  for (let y = Math.max(0, y0); y <= Math.min(m.height - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(m.width - 1, x1); x++) {
-    const wt = weight(y * m.width + x);
-    if (wt > 0) { s += f[blockOf(g, x, y)] * wt; n += wt; }
-  }
-  return n ? s / n : 0;
 }
 
 export { percentile };

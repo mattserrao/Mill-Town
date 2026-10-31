@@ -8,7 +8,6 @@
 // shortest paths. Those trips are the traffic: it decides how many people and vehicles you see on each street.
 
 import { B, blockGrid, blockOf, percentile } from "./blocks";
-import { INDUSTRIES } from "./industries";
 import { MinHeap, modeCost, Street, Use, type World } from "./town";
 import type { GameMap } from "./map";
 import type { Rng } from "./rng";
@@ -150,11 +149,6 @@ export function runTrips(m: GameMap, w: World, cm: Commute, traffic: Float32Arra
     }
   }
   return percentile(traffic, 0.95);
-}
-
-/** jobs a works offers, for the job-centre list */
-export function worksJobs(industry: keyof typeof INDUSTRIES, output: number): number {
-  return output * INDUSTRIES[industry].workersPerUnit;
 }
 
 export { B };

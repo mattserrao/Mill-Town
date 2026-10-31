@@ -7,6 +7,7 @@ import { type Competitor, type Flow, flowPath, type Relation, type WorksRef } fr
 import type { GameState } from "../core/game";
 import { Terrain } from "../core/terrain";
 import { type Camera, heightAt, project } from "./iso";
+import { fmt } from "../core/text";
 
 export const FLOW_COLOUR = (f: Flow): string => {
   if (f.kind === "input") return "#f0a030";
@@ -120,7 +121,6 @@ function worksOutline(ctx: CanvasRenderingContext2D, g: GameState, cam: Camera, 
   ctx.setLineDash([]);
 }
 
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /** The supply chain of one works. `focus` (a flow id) is drawn on top and the others faded. */
 export function drawSupply(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, works: WorksRef, flows: Flow[], t: number, focus: string | null, preview: boolean, reserved: Rect[] = []) {

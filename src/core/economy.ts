@@ -4,7 +4,7 @@
 // the rivers and the rail lines open that year; off-map trade enters and leaves at real gateways
 // (the Ohio downriver, the Allegheny and Mon upriver, the Yough to Connellsville, the railroads east and west).
 
-import type { GameState, RivalState } from "./game";
+import { type GameState, PRICE_TREND, type RivalState } from "./game";
 import { latLonToTile } from "./features";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import type { GameMap } from "./map";
@@ -241,7 +241,7 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
   }
 
   // ---------------- finished goods / utilities out
-  const price = ind.basePrice * (1 + (year - 1850) * 0.008);
+  const price = ind.basePrice * (1 + (year - 1850) * PRICE_TREND);
   const product = productName(w.industry, w.techs, year);
   const markets: { w: number; f: Omit<Flow, "share" | "value" | "id" | "kind" | "qty" | "good"> }[] = [];
   const mk = (weight: number, f: (typeof markets)[number]["f"]) => { if (weight > 0) markets.push({ w: weight, f }); };

@@ -29,7 +29,7 @@ import { allWorks, cal, type GameState, log, totalEmployees } from "./game";
 import type { GatewayId } from "./freight";
 import type { Good, IndustryId } from "./industries";
 import type { ModKind } from "./events";
-import type { RivalDef } from "./rivals";
+import { type RivalDef, RIVALS } from "./rivals";
 
 export type Cond = string;
 
@@ -104,7 +104,9 @@ function evalAtom(g: GameState, s: string): boolean {
     case "rival": return g.rivals.some((r) => r.id === rest && r.active && !r.owned && !r.closed);
     case "politics": return g.politics === rest;
   }
-  return true;
+  // an unknown condition is a typo in the event data: fail closed (and say so) rather than always apply
+  console.warn(`Unknown event condition "${s}"`);
+  return false;
 }
 
 // ---------------------------------------------------------------- applying effects
@@ -202,9 +204,11 @@ function rivalEffect(g: GameState, source: string, ef: Extract<Effect, { rival: 
 /** rival effects that arrived before the rival opened (applied when it does) */
 export function applyPendingRivalFx(g: GameState) {
   const keep: typeof g.pendingRivalFx = [];
+  const year = cal(g).year;
   for (const p of g.pendingRivalFx) {
-    if (g.rivals.some((r) => r.id === (p.ef as { rival: string }).rival)) rivalEffect(g, p.source, p.ef as Extract<Effect, { rival: string }>);
-    else keep.push(p);
+    const id = (p.ef as { rival: string }).rival;
+    if (g.rivals.some((r) => r.id === id)) rivalEffect(g, p.source, p.ef as Extract<Effect, { rival: string }>);
+    else if (year <= (RIVALS.find((d) => d.id === id)?.entryYear ?? 0) + 10) keep.push(p); // it may still find a site
   }
   g.pendingRivalFx = keep;
 }

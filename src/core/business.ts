@@ -9,11 +9,14 @@
 // Pinkertons, blacklists, dumping slag in the river, buying newspapers and officials — and everything has a price.
 
 import { GROUPS } from "./ancestry";
-import { allWorks, cal, fileNews, type GameState, log, totalEmployees } from "./game";
-import { modMult } from "./events";
+import { allWorks, cal, fileNews, type GameState, log, mod, totalEmployees } from "./game";
+import type { Category } from "./events";
 import { HOOKS } from "./effects";
 import type { GatewayId } from "./freight";
 import type { Rng } from "./rng";
+import { priceLevel } from "./time";
+import { RIVAL_ACTIONS, SELL_ACTIONS } from "./rivalai";
+import { SPORTS_ACTIONS } from "./sports";
 
 // ---------------------------------------------------------------- state
 
@@ -75,7 +78,7 @@ export function newBusiness(year: number): Business {
 export interface PublicWorks { locks: Partial<Record<GatewayId, number>> }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const era = (year: number) => 1 + (year - 1850) * 0.012; // wage and price level
+const era = priceLevel; // wage and price level
 
 /** Move a meter, softening bad news while the press is friendly. */
 export function bump(g: GameState, m: keyof Meters, d: number) {
@@ -110,7 +113,7 @@ export function policyEffects(g: GameState): PolicyEffects {
   const b = g.company!.biz, p = b.policy, year = cal(g).year;
   const labour = b.meters.labour;
   // the sliding scale: puddlers' pay follows the price of iron (good years pay more, bad years less)
-  let wageMult = p.wages === "scale" ? clamp(modMult(g.mods, "price", g.turn, { industry: g.company!.industry }), 0.7, 1.4) : WAGE_MULT[p.wages];
+  let wageMult = p.wages === "scale" ? clamp(mod(g, "price", { industry: g.company!.industry }), 0.7, 1.4) : WAGE_MULT[p.wages];
   if (p.union === "recognise") wageMult *= 1.08; // the union scale
   if (p.childLabour) wageMult *= 0.94;          // boys at half pay on the light jobs
   let strikeMult = clamp(1 - labour / 120, 0.2, 2);
@@ -229,13 +232,22 @@ const endStrikes = (g: GameState, left = 0) => { for (const w of allWorks(g.comp
 const needStrike = (g: GameState) => (onStrike(g) ? null : "Only during a strike");
 const year = (g: GameState) => cal(g).year;
 
-export function pushHeadline(g: GameState, name: string, description: string) {
+export function pushHeadline(g: GameState, name: string, description: string, category: Category = "Labor") {
   const c = cal(g);
-  g.headlines.push({ year: c.year, season: c.season, name, description, category: "Labor" });
+  g.headlines.push({ year: c.year, season: c.season, name, description, category });
   fileNews(g);
 }
 
-export const ACTIONS: ActionDef[] = [
+/**
+ * Every action the player can take: the labour, public and political ones here, plus the rival, selling and
+ * sports actions defined beside their systems. Built on first use, so it doesn't matter which module loads first.
+ */
+let actionList: ActionDef[] | null = null;
+export function allActions(): ActionDef[] {
+  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS]);
+}
+
+const BASE_ACTIONS: ActionDef[] = [
   // ---- labour
   {
     id: "negotiate", group: "Labour", name: "Negotiate a settlement",
@@ -451,7 +463,7 @@ export function actionCost(g: GameState, a: ActionDef, arg?: string): number {
 export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "No company" };
-  const a = ACTIONS.find((x) => x.id === id);
+  const a = allActions().find((x) => x.id === id);
   if (!a) return { ok: false, text: "Unknown action" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
   const why = actionBlocked(g, a, arg);
@@ -474,8 +486,6 @@ export function setPolicy(g: GameState, next: Partial<Policy>): { ok: boolean; t
   const changed = (Object.keys(next) as (keyof Policy)[]).filter((k) => next[k] !== undefined && next[k] !== c.biz.policy[k]);
   if (!changed.length) return { ok: true, text: "No change" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
-  const y = cal(g).year;
-  void y;
   if (next.union && next.union !== "tolerate" && g.rules.union?.blocked) return { ok: false, text: g.rules.union.blocked };
   if (next.police && g.rules.police?.blocked) return { ok: false, text: g.rules.police.blocked };
   if (next.halfHoliday && g.rules.halfHoliday?.blocked) return { ok: false, text: g.rules.halfHoliday.blocked };

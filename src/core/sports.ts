@@ -3,9 +3,10 @@
 // events) or, for the leagues the event list doesn't follow, their own. Titles lift the town; long losing
 // seasons and a team leaving town lower it. You can sponsor a team, or field a works team of your own.
 
-import { ACTIONS, type ActionDef } from "./business";
+import { type ActionDef, pushHeadline } from "./business";
 import { cal, type GameState, log } from "./game";
 import type { Rng } from "./rng";
+import { priceLevel } from "./time";
 
 export type Sport = "baseball" | "football" | "hockey";
 
@@ -70,10 +71,10 @@ export function sportsSeason(g: GameState, rng: Rng) {
 }
 
 function win(g: GameState, t: TeamState, headline: string) {
-  const { year, season } = cal(g);
+  const { year } = cal(g);
   t.titles.push(year);
   g.morale = Math.min(100, g.morale + 8);
-  g.headlines.push({ year, season, name: headline, description: `The town turns out to cheer the ${teamName(t.id, year)}. For a week nobody talks about anything else.`, category: "Culture" });
+  pushHeadline(g, headline, `The town turns out to cheer the ${teamName(t.id, year)}. For a week nobody talks about anything else.`, "Culture");
 }
 
 /** team events from the event list: found (early), move to a new ground, a historical title, a rename */
@@ -89,11 +90,11 @@ export function teamEvent(g: GameState, team: string, act: "found" | "move" | "t
   } else if (act === "move") g.morale = Math.min(100, g.morale + 2);
 }
 
-const SPORTS_ACTIONS: ActionDef[] = [
+export const SPORTS_ACTIONS: ActionDef[] = [
   {
     id: "sponsor", group: "Public", name: "Back the home team",
     blurb: "Money for players and a box at the ballpark: the team gets stronger, the town notices. Morale +3, reputation +3.",
-    cost: (g) => Math.round(4000 * (1 + (cal(g).year - 1850) * 0.012)),
+    cost: (g) => Math.round(4000 * priceLevel(cal(g).year)),
     blocked: (g) => (g.teams.some((t) => t.active) ? null : "No professional team yet (the Alleghenys, 1887)"),
     run: (g) => {
       const t = [...g.teams].filter((x) => x.active).sort((a, b) => b.fans - a.fans)[0];
@@ -106,7 +107,7 @@ const SPORTS_ACTIONS: ActionDef[] = [
   {
     id: "works_team", group: "Labour", name: "Field a works ball team",
     blurb: "A ballfield by the works and a team in the mill league (the Homestead Grays began as one). Labour +6, morale +2. Once.",
-    cost: (g) => Math.round(3000 * (1 + (cal(g).year - 1850) * 0.012)),
+    cost: (g) => Math.round(3000 * priceLevel(cal(g).year)),
     blocked: (g) => (cal(g).year < 1870 ? "Mill leagues start in the 1870s" : g.company!.biz.flags.worksTeam ? "You have a works team" : null),
     run: (g) => {
       g.company!.biz.flags.worksTeam = true;
@@ -116,4 +117,3 @@ const SPORTS_ACTIONS: ActionDef[] = [
     },
   },
 ];
-ACTIONS.push(...SPORTS_ACTIONS);

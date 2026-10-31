@@ -22,9 +22,10 @@ import * as era2 from "./era2";
 import * as era3 from "./era3";
 import { decision, option, when, year } from "./helpers";
 import type { DecisionFn } from "./index";
+import { priceLevel } from "../time";
 
 /** wage and price level of a year (as in business.ts) */
-const E = (y: number) => 1 + (y - 1850) * 0.012;
+const E = priceLevel;
 const PERM = 400;
 const MILL_TOWNS = ["Homestead", "Braddock", "Duquesne", "McKeesport", "Clairton"];
 
@@ -210,7 +211,7 @@ function layOff(g: GameState): string {
   const c = g.company!, n = Math.round(allWorks(c).reduce((s, w) => s + w.employees, 0) * 0.25);
   c.biz.layoffUntil = g.turn + 8; g.jobless += n;
   bump(g, "labour", -15); bump(g, "reputation", -5); g.morale = Math.max(0, g.morale - 6);
-  g.flags.laidOff = true;
+  c.biz.flags.laidOff = true;
   return `${n.toLocaleString()} men are laid off.`;
 }
 

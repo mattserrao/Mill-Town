@@ -5,10 +5,9 @@ import { allWorks, cal, type GameState, type Works } from "../core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "../core/industries";
 import { commission, marketFactor, techBlocked, techCost, techStanding } from "../core/market";
 import { PROJECTS, type ProjectKind, projectBlocked } from "../core/projects";
+import { esc, fmt } from "../core/text";
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const money = (n: number) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-US");
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
 let open = new Set<string>(["p"]);
 let status = "";

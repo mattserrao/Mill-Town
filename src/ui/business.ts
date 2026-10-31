@@ -1,15 +1,15 @@
 // The "Running the business" panel: standings, actions left, standing policies, actions; and the decision card
 // for historical moments that reach your works.
 
-import { ACTIONS, ACTIONS_PER_SEASON, actionBlocked, actionCost, type Meters, newestGroup, type Policy, resolveDecision, setPolicy, takeAction } from "../core/business";
+import { ACTIONS_PER_SEASON, allActions, actionBlocked, actionCost, type Meters, newestGroup, type Policy, resolveDecision, setPolicy, takeAction } from "../core/business";
 import { GROUPS } from "../core/ancestry";
 import { cal, type GameState } from "../core/game";
 import { Rng } from "../core/rng";
 import { RIVALS } from "../core/rivals";
 import { rivalName, targets } from "../core/rivalai";
 import { allWorks } from "../core/game";
+import { esc } from "../core/text";
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const money = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
 
 const WORDS: Record<keyof Meters, (v: number) => string> = {
@@ -72,13 +72,12 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
       ${POLICY_UI.filter((p) => !p.rule || !g.rules[p.rule]?.blocked || String(b.policy[p.key]) !== String(p.options[0][0]) && p.key !== "union").map((p) => `<label>${p.label}<select data-pol="${p.key}">${p.options.filter(([v]) => p.key !== "wages" || v !== "scale" || !g.rules.scale?.blocked || b.policy.wages === "scale").map(([v, t]) => `<option value="${v}"${val(p.key) === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>`).join("")}
     </div>
     ${dirty ? `<button class="primary bz-apply" data-apply="1" ${b.actionsLeft ? "" : "disabled"}>Apply policy changes (1 action)</button>` : ""}
-    ${groups.map((grp) => `<h4>${grp === "Rivals" ? "Rivals and money" : grp}</h4>` + (grp === "Rivals" ? targetSel : "") + ACTIONS.filter((a) => a.group === grp).map((a) => {
+    ${groups.map((grp) => `<h4>${grp === "Rivals" ? "Rivals and money" : grp}</h4>` + (grp === "Rivals" ? targetSel : "") + allActions().filter((a) => a.group === grp).map((a) => {
       // not yet invented or no longer legal: hidden (the newspaper tells you when it changes)
       if (g.rules[a.id]?.blocked) return "";
       const arg = a.target ? rivalTarget : undefined;
       if (a.target && !tl.length) return "";
       const why = actionBlocked(g, a, arg) ?? (b.actionsLeft <= 0 ? "No actions left this season" : c.cash < actionCost(g, a, arg) ? `Needs ${money(actionCost(g, a, arg))}` : null);
-      if (a.id !== "negotiate" && a.id !== "pinkertons" && a.id !== "strikebreakers" && why === "Only during a strike") return "";
       if (why === "Only during a strike") return "";
       const extra = a.id === "recruit"
         ? `<select data-arg="recruit">${recruitable.map((gr) => `<option value="${gr.id}"${gr.id === newestGroup(y) ? " selected" : ""}>${gr.name}</option>`).join("")}</select>`
@@ -105,7 +104,7 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
   });
   el.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((btn) => btn.addEventListener("click", () => {
     const id = btn.dataset.act!;
-    const a = ACTIONS.find((x) => x.id === id);
+    const a = allActions().find((x) => x.id === id);
     const arg = a?.target ? rivalTarget : el.querySelector<HTMLSelectElement>(`select[data-arg="${id}"]`)?.value;
     const r = takeAction(g, id, new Rng(`${g.seed}:act:${g.turn}:${actionCount++}`), arg);
     status = r.text;

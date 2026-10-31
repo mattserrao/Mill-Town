@@ -491,72 +491,6 @@ export function walkField(m: GameMap, w: World, sx: number, sy: number, maxCost:
   return dist;
 }
 
-export const WALK_MIN_PER_COST = 0.4;
-
-/** Lots a growing town may take. Steep lots only where a hillside neighbourhood is open (or pressure is high). */
-function lotOk(m: GameMap, w: World, i: number, steepOk: boolean) {
-  const t = m.terrain[i];
-  if (w.owner[i] || w.street[i] || m.road[i] && !steepOk) return false;
-  const u = w.use[i];
-  if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Mine || u === Use.Incline || u === Use.Industry || u === Use.Rival || u === Use.Park) return false;
-  if (m.road[i]) return false;
-  return habitable(t) || (steepOk && t === Terrain.Steep);
-}
-
-/**
- * Grow `count` people around (cx, cy) within `reach` walking cost, along today's streets.
- * Fills existing lots first, then opens new ones nearest first. Returns people placed.
- */
-export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: number, count: number, opts: {
-  steep: boolean; seed: number; plants?: [number, number][]; cap?: number;
-}): number {
-  if (count <= 0) return 0;
-  const field = walkField(m, w, cx, cy, reach);
-  const nearRoad = (x: number, y: number) => {
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
-      if (inBounds(m, x + dx, y + dy) && (m.road[(y + dy) * m.width + x + dx] || w.street[(y + dy) * m.width + x + dx])) return true;
-    return false;
-  };
-  const cands: { i: number; s: number }[] = [];
-  const R = Math.ceil(reach);
-  for (let y = Math.max(0, cy - R); y <= Math.min(m.height - 1, cy + R); y++) for (let x = Math.max(0, cx - R); x <= Math.min(m.width - 1, cx + R); x++) {
-    const i = y * m.width + x;
-    if (!isFinite(field[i]) || !lotOk(m, w, i, opts.steep)) continue;
-    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]), densityCap(m, w, i));
-    if (w.pop[i] >= cap) continue;
-    const onStreet = nearRoad(x, y);
-    if (!onStreet && w.pop[i] === 0) continue; // houses front onto streets
-    // hillsides keep wooded ravines and gaps between the terraces
-    const t = m.terrain[i];
-    if (w.pop[i] === 0 && (t === Terrain.Steep || t === Terrain.Slope) && valueNoise(opts.seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) continue;
-    if (w.pop[i] === 0 && tileNoise(w.seed, x, y, 613) < 0.1) continue; // gardens, vacant lots, alleys
-    const steepPenalty = m.terrain[i] === Terrain.Steep ? 2 : m.terrain[i] === Terrain.Slope ? 0.8 : 0;
-    cands.push({ i, s: field[i] + steepPenalty + tileNoise(opts.seed, x, y, 611) * 4 - (w.pop[i] > 0 ? 3 : 0) });
-  }
-  cands.sort((a, b) => a.s - b.s);
-  let left = count;
-  const grng = new Rng(`${w.seed}:${w.year}:${cx},${cy}`);
-  for (const { i } of cands) {
-    if (left <= 0) break;
-    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]), densityCap(m, w, i));
-    const fresh = w.pop[i] === 0;
-    if (fresh) w.eth[i] = pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, grng);
-    const add = Math.min(cap - w.pop[i], left, fresh ? 18 : 10);
-    if (add <= 0) continue;
-    w.pop[i] += add;
-    left -= add;
-    w.use[i] = useForPop(w.pop[i]);
-    if (fresh) {
-      w.built[i] = w.year;
-      const x = i % m.width, y = (i / m.width) | 0;
-      const near = opts.plants?.some(([px, py]) => Math.hypot(px - x, py - y) < 12);
-      w.sub[i] = near ? HouseSub.Shanty : 0;
-    }
-  }
-  if (left < count) w.version++;
-  return count - left;
-}
-
 /**
  * The town's slower civic work, spread over the year (Micropolis-style phases): succession runs on a quarter of
  * the map each season; steps, downtown rebuilding and churches/halls once a year, in Spring.
@@ -647,10 +581,6 @@ export function communityTargets(p: number, gid: number, year: number, churches:
     hall: churches && p >= 450 && year >= 1870 ? Math.min(3, 1 + Math.floor(p / 6000)) : 0,
   };
 }
-export const COMMUNITY_STEPS: { what: string; at: number; needsChurch?: boolean; from?: number }[] = [
-  { what: "shops of its own", at: 300 }, { what: "a social hall", at: 450, needsChurch: true, from: 1870 },
-  { what: "a church", at: 700 }, { what: "a parish school", at: 1200, needsChurch: true, from: 1865 },
-];
 
 export interface ZoneCensus { pop: Float64Array; tot: number; church: Int16Array; hall: Int16Array; school: Int16Array; boarding: Int16Array; shops: Map<number, Map<number, number>> }
 
@@ -756,7 +686,7 @@ export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
       if (c.pop[g] / c.tot > 0.12) continue;
       if (CHURCHES.has(w.sub[i]) && top && GROUPS[top].church === w.sub[i] && c.church[top] < communityTargets(tp, top, w.year, 1).church) { w.eth[i] = top; c.church[top]++; } // becomes their parish
       else w.eth[i] = 0; // closed (the building stands)
-      c.church[g] = Math.max(0, c.church[g] - 1);
+      if (CHURCHES.has(w.sub[i])) c.church[g] = Math.max(0, c.church[g] - 1); else c.hall[g] = Math.max(0, c.hall[g] - 1);
       made++;
     }
   }

@@ -22,15 +22,16 @@ export function rivalMult(g: GameState, r: RivalState): number {
 }
 
 /** the processes a rival in this industry runs this year */
-export function rivalTechs(ind: IndustryId, id: string, year: number): string[] {
+export function rivalTechs(ind: IndustryId, id: string, year: number, style?: string): string[] {
   const def = RIVALS.find((d) => d.id === id);
-  return techsForYear(ind, (def?.style === "innovator" ? year + 2 : year) - (def?.techLag ?? 0));
+  // personality as events left it (bankers ran Westinghouse from 1910: no longer the innovator)
+  return techsForYear(ind, ((style ?? def?.style) === "innovator" ? year + 2 : year) - (def?.techLag ?? 0));
 }
 
 /** the industry's standard processes: what every serious works has (the innovator sets it early) */
 export function standardTechs(g: GameState, ind: IndustryId): string[] {
   const year = cal(g).year;
-  const innovator = g.rivals.some((r) => r.active && RIVALS.find((d) => d.id === r.id && d.industry === ind)?.style === "innovator");
+  const innovator = g.rivals.some((r) => { const d = RIVALS.find((x) => x.id === r.id && x.industry === ind); return r.active && !r.closed && d && (r.style ?? d.style) === "innovator"; });
   return INDUSTRIES[ind].tech.filter((t) => t.cost > 0 && t.year <= (innovator ? year : year - 4)).map((t) => t.id);
 }
 

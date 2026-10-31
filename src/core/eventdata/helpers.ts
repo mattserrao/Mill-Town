@@ -13,7 +13,7 @@ export const year = (g: GameState) => cal(g).year;
 
 /**
  * An option whose consequences are effects (plus an optional cost in cash) and a sentence for the log.
- * The option's source for timed mods is the decision's id, so later events can `clear` it.
+ * The option's source for timed mods is "decision: <label>", so later events can `clear` it by that name.
  */
 export function option(label: string, detail: string, effects: Effect[], text: string, cost = 0): DecisionOption {
   return {

@@ -234,9 +234,6 @@ export function blob(p: Painter, cx: number, cy: number, rx: number, ry: number,
 
 // ---------------------------------------------------------------- houses
 
-export const CLAPBOARD = ["#d8d2bf", "#cdb586", "#a9aaa2", "#b98a6c", "#d6c7a0", "#9fb0a8"];
-export const ROOFS = ["#5b4636", "#4b4a4f", "#6a3d30", "#57524a"];
-
 export function offset(p: Painter, s: Sprite, u: number, v: number): [number, number] {
   const [x, y] = p.P(u, v);
   return [Math.round(x - s.ax), Math.round(y - s.ay)];

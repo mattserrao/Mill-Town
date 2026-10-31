@@ -10,7 +10,7 @@ import { type Camera, project } from "./iso";
 
 let pathCache: { m: GameMap; key: string; city: Path2D; nb: Path2D } | null = null;
 let selCache: { m: GameMap; zone: number; path: Path2D } | null = null;
-let censusCache: { version: number; dom: { group: number; pop: number }[] } | null = null;
+let censusCache: { g: GameState; version: number; dom: { group: number; pop: number }[] } | null = null;
 
 function edgePath(m: GameMap, edges: [number, number, number, number][]): Path2D {
   const p = new Path2D();
@@ -62,7 +62,7 @@ function selectedPath(m: GameMap, zone: number): Path2D {
 
 /** the biggest community in each named neighbourhood (refreshed when the town changes) */
 function dominant(g: GameState) {
-  if (censusCache && censusCache.version === g.world.version) return censusCache.dom;
+  if (censusCache && censusCache.g === g && censusCache.version === g.world.version) return censusCache.dom;
   const d = districts(g.map), cen = zoneCensus(g.map, g.world);
   const dom = d.nbs.map((_, z) => {
     const c = cen[z];
@@ -71,7 +71,7 @@ function dominant(g: GameState) {
     for (let k = 1; k < GROUPS.length; k++) if (c.pop[k] > c.pop[best]) best = k;
     return { group: c.tot && c.pop[best] / c.tot > 0.3 ? best : 0, pop: c.tot };
   });
-  censusCache = { version: g.world.version, dom };
+  censusCache = { g, version: g.world.version, dom };
   return dom;
 }
 

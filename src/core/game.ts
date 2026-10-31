@@ -8,7 +8,7 @@ import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
-import { calendar, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
+import { calendar, priceLevel, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, type World } from "./town";
 import { HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
@@ -16,7 +16,7 @@ import { growByDesire } from "./growth";
 import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOption } from "./freight";
 import { placeNamed } from "./places";
 import { hospitals, type PlacedLandmark } from "./landmarks";
-import { clearRuins, publicHousing } from "./mapfx";
+import { clearRuins, publicHousing, registerMapHooks } from "./mapfx";
 import { sportsSeason, type TeamState } from "./sports";
 import { type Business, businessSeason, type Decision, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
 import { applyEffects, cond, applyPendingRivalFx, type PoliticalEra, type Rule } from "./effects";
@@ -80,6 +80,8 @@ export interface Company extends Works {
   biz: Business;
   /** your other works */
   others: Works[];
+  /** last number used for a works id (ids are never reused, even after a works is sold) */
+  worksSeq?: number;
   /** owed to the bank (a Mellon loan), repaid from profits */
   debt: number;
   /** last season's accounts for the whole company */
@@ -186,6 +188,10 @@ export interface GameState {
   pressures: { meter: "reputation" | "labour" | "influence"; amount: number; until: number; source: string }[];
   /** taverns and saloons shuttered by Prohibition: tile index and the shop they were */
   dryShops: [number, number][];
+  /** blasted tiles left as rubble: [tile, turn they may be rebuilt] */
+  ruins: [number, number][];
+  /** fixed structures (the courthouse) burnt out: [tile, structure they were] */
+  burnt: [number, number][];
   /** what actions cost, whether they're allowed, what they yield (set by events: laws, eras) */
   rules: Record<string, Rule>;
   politics: PoliticalEra;
@@ -224,7 +230,7 @@ export function recordPrices(g: GameState) {
   const market = {} as Record<IndustryId, number>;
   for (const id of Object.keys(INDUSTRIES) as IndustryId[])
     market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price", { industry: id }) * marketFactor(g, id) * 100) / 100;
-  const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input", { good: "coal" }) * 100) / 100 };
+  const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * priceLevel(year) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input", { good: "coal" }) * 100) / 100 };
   const c = g.company;
   if (c?.totals) {
     const made: Partial<Record<IndustryId, [number, number]>> = {};
@@ -261,13 +267,14 @@ const PARTICIPATION = 0.32;
 let fieldsCache: { map: GameMap; fields: SiteFields } | null = null;
 
 export function newGame(map: GameMap, seed: number): GameState {
+  registerMapHooks();
   resetMap(map);
   const world = generateTown(map, seed, 1850);
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
     history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [],
-    moreDecisions: [], morale: 50, flags: {}, pressures: [], dryShops: [], rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
+    moreDecisions: [], morale: 50, flags: {}, pressures: [], dryShops: [], ruins: [], burnt: [], rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
@@ -617,7 +624,7 @@ export function advanceTurn(g: GameState): void {
   recordPrices(g);
   if (g.company?.bankrupt && !last) {
     g.over = true;
-    g.headlines = [{ year: c0.year, season: c0.season, name: `Receivers Take ${g.company.name}`, description: `After ${RECEIVERSHIP} seasons overdrawn, the bank has put ${g.company.name} into receivership. The works will be sold.`, category: "Labor" }];
+    g.headlines.push({ year: c0.year, season: c0.season, name: `Receivers Take ${g.company.name}`, description: `After ${RECEIVERSHIP} seasons overdrawn, the bank has put ${g.company.name} into receivership. The works will be sold.`, category: "Labor" });
     fileNews(g);
     updateStats(g, c0.year);
     log(g, `${g.company.name} is in receivership. Your story in the valley is over.`);
@@ -799,7 +806,7 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   const standing = techStanding(g, w);
   const ctx = { industry: w.industry };
   const price = ind.basePrice * era * mod(g, "price", ctx) * pe.priceMult * (w.industry === "steel" ? 1 - (g.priceLoss ?? 0) : 1) * standing.factor * marketFactor(g, w.industry);
-  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage", ctx) * pe.wageMult;
+  const wage = WAGE_PER_SEASON_1850 * priceLevel(year) * mod(g, "wage", ctx) * pe.wageMult;
   const revenue = Math.round(output * price);
   // what was bought and hauled, less what better furnaces save (and more if someone has cornered the supply)
   // each good at its own price (Frick's coke, a mine disaster) and each lane at its own haulage rate
@@ -934,9 +941,9 @@ export function settleMigrants(g: GameState, cx: number, cy: number, r: number, 
   return count - left;
 }
 
-let ethRngCache: { turn: number; rng: Rng } | null = null;
+let ethRngCache: { g: GameState; turn: number; rng: Rng } | null = null;
 function ethRng(g: GameState) {
-  if (!ethRngCache || ethRngCache.turn !== g.turn) ethRngCache = { turn: g.turn, rng: new Rng(`${g.seed}:eth:${g.turn}`) };
+  if (!ethRngCache || ethRngCache.g !== g || ethRngCache.turn !== g.turn) ethRngCache = { g, turn: g.turn, rng: new Rng(`${g.seed}:eth:${g.turn}`) };
   return ethRngCache.rng;
 }
 
@@ -1046,7 +1053,7 @@ function rivalPlants(g: GameState, year: number): Plant[] {
     if (!def || !r.active || r.closed) continue;
     const ind = INDUSTRIES[def.industry];
     let cap = 1, pol = 1;
-    for (const id of rivalTechs(def.industry, def.id, year)) { const t = ind.tech.find((x) => x.id === id); cap += t?.effects.capacity ?? 0; pol += t?.effects.pollution ?? 0; }
+    for (const id of rivalTechs(def.industry, def.id, year, r.style)) { const t = ind.tech.find((x) => x.id === id); cap += t?.effects.capacity ?? 0; pol += t?.effects.pollution ?? 0; }
     const opening = def.opens !== undefined && year < def.opens; // still being built
     out.push({ x: r.x, y: r.y, fp: r.footprint, output: opening ? 0 : ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
   }
@@ -1054,6 +1061,12 @@ function rivalPlants(g: GameState, year: number): Plant[] {
 }
 
 /** how hard a rival works is running in a year: full (0.85) until its decline, then its dated cutbacks */
+/** a fresh id for another works ("p:3"): never reuses one that was sold */
+export function nextWorksId(c: Company): string {
+  c.worksSeq = Math.max(c.worksSeq ?? 0, c.others.length) + 1;
+  return `p:${c.worksSeq}`;
+}
+
 export function rivalRunning(def: RivalDef, year: number): number {
   if (def.closes !== undefined && year >= def.closes) return 0;
   let run = 0.85;

@@ -8,7 +8,7 @@
 
 import { feet } from "./units";
 import { bump } from "./business";
-import { type Annex, cal, claimFootprint, type Company, type GameState, log, riverSideOf, updateWorksAccess, type Works } from "./game";
+import { type Annex, cal, claimFootprint, type Company, type GameState, log, nextWorksId, riverSideOf, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { inBounds, vh } from "./map";
 import { newestGroup } from "./business";
@@ -16,6 +16,7 @@ import { evaluateSite, footprintTiles, popSAT } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { HouseSub, Street, Use } from "./town";
 import { standardTechs, techCost } from "./market";
+import { priceLevel } from "./time";
 
 export type ProjectKind = "expand" | "housing" | "dock" | "found";
 
@@ -37,7 +38,7 @@ export interface Proposal {
   displaced: number;
 }
 
-const era = (year: number) => 1 + (year - 1850) * 0.012;
+const era = priceLevel;
 
 export function projectSize(g: GameState, kind: ProjectKind, industry?: IndustryId): number {
   const c = g.company!;
@@ -217,7 +218,7 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
 
 export function newWorks(c: Company, industry: IndustryId, x: number, y: number, fp: number, side: Works["riverSide"], year: number, techs: string[]): Works {
   const w: Works = {
-    id: `p:${c.others.length + 1}`, name: INDUSTRIES[industry].name, industry, x, y, footprint: fp, techs: [...new Set(techs)],
+    id: nextWorksId(c), name: INDUSTRIES[industry].name, industry, x, y, footprint: fp, techs: [...new Set(techs)],
     employees: 0, produced: 0, seasonsOperating: 0, riverSide: side, status: "running", strikeTurns: 0, health: 1, unrest: 0,
     annexes: [], founded: year,
   };
