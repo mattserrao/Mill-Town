@@ -14,9 +14,9 @@ export interface Sprite {
   soft?: boolean; // keep partial alpha (smoke)
 }
 
-type Pt = [number, number];
+export type Pt = [number, number];
 
-class Painter {
+export class Painter {
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
   readonly cx: number;
@@ -57,50 +57,60 @@ class Painter {
   }
 }
 
-function crisp(c: HTMLCanvasElement) {
+export function crisp(c: HTMLCanvasElement) {
   const ctx = c.getContext("2d")!;
   const d = ctx.getImageData(0, 0, c.width, c.height);
   for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i] >= 120 ? 255 : 0;
   ctx.putImageData(d, 0, 0);
 }
 
-function shade(hex: string, k: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const r = Math.min(255, Math.round(((n >> 16) & 255) * k));
-  const g = Math.min(255, Math.round(((n >> 8) & 255) * k));
-  const b = Math.min(255, Math.round((n & 255) * k));
+export function shade(col: string, k: number): string {
+  let r0: number, g0: number, b0: number;
+  if (col.startsWith("rgb")) [r0, g0, b0] = col.slice(col.indexOf("(") + 1, -1).split(",").map(Number);
+  else { const n = parseInt(col.slice(1), 16); r0 = (n >> 16) & 255; g0 = (n >> 8) & 255; b0 = n & 255; }
+  const r = Math.min(255, Math.round(r0 * k)), g = Math.min(255, Math.round(g0 * k)), b = Math.min(255, Math.round(b0 * k));
   return `rgb(${r},${g},${b})`;
 }
 
 // ---------------------------------------------------------------- building blocks
 
-interface BoxOpts {
+export interface BoxOpts {
   wall: string;           // lit (left/+v) face colour
   wallR?: string;         // right face
   top?: string;           // flat roof colour
   z0?: number;            // base height
   foundation?: number;    // px of stone foundation below z0 (for slopes)
+  left?: boolean;         // draw the +v face (default true)
+  right?: boolean;        // draw the +u face (default true)
+  fnd?: string;           // foundation colour
 }
 
 /** Axis-aligned box from (u0,v0) to (u1,v1), h px tall. Returns its corner points. */
-function box(p: Painter, u0: number, v0: number, u1: number, v1: number, h: number, o: BoxOpts) {
+export function box(p: Painter, u0: number, v0: number, u1: number, v1: number, h: number, o: BoxOpts) {
   const z0 = o.z0 ?? 0;
   const A = (z: number) => p.P(u0, v0, z), B = (z: number) => p.P(u1, v0, z);
   const C = (z: number) => p.P(u1, v1, z), D = (z: number) => p.P(u0, v1, z);
   const fz = z0 - (o.foundation ?? 0);
+  const L = o.left !== false, R = o.right !== false;
   if (o.foundation) {
-    p.poly([D(fz), C(fz), C(z0), D(z0)], "#7d7468");
-    p.poly([C(fz), B(fz), B(z0), C(z0)], "#5f584f");
+    const f = o.fnd ?? "#7d7468";
+    if (L) p.poly([D(fz), C(fz), C(z0), D(z0)], f);
+    if (R) p.poly([C(fz), B(fz), B(z0), C(z0)], shade(f, 0.76));
+    // stone coursing on tall foundations
+    for (let z = fz + 3; z < z0 - 1 && (o.foundation ?? 0) > 5; z += 3) {
+      if (L) p.line(D(z), C(z), shade(f, 0.82));
+      if (R) p.line(C(z), B(z), shade(f, 0.62));
+    }
   }
-  p.poly([D(z0), C(z0), C(z0 + h), D(z0 + h)], o.wall);
-  p.poly([C(z0), B(z0), B(z0 + h), C(z0 + h)], o.wallR ?? shade(o.wall, 0.74));
+  if (L) p.poly([D(z0), C(z0), C(z0 + h), D(z0 + h)], o.wall);
+  if (R) p.poly([C(z0), B(z0), B(z0 + h), C(z0 + h)], o.wallR ?? shade(o.wall, 0.74));
   if (o.top) p.poly([A(z0 + h), B(z0 + h), C(z0 + h), D(z0 + h)], o.top);
   return { A, B, C, D, z0, h, u0, v0, u1, v1 };
 }
-type Box = ReturnType<typeof box>;
+export type Box = ReturnType<typeof box>;
 
 /** Gable roof over a box; ridge runs along `axis`. */
-function gable(p: Painter, b: Box, axis: "u" | "v", rise: number, roof: string, gableCol?: string) {
+export function gable(p: Painter, b: Box, axis: "u" | "v", rise: number, roof: string, gableCol?: string, ends = true) {
   const top = b.z0 + b.h;
   const roofR = shade(roof, 0.72);
   if (axis === "u") {
@@ -108,7 +118,7 @@ function gable(p: Painter, b: Box, axis: "u" | "v", rise: number, roof: string, 
     const R0 = p.P(b.u0, vm, top + rise), R1 = p.P(b.u1, vm, top + rise);
     p.poly([b.A(top), b.B(top), R1, R0], roofR);
     p.poly([b.D(top), b.C(top), R1, R0], roof);
-    p.poly([b.C(top), b.B(top), R1], gableCol ?? shade(roof, 0.9));
+    if (ends) p.poly([b.C(top), b.B(top), R1], gableCol ?? shade(roof, 0.9));
     // shingle courses
     for (let k = 1; k < 4; k++) {
       const f = k / 4;
@@ -119,7 +129,7 @@ function gable(p: Painter, b: Box, axis: "u" | "v", rise: number, roof: string, 
     const R0 = p.P(um, b.v0, top + rise), R1 = p.P(um, b.v1, top + rise);
     p.poly([b.A(top), b.D(top), R1, R0], roof);
     p.poly([b.B(top), b.C(top), R1, R0], roofR);
-    p.poly([b.D(top), b.C(top), R1], gableCol ?? shade(roof, 1.05));
+    if (ends) p.poly([b.D(top), b.C(top), R1], gableCol ?? shade(roof, 1.05));
     for (let k = 1; k < 4; k++) {
       const f = k / 4;
       p.line(lerp(b.B(top), R0, f), lerp(b.C(top), R1, f), shade(roof, 0.62));
@@ -127,12 +137,12 @@ function gable(p: Painter, b: Box, axis: "u" | "v", rise: number, roof: string, 
   }
 }
 
-function lerp(a: Pt, b: Pt, t: number): Pt {
+export function lerp(a: Pt, b: Pt, t: number): Pt {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 }
 
 /** Windows along the left (+v) face or right (+u) face of a box. */
-function windows(p: Painter, b: Box, face: "left" | "right", count: number, rows: number[], col = "#2b2a2e", lit = "#e7d9a8", door = false) {
+export function windows(p: Painter, b: Box, face: "left" | "right", count: number, rows: number[], col = "#2b2a2e", lit = "#e7d9a8", door = false) {
   const a = face === "left" ? b.D(b.z0) : b.C(b.z0);
   const c = face === "left" ? b.C(b.z0) : b.B(b.z0);
   for (let k = 0; k < count; k++) {
@@ -147,11 +157,11 @@ function windows(p: Painter, b: Box, face: "left" | "right", count: number, rows
   }
 }
 
-function chimney(p: Painter, u: number, v: number, zBase: number, h: number, col = "#8a4a36") {
+export function chimney(p: Painter, u: number, v: number, zBase: number, h: number, col = "#8a4a36") {
   box(p, u - 0.04, v - 0.04, u + 0.04, v + 0.04, h, { wall: col, z0: zBase, top: "#2a2420" });
 }
 
-function cylinder(p: Painter, u: number, v: number, r: number, z0: number, h: number, col: string, topCol: string) {
+export function cylinder(p: Painter, u: number, v: number, r: number, z0: number, h: number, col: string, topCol: string) {
   const [cx, cy] = p.P(u, v, z0);
   const rx = r * 45, ry = rx / 2;
   const c = p.ctx;
@@ -171,7 +181,7 @@ function cylinder(p: Painter, u: number, v: number, r: number, z0: number, h: nu
 
 // ---------------------------------------------------------------- trees
 
-function tree(kind: "oak" | "maple" | "pine" | "bush" | "dead", v: number): Sprite {
+export function tree(kind: "oak" | "maple" | "pine" | "bush" | "dead", v: number): Sprite {
   const p = new Painter(1, 96);
   const [x, y] = p.P(0.5, 0.5);
   const s = 0.8 + (v % 3) * 0.2;
@@ -205,7 +215,7 @@ function tree(kind: "oak" | "maple" | "pine" | "bush" | "dead", v: number): Spri
 }
 
 /** Lumpy foliage blob lit from the upper-left. */
-function blob(p: Painter, cx: number, cy: number, rx: number, ry: number, pal: string[], rnd: (k: number) => number) {
+export function blob(p: Painter, cx: number, cy: number, rx: number, ry: number, pal: string[], rnd: (k: number) => number) {
   const lumps: [number, number, number][] = [];
   for (let k = 0; k < 6; k++) lumps.push([cx + (rnd(k) - 0.5) * rx * 1.1, cy + (rnd(k + 9) - 0.5) * ry * 0.9, rx * (0.5 + rnd(k + 20) * 0.3)]);
   lumps.push([cx, cy, rx * 0.75]);
@@ -224,33 +234,10 @@ function blob(p: Painter, cx: number, cy: number, rx: number, ry: number, pal: s
 
 // ---------------------------------------------------------------- houses
 
-const CLAPBOARD = ["#d8d2bf", "#cdb586", "#a9aaa2", "#b98a6c", "#d6c7a0", "#9fb0a8"];
-const ROOFS = ["#5b4636", "#4b4a4f", "#6a3d30", "#57524a"];
+export const CLAPBOARD = ["#d8d2bf", "#cdb586", "#a9aaa2", "#b98a6c", "#d6c7a0", "#9fb0a8"];
+export const ROOFS = ["#5b4636", "#4b4a4f", "#6a3d30", "#57524a"];
 
-function frameHouse(o: "a" | "b", v: number): Sprite {
-  const p = new Painter(1, 110);
-  const wall = CLAPBOARD[v % CLAPBOARD.length], roof = ROOFS[v % ROOFS.length];
-  // two houses per lot, facing the street
-  const spots: [number, number][] = o === "a" ? [[0.1, 0.42], [0.55, 0.42]] : [[0.42, 0.1], [0.42, 0.55]];
-  for (const [k, [u, vv]] of spots.entries()) {
-    if (v % 5 === 4 && k === 1) { const t = tree("maple", v + 1); p.ctx.drawImage(t.canvas, ...offset(p, t, u + 0.15, vv + 0.15)); continue; }
-    const w = 0.34, d = 0.4;
-    const b = o === "a" ? box(p, u, vv, u + w, vv + d, 13, { wall: CLAPBOARD[(v + k) % 6], foundation: 4 }) : box(p, u, vv, u + d, vv + w, 13, { wall: CLAPBOARD[(v + k) % 6], foundation: 4 });
-    gable(p, b, o === "a" ? "v" : "u", 7, ROOFS[(v + k) % 4]);
-    windows(p, b, "left", o === "a" ? 2 : 3, [3, 9], "#2b2a2e", "#efe6c8", true);
-    windows(p, b, "right", o === "a" ? 3 : 2, [3, 9]);
-    chimney(p, (b.u0 + b.u1) / 2 + 0.06, (b.v0 + b.v1) / 2, 13, 9);
-    // porch
-    if ((v + k) % 2 === 0) {
-      const pb = o === "a" ? box(p, u + 0.02, vv + d, u + w - 0.02, vv + d + 0.1, 6, { wall: "#c9c2ad", top: "#6b5b4b" }) : box(p, u + d, vv + 0.02, u + d + 0.1, vv + w - 0.02, 6, { wall: "#c9c2ad", top: "#6b5b4b" });
-      void pb;
-    }
-  }
-  void wall; void roof;
-  return p.sprite();
-}
-
-function offset(p: Painter, s: Sprite, u: number, v: number): [number, number] {
+export function offset(p: Painter, s: Sprite, u: number, v: number): [number, number] {
   const [x, y] = p.P(u, v);
   return [Math.round(x - s.ax), Math.round(y - s.ay)];
 }
@@ -285,51 +272,6 @@ function farmstead(v: number): Sprite {
   // haystack
   const [x, y] = p.P(0.75, 0.22);
   blob(p, x, y - 4, 5, 4, ["#a88c46", "#c4a95a", "#dcc277"], (k) => tileNoise(3, k, v, 1));
-  return p.sprite();
-}
-
-function rowhouses(o: "a" | "b", v: number): Sprite {
-  const p = new Painter(1, 120);
-  const bricks = ["#9a4a34", "#a65a3e", "#8c4433", "#b0674a"];
-  const stories = 2 + (v % 2);
-  const h = stories * 9 + 2;
-  const n = 4;
-  for (let k = 0; k < n; k++) {
-    const t0 = 0.04 + k * 0.23, t1 = t0 + 0.23;
-    const brick = bricks[(v + k) % bricks.length];
-    const hh = h + ((v + k) % 3 === 0 ? 3 : 0);
-    const b = o === "a" ? box(p, t0, 0.28, t1, 0.78, hh, { wall: brick, foundation: 4 }) : box(p, 0.28, t0, 0.78, t1, hh, { wall: brick, foundation: 4 });
-    gable(p, b, o === "a" ? "u" : "v", 5, (v + k) % 2 ? "#4a4446" : "#5a4a42");
-    const rows = Array.from({ length: stories }, (_, s) => 3 + s * 9);
-    windows(p, b, o === "a" ? "left" : "right", 2, rows, "#2a2628", "#d9c8a0", o === "a");
-    if (o === "b") windows(p, b, "left", 2, rows, "#2a2628", "#d9c8a0", true);
-    // shopfront on the corner house
-    if (k === 0 && v % 3 === 0) {
-      const [x, y] = o === "a" ? lerp(b.D(b.z0), b.C(b.z0), 0.5) : lerp(b.C(b.z0), b.B(b.z0), 0.5);
-      p.px(x - 3, y - 6, "#3d5a6a", 6, 5);
-      p.px(x - 4, y - 8, "#c9a24a", 8, 2);
-    }
-    chimney(p, (b.u0 + b.u1) / 2, (b.v0 + b.v1) / 2, hh + 2, 6);
-  }
-  return p.sprite();
-}
-
-function church(v: number): Sprite {
-  const p = new Painter(1, 150);
-  const stone = v % 2 ? "#b8ad98" : "#9c7a64";
-  const nave = box(p, 0.15, 0.3, 0.85, 0.75, 22, { wall: stone, foundation: 4 });
-  gable(p, nave, "u", 12, "#4c5560");
-  windows(p, nave, "left", 4, [6], "#3a4a6a", "#cfc8b0");
-  const tw = box(p, 0.62, 0.38, 0.84, 0.62, 44, { wall: stone, top: "#4c5560" });
-  windows(p, tw, "left", 1, [30], "#2a2628", "#cfc8b0");
-  windows(p, tw, "right", 1, [30], "#2a2628", "#cfc8b0");
-  // spire
-  const top = 44;
-  const apex = p.P(0.73, 0.5, top + 26);
-  p.poly([p.P(0.62, 0.62, top), p.P(0.84, 0.62, top), apex], "#56606c");
-  p.poly([p.P(0.84, 0.62, top), p.P(0.84, 0.38, top), apex], "#3e4650");
-  p.px(apex[0], apex[1] - 4, "#c9b26a", 1, 4);
-  p.px(apex[0] - 1, apex[1] - 3, "#c9b26a", 3, 1);
   return p.sprite();
 }
 
@@ -403,114 +345,6 @@ function penitentiary(): Sprite {
   for (const [u, v] of [[-1.85, -1.85], [0.85, -1.85], [-1.85, 0.85], [0.85, 0.85]] as const) {
     const t = box(p, u - 0.08, v - 0.08, u + 0.12, v + 0.12, 22, { wall: "#9a9484" });
     p.poly([t.A(22), t.B(22), t.C(22), t.D(22)], "#6a665e");
-  }
-  return p.sprite();
-}
-
-// ---------------------------------------------------------------- industry parts
-
-export type Part = "shed_a" | "shed_b" | "mill_a" | "mill_b" | "furnace" | "stoves" | "stack" | "orepile" | "coalpile" |
-  "cone" | "gasholder" | "retort" | "slip_a" | "slip_b" | "lumber" | "yard";
-
-function industryPart(part: Part, owner: "p" | "r", v: number): Sprite {
-  const p = new Painter(1, 170);
-  const brick = owner === "p" ? "#8e3f2e" : "#6f6656";
-  const roof = owner === "p" ? "#3a3a42" : "#3c4638";
-  switch (part) {
-    case "shed_a": case "shed_b": case "mill_a": case "mill_b": {
-      const a = part.endsWith("a");
-      const tall = part.startsWith("mill") ? 26 : 18;
-      const b = a ? box(p, 0.02, 0.15, 0.98, 0.85, tall, { wall: brick, foundation: 3 }) : box(p, 0.15, 0.02, 0.85, 0.98, tall, { wall: brick, foundation: 3 });
-      if (part.startsWith("mill")) {
-        // monitor roof
-        gable(p, b, a ? "u" : "v", 8, roof);
-        const m = a ? box(p, 0.05, 0.42, 0.95, 0.58, 5, { wall: "#c9b27a", z0: tall + 4, top: roof }) : box(p, 0.42, 0.05, 0.58, 0.95, 5, { wall: "#c9b27a", z0: tall + 4, top: roof });
-        void m;
-      } else {
-        // sawtooth
-        for (let k = 0; k < 4; k++) {
-          const s0 = 0.02 + k * 0.24;
-          const sb = a ? { ...b, u0: s0, u1: s0 + 0.24, A: (z: number) => p.P(s0, 0.15, z), B: (z: number) => p.P(s0 + 0.24, 0.15, z), C: (z: number) => p.P(s0 + 0.24, 0.85, z), D: (z: number) => p.P(s0, 0.85, z) }
-            : { ...b, v0: s0, v1: s0 + 0.24, A: (z: number) => p.P(0.15, s0, z), B: (z: number) => p.P(0.85, s0, z), C: (z: number) => p.P(0.85, s0 + 0.24, z), D: (z: number) => p.P(0.15, s0 + 0.24, z) };
-          gable(p, sb, a ? "v" : "u", 7, roof);
-        }
-      }
-      windows(p, b, "left", a ? 6 : 3, [5, tall - 8], "#2a2224", "#b88a50");
-      windows(p, b, "right", a ? 3 : 6, [5, tall - 8], "#2a2224", "#b88a50");
-      break;
-    }
-    case "furnace": {
-      box(p, 0.1, 0.1, 0.9, 0.9, 8, { wall: brick, top: "#3e3836" });
-      cylinder(p, 0.5, 0.5, 0.28, 8, 36, "#5d5450", "#2a2624");
-      cylinder(p, 0.5, 0.5, 0.18, 44, 10, "#4a4240", "#1d1a19");
-      // bustle pipe, skip hoist
-      p.line(p.P(0.2, 0.2, 8), p.P(0.48, 0.48, 50), "#2e2a2a");
-      p.line(p.P(0.22, 0.2, 8), p.P(0.5, 0.48, 50), "#4a4442");
-      p.px(...p.P(0.62, 0.72, 10), "#f08a2a", 3, 2);
-      p.px(...p.P(0.64, 0.74, 9), "#ffd36a", 1, 1);
-      break;
-    }
-    case "stoves": {
-      box(p, 0.08, 0.08, 0.92, 0.92, 4, { wall: "#4d4643", top: "#3a3432" });
-      for (const [u, vv] of [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]] as const) cylinder(p, u, vv, 0.13, 4, 30, "#6a605a", "#3a3432");
-      break;
-    }
-    case "stack": {
-      box(p, 0.25, 0.25, 0.75, 0.75, 6, { wall: "#5a524c", top: "#3a3432" });
-      box(p, 0.42, 0.42, 0.58, 0.58, 92, { wall: owner === "p" ? "#93503c" : "#7a7266", top: "#1a1818" });
-      for (let z = 20; z < 92; z += 18) p.line(p.P(0.42, 0.58, z), p.P(0.58, 0.58, z), "#3a2a24");
-      break;
-    }
-    case "orepile": case "coalpile": {
-      const pal = part === "orepile" ? ["#5a2e24", "#7a3e2c", "#94503a"] : ["#141416", "#232327", "#36363c"];
-      const [x, y] = p.P(0.5, 0.55);
-      blob(p, x, y - 5, 22, 9, pal, (k) => tileNoise(v, k, 9, 2));
-      break;
-    }
-    case "cone": {
-      // glasshouse cone: tall brick cone with a vented top
-      box(p, 0.05, 0.05, 0.95, 0.95, 6, { wall: brick, top: "#4a3e38" });
-      for (let k = 0; k < 20; k++) {
-        const r = 0.42 - k * 0.015;
-        cylinder(p, 0.5, 0.5, r, 6 + k * 3, 3, k % 4 === 0 ? "#7e3a2a" : "#9a4c36", "#6a3426");
-      }
-      cylinder(p, 0.5, 0.5, 0.12, 66, 6, "#6a3426", "#141212");
-      windows(p, box(p, 0.3, 0.75, 0.7, 0.95, 10, { wall: brick, foundation: 2 }), "left", 1, [0], "#1a1414", "#f0a040", true);
-      break;
-    }
-    case "gasholder": {
-      cylinder(p, 0.5, 0.5, 0.4, 0, 26, "#6a7a72", "#5a665f");
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI * 2;
-        const u = 0.5 + Math.cos(a) * 0.42, vv = 0.5 + Math.sin(a) * 0.42;
-        if (Math.sin(a) + Math.cos(a) > -0.5) p.line(p.P(u, vv, 0), p.P(u, vv, 34), "#3a3a3e");
-      }
-      break;
-    }
-    case "retort": {
-      const b = box(p, 0.08, 0.2, 0.92, 0.8, 18, { wall: brick, foundation: 3 });
-      gable(p, b, "u", 8, roof);
-      windows(p, b, "left", 5, [4], "#2a2224", "#e08a3a");
-      for (const u of [0.25, 0.5, 0.75]) chimney(p, u, 0.5, 26, 16, "#6a5a52");
-      break;
-    }
-    case "slip_a": case "slip_b": {
-      const a = part === "slip_a";
-      // inclined ways with a hull on the stocks
-      const hull = a ? box(p, 0.1, 0.3, 0.9, 0.7, 9, { wall: "#3e3a36", wallR: "#2e2a26", top: "#8a7a5a" }) : box(p, 0.3, 0.1, 0.7, 0.9, 9, { wall: "#3e3a36", wallR: "#2e2a26", top: "#8a7a5a" });
-      void hull;
-      for (let k = 0; k < 6; k++) {
-        const t = 0.12 + k * 0.15;
-        p.line(a ? p.P(t, 0.25, 0) : p.P(0.25, t, 0), a ? p.P(t, 0.25, 12) : p.P(0.25, t, 12), "#7a6040");
-      }
-      break;
-    }
-    case "lumber": {
-      for (let k = 0; k < 3; k++) box(p, 0.15 + k * 0.25, 0.25, 0.35 + k * 0.25, 0.75, 6 + k * 2, { wall: "#b08a5a", top: "#c9a46e" });
-      break;
-    }
-    case "yard":
-      break;
   }
   return p.sprite();
 }
@@ -605,24 +439,68 @@ function smoke(v: number): Sprite {
   return p.sprite(true);
 }
 
+// ---------------------------------------------------------------- mines, inclines, street furniture
+
+function mine(v: number): Sprite {
+  const p = new Painter(1, 120);
+  // drift portal in the hillside
+  const [x, y] = p.P(0.3, 0.3, 2);
+  p.px(x - 4, y - 7, "#5a4028", 9, 8); p.px(x - 3, y - 6, "#0e0c0c", 7, 6);
+  // wooden tipple with a chute over a coal pile and a track out of the portal
+  const legs: [number, number][] = [[0.5, 0.45], [0.8, 0.45], [0.5, 0.75], [0.8, 0.75]];
+  for (const [u, vv] of legs) p.line(p.P(u, vv), p.P(u, vv, 26), "#6a4a2a");
+  const t = box(p, 0.46, 0.42, 0.84, 0.78, 10, { wall: "#7a5a36", z0: 24 });
+  gable(p, t, "u", 5, "#4a3a2a");
+  p.line(p.P(0.84, 0.6, 22), p.P(1.0, 0.85, 4), "#3a2a1a");
+  const [cx, cy] = p.P(0.9, 0.85);
+  blob(p, cx, cy - 3, 8, 4, ["#141416", "#232327", "#36363c"], (k) => tileNoise(v, k, 4, 4));
+  p.line(p.P(0.3, 0.3, 1), p.P(0.6, 0.6, 1), "#4a3626");
+  p.px(...p.P(0.42, 0.42, 3), "#2a2a2e", 3, 2); // mine car
+  return p.sprite();
+}
+
+function inclineStation(): Sprite {
+  const p = new Painter(1, 110);
+  const b = box(p, 0.15, 0.15, 0.85, 0.85, 16, { wall: "#8a6a4a", foundation: 4 });
+  gable(p, b, "u", 7, "#4a3a32");
+  windows(p, b, "left", 3, [4], "#2b2a2e", "#e7d9a8", true);
+  windows(p, b, "right", 2, [4]);
+  return p.sprite();
+}
+
+function inclineCar(): Sprite {
+  const p = new Painter(1, 80);
+  // stepped car body on the slope
+  const b = box(p, 0.3, 0.3, 0.7, 0.7, 10, { wall: "#b03a2e", top: "#6a2a24", z0: 2 });
+  windows(p, b, "left", 3, [3], "#e8e0c0", "#3a2a24");
+  windows(p, b, "right", 2, [3], "#e8e0c0", "#3a2a24");
+  return p.sprite();
+}
+
+function lamp(kind: "gas" | "elec"): Sprite {
+  const p = new Painter(1, 70);
+  const [x, y] = p.P(0.12, 0.12);
+  if (kind === "gas") { p.px(x, y - 12, "#1e1e22", 1, 12); p.px(x - 1, y - 15, "#e8d080", 3, 3); p.px(x - 1, y - 16, "#1e1e22", 3, 1); }
+  else { p.px(x, y - 18, "#3a3a3e", 1, 18); p.px(x, y - 18, "#3a3a3e", 4, 1); p.px(x + 3, y - 17, "#f0f0d0", 2, 1); }
+  return p.sprite();
+}
+
 // ---------------------------------------------------------------- catalog
 
 export type SpriteKey = string;
 
+/** Static sprites (nature, craft, bridges, 1850 landmarks). Houses and plants are generated on demand by key. */
 export function buildSprites(): Map<SpriteKey, Sprite> {
   const s = new Map<SpriteKey, Sprite>();
   for (let v = 0; v < 3; v++) { s.set(`tree:oak${v}`, tree("oak", v)); s.set(`tree:maple${v}`, tree("maple", v)); s.set(`tree:pine${v}`, tree("pine", v)); }
   for (let v = 0; v < 2; v++) { s.set(`tree:bush${v}`, tree("bush", v)); }
   s.set("tree:dead0", tree("dead", 0));
-  for (const o of ["a", "b"] as const) for (let v = 0; v < 4; v++) { s.set(`house:${o}${v}`, frameHouse(o, v)); s.set(`row:${o}${v}`, rowhouses(o, v)); }
   for (let v = 0; v < 3; v++) s.set(`cabin:${v}`, cabin(v));
-  for (let v = 0; v < 2; v++) { s.set(`farm:${v}`, farmstead(v)); s.set(`church:${v}`, church(v)); }
+  for (let v = 0; v < 2; v++) s.set(`farm:${v}`, farmstead(v));
   s.set("struct:blockhouse", blockhouse());
   s.set("struct:courthouse", courthouse());
   s.set("struct:arsenal", arsenal());
   s.set("struct:penitentiary", penitentiary());
-  const parts: Part[] = ["shed_a", "shed_b", "mill_a", "mill_b", "furnace", "stoves", "stack", "orepile", "coalpile", "cone", "gasholder", "retort", "slip_a", "slip_b", "lumber"];
-  for (const o of ["p", "r"] as const) for (const pt of parts) s.set(`ind:${o}:${pt}`, industryPart(pt, o, 1));
   for (const o of ["a", "b"] as const) {
     s.set(`boat:steam:${o}`, steamboat(o, 0));
     s.set(`boat:barge:${o}`, barge(o, 0));
@@ -631,6 +509,11 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   }
   for (let v = 0; v < 3; v++) s.set(`wharf:${v}`, wharfGoods(v));
   for (let v = 0; v < 2; v++) s.set(`smoke:${v}`, smoke(v));
+  for (let v = 0; v < 2; v++) s.set(`mine:${v}`, mine(v));
+  s.set("incline:station", inclineStation());
+  s.set("incline:car", inclineCar());
+  s.set("lamp:gas", lamp("gas"));
+  s.set("lamp:elec", lamp("elec"));
   return s;
 }
 

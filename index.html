@@ -27,6 +27,8 @@
           <h2>View</h2>
           <label><input type="checkbox" id="labels" checked /> Place names</label>
           <label><input type="checkbox" id="grid" /> Grid</label>
+          <label><input type="checkbox" id="animate" checked /> Animate smoke &amp; fire</label>
+          <label>Time of day <select id="tod"><option value="day">Day</option><option value="cycle">Day/night cycle</option><option value="night">Night</option></select></label>
           <p class="hint">Drag or WASD/arrows to pan · scroll, +/- or the ± buttons to zoom · click a tile to inspect</p>
         </section>
         <section>
@@ -55,6 +57,7 @@
         <section id="companySection" hidden>
           <h2>Company</h2>
           <div id="company" class="kv"></div>
+          <button id="library" title="Fund a free public library near the works">Fund a library ($40,000)</button>
         </section>
         <section>
           <h2>Log</h2>

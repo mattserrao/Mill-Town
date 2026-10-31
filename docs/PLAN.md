@@ -27,6 +27,13 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Seeded 1850 town grown along real street alignments (rowhouse blocks, frame houses, farms in fields, woods)
    - Smooth-terrain iso renderer (corner heights, lighting), detailed procedural sprites, overlays, tile inspector, site scoring, minimap
    - Minimal season loop: found company (grades its site flat), production, wages, pollution, migration, rival entry, rail/bridge openings
+   - Building variety: era styles by build year, continuous terraces with corner shops, kit-of-parts houses,
+     hillside foundations and city steps, wealth tiers (shanties, company doubles, boarding houses, mansions),
+     shops/taverns/hotels/banks/market house, churches incl. onion domes, schools, firehouses, funded library,
+     yard life (privies, laundry, gardens), soot and abandonment
+   - Plants: process-flow layouts facing the river, multi-tile segmented buildings, technology stages per industry,
+     coke ovens, ore bridges, docks and moored barges, rail spur cars, drift mines, inclines, rival palettes/signatures
+   - Animation: smoke and steam, furnace glow and flame, day/night with lit windows and lamps; strikes, floods, idle
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
@@ -38,6 +45,7 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 ## Known gaps in the current build
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump or a turn (progressive); dirty-chunk tracking would cut that
 - Economy numbers are first-pass placeholders
+- Rail bridges on diagonal alignments look dashed; paddlewheels and boats don't move yet
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal
 - Modern river pools (post lock-and-dam); 1850 shorelines were a little different

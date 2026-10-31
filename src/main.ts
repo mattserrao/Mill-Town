@@ -1,9 +1,9 @@
-import { advanceTurn, cal, foundCompany, newGame, totalPopulation, type GameState } from "./core/game";
+import { advanceTurn, cal, foundCompany, fundLibrary, LIBRARY_COST, newGame, totalPopulation, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles } from "./core/site";
 import { TERRAIN_NAMES } from "./core/terrain";
-import { STRUCTURES, USE_NAMES } from "./core/town";
+import { STRUCTURES, SUB_NAMES, USE_NAMES } from "./core/town";
 import { type Camera, pickTile, project, ZOOMS } from "./render/iso";
 import { Renderer } from "./render/renderer";
 import { makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
@@ -92,11 +92,23 @@ function resize() {
 
 // ---------------------------------------------------------------- render
 let pending = false;
+const t0 = performance.now();
+let lastFrame = 0;
+function nightLevel(t: number): number {
+  const mode = ($<HTMLSelectElement>("tod")).value;
+  if (mode === "day") return 0;
+  if (mode === "night") return 1;
+  const ph = (t / 120) % 1; // two-minute day
+  return Math.max(0, Math.min(1, -Math.cos(ph * Math.PI * 2) * 1.4 + 0.2));
+}
+function animating() { return ($<HTMLInputElement>("animate")).checked || ($<HTMLSelectElement>("tod")).value === "cycle"; }
 function requestRender() {
   if (pending || !game) return;
   pending = true;
-  requestAnimationFrame(() => {
+  requestAnimationFrame((now) => {
     pending = false;
+    if (animating() && now - lastFrame < 40) { requestRender(); return; } // ~25 fps
+    lastFrame = now;
     const fpSize = footprintTiles(map, industry);
     const fp = placing && hover
       ? { x: hover.x, y: hover.y, size: fpSize, ok: !game.company && evaluateSite(map, game.world, game.fields, industry, hover.x, hover.y).ok }
@@ -104,9 +116,12 @@ function requestRender() {
     const ov = makeOverlay(overlay, game, overlayCache);
     const more = renderer.draw(ctx, cam, game, { overlay: ov.fn, overlayKey: ov.key, grid: $<HTMLInputElement>("grid").checked },
       { hover, selected, footprint: fp, labels: $<HTMLInputElement>("labels").checked });
+    const t = (now - t0) / 1000;
+    const night = nightLevel(t);
+    if (($<HTMLInputElement>("animate")).checked || night > 0) renderer.drawAnimated(ctx, cam, game, ($<HTMLInputElement>("animate")).checked ? t : 0, night);
     drawMinimapView();
     $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
-    if (more) requestRender();
+    if (more || animating()) requestRender();
   });
 }
 
@@ -195,7 +210,8 @@ function inspect() {
     bridge ? row("Bridge", `${bridge.name} (${bridge.year})`, bridge.year > w.year ? "bad" : "") : "",
     w.street[i] ? row("Street", ["", "Lane", "Pike", "Bridge"][w.street[i]]) : "",
     row("Coal", ["None", "Seam underground", "Seam outcrop"][map.coal[i]]),
-    row("Land use", struct ? struct[0].toUpperCase() + struct.slice(1) : USE_NAMES[w.use[i]]),
+    row("Land use", struct ? struct[0].toUpperCase() + struct.slice(1) : SUB_NAMES[w.use[i]]?.[w.sub[i]] ?? USE_NAMES[w.use[i]]),
+    w.built[i] ? row("Built", String(w.built[i])) : "",
     row("Residents", fmt(w.pop[i])),
     row("Land value", money(w.landValue[i])),
     row("Pollution", w.pollution[i].toFixed(3)),
@@ -228,6 +244,7 @@ function companyPanel() {
   $("company").innerHTML = [
     row("Name", c.name),
     row("Business", ind.startsAs),
+    row("Status", c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : "Idle", c.status === "running" ? "good" : "bad"),
     row("Cash", money(c.cash), c.cash < 0 ? "bad" : ""),
     row("Employees", fmt(c.employees)),
     row("Lifetime output", fmt(c.produced)),
@@ -243,6 +260,9 @@ function companyPanel() {
       s.notes.length ? `<div class="full hint">${s.notes.join(" ")}</div>` : "",
     ] : []),
   ].join("");
+  const lib = $<HTMLButtonElement>("library");
+  lib.disabled = c.library || cal(game).year < 1880 || c.cash < LIBRARY_COST;
+  lib.textContent = c.library ? "Library funded" : `Fund a library ($${fmt(LIBRARY_COST)})`;
 }
 
 // ---------------------------------------------------------------- UI wiring
@@ -261,7 +281,12 @@ function setupUI() {
   sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); inspect(); requestRender(); });
   industryNote();
   $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; requestRender(); });
-  for (const id of ["labels", "grid"]) $(id).addEventListener("change", () => requestRender());
+  for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
+  $("library").addEventListener("click", () => {
+    const r = fundLibrary(game);
+    if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
+    afterChange();
+  });
 
   $("found").addEventListener("click", () => {
     if (!selected) return;
@@ -375,6 +400,9 @@ Object.assign(window, {
     industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); inspect(); requestRender(); },
     next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterChange(); },
     found: (x: number, y: number, id: IndustryId = industry) => { const r = foundCompany(game, id, x, y); renderer.updateHeights(); afterChange(); return r; },
+    library: () => { const r = fundLibrary(game); afterChange(); return r; },
+    tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
+    tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
     get pending() { return renderer.pending; },
   },
 });

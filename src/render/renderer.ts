@@ -4,14 +4,19 @@
 // tiles), followed by its sprites, all painted back-to-front into one pixel buffer.
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
-import type { GameState } from "../core/game";
-import type { IndustryId } from "../core/industries";
+import { techsForYear, type GameState } from "../core/game";
+import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
 import { RIVALS } from "../core/rivals";
 import { Terrain } from "../core/terrain";
-import { STRUCTURES, Street, Use } from "../core/town";
+import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
+import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, project, tileCorners, ZPX } from "./iso";
-import { buildSprites, scaleSprite, type Part, type Sprite, type SpriteBuf } from "./sprites";
+import { buildPlant, type Emitter, emittersFor, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
+import { buildSprites, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
+
+interface PlantRef { t: PlantTile; c: PlantCtx; years: number }
+interface LiveEmitter extends Emitter { wx: number; wy: number; seed: number; running: boolean }
 
 export type OverlayFn = ((i: number) => [number, number, number, number] | null) | null;
 
@@ -79,6 +84,10 @@ export class Renderer {
   private ncy: number;
   private bridgeAxis = new Map<number, "a" | "b">();
   private rivalIndustry = new Map<number, IndustryId>();
+  private plants = new Map<number, PlantRef>();
+  private emitters: LiveEmitter[] = [];
+  private plantsKey = "";
+  private generated = 0;
   pending = 0;
 
   constructor(private map: GameMap) {
@@ -130,12 +139,64 @@ export class Renderer {
     const k = `${key}@${s}`;
     let b = this.scaled.get(k);
     if (!b) {
-      const sp = this.base.get(key);
+      let sp = this.base.get(key);
+      if (!sp && (key.startsWith("H|") || key.startsWith("P|"))) {
+        if (this.generated > 2500) this.dropGenerated();
+        sp = key.startsWith("H|") ? buildHouse(key) : buildPlant(key);
+        this.base.set(key, sp);
+        this.generated++;
+      }
       if (!sp) return null;
       b = scaleSprite(sp, s);
       this.scaled.set(k, b);
     }
     return b;
+  }
+
+  private dropGenerated() {
+    for (const k of [...this.base.keys()]) if (k.startsWith("H|") || k.startsWith("P|")) this.base.delete(k);
+    for (const k of [...this.scaled.keys()]) if (k.startsWith("H|") || k.startsWith("P|")) this.scaled.delete(k);
+    this.generated = 0;
+  }
+
+  /** Resolve every plant's layout (player + rivals) for this world state. */
+  private updatePlants(g: GameState) {
+    const c = g.company;
+    const key = `${g.world.version}|${c?.status}|${c?.techs.join(",")}|${c?.lastSeason?.produced ?? 0}|${g.rivals.length}|${g.world.year}`;
+    if (key === this.plantsKey) return;
+    this.plantsKey = key;
+    this.plants.clear();
+    this.emitters = [];
+    const m = this.map;
+    const add = (x0: number, y0: number, fp: number, ctx: PlantCtx, running: boolean, years: number) => {
+      const lay = layoutPlant(ctx);
+      for (let ly = 0; ly < fp; ly++) for (let lx = 0; lx < fp; lx++) {
+        const t = lay[ly * fp + lx];
+        const x = x0 + lx, y = y0 + ly;
+        if (x >= m.width || y >= m.height) continue;
+        this.plants.set(y * m.width + x, { t, c: ctx, years });
+        for (const e of emittersFor(t.part)) {
+          const h = m.elevation[y * m.width + x];
+          const [wx, wy] = project(x + e.u, y + e.v, h);
+          this.emitters.push({ ...e, wx, wy: wy - e.z, seed: (x * 31 + y * 17) % 997, running });
+        }
+      }
+    };
+    if (c) {
+      const capacity = INDUSTRIES[c.industry].baseCapacity;
+      const fill = Math.min(2, Math.round(((c.lastSeason?.produced ?? 0) / capacity) * 2));
+      add(c.x, c.y, c.footprint, { ind: c.industry, techs: c.techs, fp: c.footprint, side: c.riverSide, owner: "p", status: c.status, fill },
+        c.status === "running" || c.status === "flooded", c.seasonsOperating / 4);
+    }
+    for (const r of g.rivals) {
+      const def = RIVALS.find((d) => d.id === r.id);
+      if (!def) continue;
+      this.rivalIndustry.set(r.ownerId, def.industry);
+      // Homestead, 1892: the lockout at the Frick/Carnegie works
+      const status = g.world.year === 1892 && (r.id === "frick" || r.id === "carnegie") ? "strike" : g.world.year >= 1983 && def.industry === "steel" ? "idle" : "running";
+      add(r.x, r.y, r.footprint, { ind: def.industry, techs: techsForYear(def.industry, g.world.year), fp: r.footprint, side: r.riverSide, owner: r.id, status, fill: status === "running" ? 1 : 0 },
+        status === "running", g.world.year - def.entryYear);
+    }
   }
 
   // ------------------------------------------------------------ frame
@@ -146,14 +207,11 @@ export class Renderer {
     ctx.fillStyle = "#1b1d22";
     ctx.fillRect(0, 0, cw, ch);
     ctx.imageSmoothingEnabled = false;
-    for (const r of g.rivals) {
-      const def = RIVALS.find((d) => d.id === r.id);
-      if (def) this.rivalIndustry.set(r.ownerId, def.industry);
-    }
+    this.updatePlants(g);
 
     const s = Math.min(1, cam.zoom);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const version = `${g.world.version}|${view.overlayKey}|${view.grid}|${g.company?.lastSeason?.produced ? 1 : 0}`;
+    const version = `${this.plantsKey}|${view.overlayKey}|${view.grid}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -232,7 +290,6 @@ export class Renderer {
     const buf = new Uint32Array(cw * ch);
     const year = w.year;
     const pxu = 1 / (HW * s * 1.2); // ~ uv units per pixel
-    const produced = !!g.company?.lastSeason?.produced;
 
     const P = (fx: number, fy: number, h: number): [number, number] => {
       const [sx, sy] = project(fx, fy, h);
@@ -346,7 +403,7 @@ export class Renderer {
           if (tx === W - 1) sk(Bx, By, Rx, Ry, hB, hR, 0.68);
         }
 
-        for (const sp of this.tileSprites(g, tx, ty, i, produced)) blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
+        for (const sp of this.tileSprites(g, tx, ty, i)) blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
       }
     }
 
@@ -450,7 +507,32 @@ export class Renderer {
       }
       case Use.Cottage: case Use.Houses: base = (_u, _v, _h, gx, gy) => pick(PAL.lot, hash(gx >> 1, gy, 14)); break;
       case Use.Rowhouses: case Use.Civic: base = (_u, _v, _h, gx, gy) => pick(PAL.town, hash(gx, gy, 15)); break;
-      case Use.Industry: case Use.Rival: base = (_u, _v, _h, gx, gy) => pick(PAL.yard, hash(gx, gy, 16)); break;
+      case Use.Industry: case Use.Rival: {
+        const pr = this.plants.get(i);
+        const gr = pr?.t.ground ?? "yard";
+        const flooded = pr?.c.status === "flooded";
+        if (gr === "dock") base = (u, v, _h, gx, gy) => {
+          const along = pr?.t.axis === "v" ? v : u;
+          return (Math.floor(along * 16) & 1) ? (hash(gx, gy, 40) < 0.2 ? 0x5a4632 : 0x6e5840) : 0x7a6448;
+        };
+        else if (gr === "paved") base = (_u, _v, _h, gx, gy) => pick(PAL.paved, hash(gx >> 1, gy, 17));
+        else if (gr === "spur") {
+          const ax = pr?.t.axis ?? "u";
+          base = (u, v, _h, gx, gy) => {
+            const d = Math.abs((ax === "u" ? v : u) - 0.5), along = ax === "u" ? u : v;
+            if (d < 0.13) {
+              let c = hash(gx, gy, 30) < 0.5 ? 0x6a6258 : 0x5c544a;
+              if (d < 0.09 && (Math.floor(along / 0.07) & 1) === 0) c = 0x4a3626;
+              if (Math.abs(d - 0.045) < pxu * 0.9) c = 0xa8a8b0;
+              return c;
+            }
+            return pick(PAL.yard, hash(gx, gy, 16));
+          };
+        } else base = (_u, _v, _h, gx, gy) => (flooded && hash(gx >> 3, gy >> 2, 41) < 0.45 ? 0x4a6a80 : pick(PAL.yard, hash(gx, gy, 16)));
+        break;
+      }
+      case Use.Mine: base = (_u, _v, _h, gx, gy) => (hash(gx, gy, 42) < 0.5 ? 0x3a3630 : pick(PAL.woods, hash(gx >> 1, gy >> 1, 6))); break;
+      case Use.Commerce: base = (_u, _v, _h, gx, gy) => pick(PAL.paved, hash(gx >> 1, gy, 43) * 0.5 + 0.2); break;
       case Use.Landmark: base = (_u, _v, _h, gx, gy) => pick(PAL.paved, hash(gx >> 1, gy, 17)); break;
       case Use.Wharf: base = (_u, _v, _h, gx, gy) => {
         const sx = Math.floor(gx / 3) + ((Math.floor(gy / 2) & 1) ? 1 : 0);
@@ -478,6 +560,8 @@ export class Renderer {
     }
 
     // linear features
+    const incline = use === Use.Incline ? mask((j) => w.use[j] === Use.Incline) : -1;
+    const stairs = w.street[i] > 0 && m.slope[i] >= 16;
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
     const streetW = w.street[i] === Street.Pike ? 0.17 : dense ? 0.26 : 0.14;
@@ -498,7 +582,19 @@ export class Renderer {
         if (dc < 0.06) c = hash(gx, gy, 27) < 0.15 ? 0x8cb4d4 : 0x467aa0;
         else if (dc < 0.1) c = 0x5e6a44;
       }
-      if (w.street[i]) {
+      if (incline >= 0) {
+        const [di, along] = lineDist(incline || 0xff, u, v);
+        if (di < 0.16) {
+          c = (Math.floor(along / 0.06) & 1) ? 0x5a4632 : 0x6e5a40; // timber trestle deck
+          if (Math.abs(di - 0.08) < pxu * 1.1) c = 0xa8a8b0;
+        }
+      }
+      if (w.street[i] && stairs) {
+        // Pittsburgh city steps: wooden stairs with a handrail climbing the hillside
+        const [ds, along] = lineDist(streetMask, u, v);
+        if (ds < 0.1) c = (Math.floor(along / 0.035) & 1) ? 0x8a7a5e : 0x6a5a44;
+        else if (Math.abs(ds - 0.12) < pxu) c = 0x3a3028;
+      } else if (w.street[i]) {
         const [ds] = lineDist(streetMask, u, v);
         if (ds < streetW) {
           if (dense) {
@@ -524,18 +620,50 @@ export class Renderer {
   }
 
   // ------------------------------------------------------------ sprites per tile
-  private tileSprites(g: GameState, x: number, y: number, i: number, produced: boolean): { key: string; u: number; v: number; h?: number }[] {
+  private houseSpecFor(g: GameState, x: number, y: number, i: number, kind: HouseKind, sub: number) {
+    const m = this.map, w = g.world, W = m.width, V = W + 1;
+    const st = (dx: number, dy: number) => {
+      const nx = x + dx, ny = y + dy;
+      return nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx] > 0;
+    };
+    let o: "a" | "b" = "a", front: "+" | "-" = "+";
+    if (st(0, 1)) { o = "a"; front = "+"; }
+    else if (st(1, 0)) { o = "b"; front = "+"; }
+    else if (st(0, -1)) { o = "a"; front = "-"; }
+    else if (st(-1, 0)) { o = "b"; front = "-"; }
+    else { o = hash(x, y, 50) < 0.5 ? "a" : "b"; front = "+"; }
+    const corner = (st(0, 1) || st(0, -1)) && (st(1, 0) || st(-1, 0)) ? 1 : 0;
+    const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
+    const hc = (hT + hR + hL + hB) / 4;
+    const hmax = Math.max(hT, hR, hL, hB), hmin = Math.min(hT, hR, hL, hB);
+    const q = (px: number, cap: number) => Math.min(cap, Math.round(px / 3) * 3);
+    const lift = q((hmax - hc) * ZPX, 24);
+    const fnd = q(lift + (hc - hmin) * ZPX + 2, 42);
+    const pol = w.pollution[i];
+    const soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
+    const housing = kind !== "civic" && kind !== "shop";
+    const boarded = housing && w.pop[i] === 0 && kind !== "mansion" ? 1 : 0;
+    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), lift, fnd, soot, boarded });
+  }
+
+  private denseStreet(g: GameState, x: number, y: number) {
+    const m = this.map, w = g.world, W = m.width;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      const u2 = w.use[ny * W + nx];
+      if (u2 === Use.Rowhouses || u2 === Use.Commerce) return true;
+    }
+    return false;
+  }
+
+  private tileSprites(g: GameState, x: number, y: number, i: number): { key: string; u: number; v: number; h?: number }[] {
     const m = this.map, w = g.world, W = m.width;
     const out: { key: string; u: number; v: number; h?: number }[] = [];
     const n = (c: number) => hash(x, y, c + (w.seed & 0xff));
     const use = w.use[i];
     const t = m.terrain[i];
-    const streetAt = (dx: number, dy: number) => {
-      const nx = x + dx, ny = y + dy;
-      return nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx] > 0;
-    };
-    // street along x-direction neighbours -> buildings in a row along u ("a"), else along v ("b")
-    const orient = (): "a" | "b" => (streetAt(0, 1) || streetAt(0, -1) ? "a" : streetAt(1, 0) || streetAt(-1, 0) ? "b" : n(1) < 0.5 ? "a" : "b");
+    const sub = w.sub[i];
 
     switch (use) {
       case Use.Forest: {
@@ -555,20 +683,40 @@ export class Renderer {
       case Use.Farm:
         if (x % 7 === 0 && y % 5 === 0 && n(8) < 0.7) out.push({ key: `tree:oak${Math.floor(n(9) * 3)}`, u: 0.12, v: 0.12 });
         break;
-      case Use.Cottage:
-        if (w.pop[i] >= 4 && n(10) < 0.35 && !w.street[i]) out.push({ key: `farm:${Math.floor(n(11) * 2)}`, u: 0.5, v: 0.5 });
-        else out.push({ key: `cabin:${Math.floor(n(12) * 3)}`, u: 0.5, v: 0.5 });
-        if (n(13) < 0.4) out.push({ key: `tree:maple${Math.floor(n(14) * 3)}`, u: 0.8, v: 0.25 });
+      case Use.Cottage: {
+        if (sub === HouseSub.Shanty) { out.push({ key: this.houseSpecFor(g, x, y, i, "shanty", sub), u: 0.5, v: 0.5 }); break; }
+        if (sub === HouseSub.Company) { out.push({ key: this.houseSpecFor(g, x, y, i, "company", sub), u: 0.5, v: 0.5 }); break; }
+        let nearStreet = false;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx]) nearStreet = true; }
+        if (!nearStreet && w.pop[i] >= 4) out.push({ key: `farm:${Math.floor(n(11) * 2)}`, u: 0.5, v: 0.5 });
+        else out.push({ key: this.houseSpecFor(g, x, y, i, "cottage", sub), u: 0.5, v: 0.5 });
         break;
-      case Use.Houses:
-        out.push({ key: `house:${orient()}${Math.floor(n(15) * 4)}`, u: 0.5, v: 0.5 });
+      }
+      case Use.Houses: {
+        const kind: HouseKind = sub === HouseSub.Estate ? (w.pollution[i] < 0.4 ? "mansion" : "house") : sub === HouseSub.Company ? "company" : sub === HouseSub.Shanty ? "shanty" : "house";
+        out.push({ key: this.houseSpecFor(g, x, y, i, kind, sub), u: 0.5, v: 0.5 });
         break;
+      }
       case Use.Rowhouses:
-        out.push({ key: `row:${orient()}${Math.floor(n(16) * 4)}`, u: 0.5, v: 0.5 });
+        out.push({ key: this.houseSpecFor(g, x, y, i, sub === HouseSub.Boarding ? "boarding" : "row", sub), u: 0.5, v: 0.5 });
         break;
       case Use.Civic:
-        out.push({ key: `church:${Math.floor(n(17) * 2)}`, u: 0.5, v: 0.5 });
+        out.push({ key: this.houseSpecFor(g, x, y, i, "civic", sub as CivicSub), u: 0.5, v: 0.5 });
         break;
+      case Use.Commerce:
+        out.push({ key: this.houseSpecFor(g, x, y, i, "shop", sub || 2), u: 0.5, v: 0.5 });
+        break;
+      case Use.Mine:
+        out.push({ key: `mine:${Math.floor(n(12) * 2)}`, u: 0.5, v: 0.5 });
+        break;
+      case Use.Incline: {
+        // stations at either end, a car part-way up
+        let nb = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if ((dx || dy) && nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.use[ny * W + nx] === Use.Incline && w.sub[ny * W + nx] === sub) nb++; }
+        if (nb <= 1) out.push({ key: "incline:station", u: 0.5, v: 0.5 });
+        else if (n(13) < 0.3) out.push({ key: "incline:car", u: 0.5, v: 0.5 });
+        break;
+      }
       case Use.Landmark: {
         const st = w.structure[i];
         if (st > 0 && st < 255) out.push({ key: `struct:${STRUCTURES[st]}`, u: 0.5, v: 0.5 });
@@ -579,39 +727,141 @@ export class Renderer {
         break;
       case Use.Industry:
       case Use.Rival: {
-        let ox = x, oy = y, fp = 8, ind: IndustryId = "steel", owner: "p" | "r" = "p";
-        if (use === Use.Industry && g.company) { ox = g.company.x; oy = g.company.y; fp = g.company.footprint; ind = g.company.industry; }
-        else {
-          const r = g.rivals.find((r) => r.ownerId === w.owner[i]);
-          if (r) { ox = r.x; oy = r.y; fp = r.footprint; ind = this.rivalIndustry.get(r.ownerId) ?? "steel"; owner = "r"; }
+        const pr = this.plants.get(i);
+        if (pr && pr.t.part) {
+          const soot = Math.min(3, Math.floor(pr.years / 12) + 1);
+          out.push({ key: plantKey(pr.t, pr.c, soot, Math.floor(n(14) * 3)), u: 0.5, v: 0.5 });
         }
-        const part = industryLayout(ind, x - ox, y - oy, fp);
-        if (part !== "yard") out.push({ key: `ind:${owner}:${part}`, u: 0.5, v: 0.5 });
-        if (part === "stack" && (owner === "r" || produced)) out.push({ key: `smoke:${(x + y) & 1}`, u: 0.5, v: 0.5 });
         break;
       }
     }
 
+    // gas (later electric) street lamps along busy streets
+    if (w.street[i] && w.street[i] !== Street.Bridge && (x * 3 + y) % 4 === 0 && this.denseStreet(g, x, y))
+      out.push({ key: w.year >= 1910 ? "lamp:elec" : "lamp:gas", u: 0.5, v: 0.5 });
+
     if (t === Terrain.Water) {
-      // bridges
       if (w.street[i] === Street.Bridge) out.push({ key: `bridge:road:${this.bridgeAxis.get(m.bridge[i]) ?? "a"}`, u: 0.5, v: 0.5 });
       else if (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year) {
         const ax = (m.rail[i - 1] || m.rail[i + 1]) ? "a" : "b";
         out.push({ key: `bridge:rail:${ax}`, u: 0.5, v: 0.5 });
-      } else if ((x + 2 * y) % 5 === 0) {
-        // river traffic: steamboats at the wharves, coal barges on the Mon
-        let nearWharf = false;
-        for (let dy = -2; dy <= 2 && !nearWharf; dy++) for (let dx = -2; dx <= 2; dx++) {
+      } else {
+        // barges moored at plant docks; steamboats at the wharves; coal barges on the Mon
+        let dock = false, nearWharf = false;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
           const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && m.special[ny * W + nx] === Special.Wharf) { nearWharf = true; break; }
+          if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+          const j = ny * W + nx;
+          if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && this.plants.get(j)?.t.ground === "dock") dock = true;
+          if (m.special[j] === Special.Wharf) nearWharf = true;
         }
         const axis = riverAxis(m, x, y);
-        if (nearWharf && n(20) < 0.3) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 });
-        else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}`, u: 0.5, v: 0.5 });
+        if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}`, u: 0.5, v: 0.5 });
+        else if ((x + 2 * y) % 5 === 0) {
+          if (nearWharf && n(20) < 0.3) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 });
+          else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}`, u: 0.5, v: 0.5 });
+        }
       }
     }
     if (out.length > 1) out.sort((a, b) => a.u + a.v - (b.u + b.v));
     return out;
+  }
+
+  // ------------------------------------------------------------ animation layer
+  /**
+   * Smoke, steam, furnace glow and flame from running works; night falls with lit windows and lamps.
+   * Drawn on top of the cached chunks every frame. `t` in seconds, `night` 0..1.
+   */
+  drawAnimated(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number, night: number) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, z = cam.zoom;
+    const toS = (wx: number, wy: number): [number, number] => [(wx - cam.x) * z, (wy - cam.y) * z];
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // night sky over the land
+    if (night > 0.02) {
+      ctx.fillStyle = `rgba(14,18,44,${(night * 0.62).toFixed(3)})`;
+      ctx.fillRect(0, 0, cw, ch);
+      if (z >= 0.375) this.drawLights(ctx, cam, g, night);
+    }
+    const wind = 1;
+    for (const e of this.emitters) {
+      if (!e.running) continue;
+      const [sx, sy] = toS(e.wx, e.wy);
+      if (sx < -200 || sx > cw + 300 || sy < -300 || sy > ch + 100) continue;
+      const sz = e.size * z;
+      if (e.kind === "smoke" || e.kind === "steam") {
+        const N = 9;
+        for (let k = 0; k < N; k++) {
+          const ph = (t * 0.12 * (e.kind === "steam" ? 1.3 : 1) + k / N + e.seed / 97) % 1;
+          const r = (3 + ph * 16) * sz;
+          const px = sx + ph * 70 * sz * wind + Math.sin(ph * 6 + e.seed) * 4 * sz;
+          const py = sy - ph * 55 * sz;
+          const a = (1 - ph) * (e.kind === "steam" ? 0.5 : 0.62);
+          const c = e.kind === "steam" ? 230 : 58 + ph * 70;
+          ctx.fillStyle = `rgba(${c | 0},${(c - 4) | 0},${(c - 8) | 0},${a.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.ellipse(px, py, r * 1.25, r, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        const flick = 0.65 + 0.35 * Math.sin(t * 9 + e.seed) * Math.sin(t * 3.7 + e.seed * 2);
+        const r = (e.kind === "flame" ? 10 : 14) * sz * (1 + night * 1.6);
+        ctx.globalCompositeOperation = "lighter";
+        const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+        const a = (0.35 + night * 0.55) * flick;
+        gr.addColorStop(0, `rgba(255,200,90,${a.toFixed(3)})`);
+        gr.addColorStop(0.5, `rgba(240,110,30,${(a * 0.5).toFixed(3)})`);
+        gr.addColorStop(1, "rgba(200,60,20,0)");
+        ctx.fillStyle = gr;
+        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        if (e.kind === "flame") {
+          ctx.fillStyle = `rgba(255,${(180 + 60 * flick) | 0},80,${(0.8 * flick).toFixed(3)})`;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy - 6 * sz * flick, 3 * sz, 9 * sz * flick, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Lit windows and street lamps after dark (visible tiles only). */
+  private drawLights(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, night: number) {
+    const m = this.map, w = g.world, z = cam.zoom;
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
+      const wx = cam.x + px / z, wy = cam.y + py / z + (260 - BASE_M) * ZPX;
+      const a = wx / HW, b = wy / HH;
+      return [(a + b) / 2, (b - a) / 2];
+    });
+    const x0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 4), x1 = Math.min(m.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 8);
+    const y0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 4), y1 = Math.min(m.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 8);
+    ctx.globalCompositeOperation = "lighter";
+    const a = Math.min(1, night * 1.3);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = y * m.width + x;
+      const u = w.use[i];
+      const lampTile = w.street[i] && w.street[i] !== Street.Bridge && (x * 3 + y) % 4 === 0 && this.denseStreet(g, x, y);
+      if (!(u >= Use.Cottage && u <= Use.Civic || u === Use.Commerce) && !lampTile) continue;
+      const [wx, wy] = project(x + 0.5, y + 0.5, m.elevation[i]);
+      const sx = (wx - cam.x) * z, sy = (wy - cam.y) * z;
+      if (sx < -20 || sy < -40 || sx > cw + 20 || sy > ch + 20) continue;
+      if (lampTile) {
+        ctx.fillStyle = `rgba(255,220,140,${(0.5 * a).toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(sx - 24 * z, sy - 12 * z, 5 * z, 0, Math.PI * 2); ctx.fill();
+        if (!(u >= Use.Cottage)) continue;
+      }
+      if (w.pop[i] === 0 && u !== Use.Commerce && u !== Use.Civic) continue;
+      const lit = u === Use.Rowhouses ? 5 : u === Use.Commerce ? 4 : u === Use.Houses ? 3 : 1;
+      for (let k = 0; k < lit; k++) {
+        if (hash(x * 7 + k, y, 77 + Math.floor(Date.now() / 20000)) > 0.65) continue;
+        const ox = (hash(x, y * 3 + k, 78) - 0.5) * 44 * z, oy = -(4 + hash(x + k, y, 79) * 22) * z;
+        ctx.fillStyle = `rgba(255,210,120,${(0.85 * a).toFixed(3)})`;
+        ctx.fillRect(Math.round(sx + ox), Math.round(sy + oy), Math.max(1, Math.round(2 * z)), Math.max(1, Math.round(2 * z)));
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
   }
 
   // ------------------------------------------------------------ overlays drawn live
@@ -687,29 +937,4 @@ function riverAxis(m: GameMap, x: number, y: number): "a" | "b" {
     if (y + k >= 0 && y + k < m.height && m.terrain[(y + k) * m.width + x] === Terrain.Water) ay++;
   }
   return ax >= ay ? "a" : "b";
-}
-
-/** Which building part goes on tile (lx, ly) of an industry's footprint. */
-export function industryLayout(ind: IndustryId, lx: number, ly: number, fp: number): Part {
-  const edge = lx === 0 || ly === 0 || lx === fp - 1 || ly === fp - 1;
-  switch (ind) {
-    case "steel":
-      if (lx === 1 && ly === 1) return "stack";
-      if (edge) return (lx + ly) % 4 === 0 ? "orepile" : (lx + ly) % 4 === 2 ? "coalpile" : "yard";
-      if (lx === 2) return ly % 3 === 1 ? "furnace" : ly % 3 === 2 ? "stoves" : "shed_b";
-      if (lx === fp - 3 && ly === fp - 3) return "stack";
-      return ly % 2 ? "mill_a" : "shed_a";
-    case "glass":
-      if (lx === 1 && ly === 1) return "stack";
-      if (edge) return (lx * 3 + ly) % 5 === 0 ? "orepile" : "yard";
-      return lx % 2 === 1 && ly % 2 === 1 ? "cone" : "shed_b";
-    case "power":
-      if (lx === 1 && ly === 1) return "stack";
-      if (edge) return (lx + ly) % 3 === 0 ? "coalpile" : "yard";
-      return (lx + ly) % 2 === 0 ? "gasholder" : "retort";
-    case "metalworks":
-      if (lx === 1 && ly === 1) return "stack";
-      if (edge) return (lx + ly) % 3 === 0 ? "lumber" : "yard";
-      return lx >= fp - 3 ? (ly % 2 ? "slip_a" : "slip_b") : ly % 2 ? "shed_a" : "mill_b";
-  }
 }

@@ -3,6 +3,7 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
+import { DIAMOND, INCLINES, latLonToTile, tileLine } from "./features";
 import { type GameMap, idx, inBounds, sat, satSum, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
@@ -20,11 +21,29 @@ export const enum Use {
   Wharf = 9,     // stone river landing
   Landmark = 10, // historic structure
   Rock = 11,     // bare bluff
+  Commerce = 12, // shops, taverns, hotels, banks, market (sub)
+  Mine = 13,     // drift mine with tipple
+  Incline = 14,  // inclined plane railway (sub = incline id)
 }
+
+/** sub-types: houses / rowhouses */
+export const enum HouseSub { Normal = 0, Estate = 1, Company = 2, Shanty = 3, Boarding = 4 }
+/** sub-types: commerce */
+export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5 }
+/** sub-types: civic */
+export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4 }
 
 export const USE_NAMES: Record<number, string> = {
   0: "Open land", 1: "Woods", 2: "Farm", 3: "Cottages", 4: "Frame houses", 5: "Brick rowhouses",
   6: "Church", 7: "Your works", 8: "Rival works", 9: "Wharf", 10: "Landmark", 11: "Bare rock",
+  12: "Business", 13: "Coal mine", 14: "Incline",
+};
+export const SUB_NAMES: Record<number, Record<number, string>> = {
+  3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
+  4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties" },
+  5: { 4: "Boarding houses" },
+  6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library" },
+  12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house" },
 };
 
 export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3 }
@@ -59,12 +78,15 @@ export interface World {
   owner: Uint8Array;       // 0 private/town, 1 player, 2+ rivals
   pollution: Float32Array;
   landValue: Float32Array;
+  sub: Uint8Array;         // building sub-type (HouseSub / ShopSub / CivicSub / incline id)
+  built: Uint16Array;      // year the current building went up (drives its architectural style)
   settlements: { name: string; x: number; y: number; pop: number }[];
   /** bumped whenever tiles change, so renderers can drop caches */
   version: number;
 }
 
 export function useForPop(p: number): Use {
+  // (company and shanty lots are capped below the rowhouse threshold by the game)
   return p > POP_CAP.houses ? Use.Rowhouses : p > POP_CAP.cottage ? Use.Houses : Use.Cottage;
 }
 
@@ -115,6 +137,8 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     owner: new Uint8Array(n),
     pollution: new Float32Array(n),
     landValue: new Float32Array(n),
+    sub: new Uint8Array(n),
+    built: new Uint16Array(n),
     settlements: [],
     version: 1,
   };
@@ -174,6 +198,16 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
       placed++;
     }
     w.settlements.push({ name: s.landmark, x: lm.x, y: lm.y, pop: target - Math.max(0, left) });
+    // the well-off build at the edge of the bigger towns, on good ground
+    if (target >= 1000) {
+      for (let k = Math.floor(placed * 0.55); k < placed; k++) {
+        const ci = cands[k].i;
+        const t = m.terrain[ci];
+        if (w.use[ci] === Use.Houses && (t === Terrain.Flat || t === Terrain.Upland || t === Terrain.Slope) && rng.chance(0.14)) {
+          w.sub[ci] = HouseSub.Estate; w.pop[ci] = 8;
+        }
+      }
+    }
     // churches: one per ~4000 people, at well-ranked tiles
     const churches = Math.max(1, Math.round(target / 4000));
     for (let k = 0; k < churches && k * 7 < cands.length; k++) {
@@ -184,6 +218,39 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
 
   // ---- streets: today's streets inside settled areas, plus bridges standing in this year
   activateStreets(m, w);
+
+  // ---- businesses along the main streets of the bigger towns
+  const big = new Set(w.settlements.filter((s) => s.pop >= 1000).map((s) => s.name));
+  for (let i = 0; i < n; i++) {
+    if (w.use[i] !== Use.Rowhouses && w.use[i] !== Use.Houses) continue;
+    if (w.sub[i]) continue;
+    const x = i % m.width, y = (i / m.width) | 0;
+    let pike = false, lane = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!inBounds(m, x + dx, y + dy)) continue;
+      const st = w.street[(y + dy) * m.width + x + dx];
+      if (st === Street.Pike) pike = true;
+      if (st === Street.Lane) lane = true;
+    }
+    if (!pike && !lane) continue;
+    const r = tileNoise(seed, x, y, 301);
+    if (r > (pike ? 0.16 : 0.05)) continue;
+    let near = w.settlements[0], nd = Infinity;
+    for (const st of w.settlements) { const d = Math.hypot(st.x - x, st.y - y); if (d < nd) { nd = d; near = st; } }
+    if (!big.has(near.name)) continue;
+    const k = tileNoise(seed, x, y, 302);
+    const pgh = near.name.startsWith("The Point");
+    w.use[i] = Use.Commerce;
+    w.sub[i] = k < 0.36 ? ShopSub.Tavern : k < 0.78 ? ShopSub.Store : k < 0.92 || !pgh ? ShopSub.Hotel : ShopSub.Bank;
+  }
+  // market house on the Diamond
+  {
+    const [dx, dy] = latLonToTile(m, DIAMOND[0], DIAMOND[1]);
+    if (inBounds(m, dx, dy) && m.terrain[dy * m.width + dx] !== Terrain.Water) {
+      const i = dy * m.width + dx;
+      w.use[i] = Use.Commerce; w.sub[i] = ShopSub.Market; w.pop[i] = 0; w.street[i] = 0;
+    }
+  }
 
   // ---- countryside: fields in cells, woods on hillsides
   for (let i = 0; i < n; i++) {
@@ -209,6 +276,35 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     if (x % 7 === 3 && y % 5 === 2 && tileNoise(seed, x, y, 103) < 0.45) { w.use[i] = Use.Cottage; w.pop[i] = rng.int(4, 8); }
   }
 
+  // ---- drift mines on the Pittsburgh seam where it outcrops near the river and the towns
+  {
+    const mines: [number, number][] = [];
+    const riverNear = (x: number, y: number) => {
+      for (let dy = -12; dy <= 12; dy += 2) for (let dx = -12; dx <= 12; dx += 2)
+        if (inBounds(m, x + dx, y + dy) && m.terrain[(y + dy) * m.width + x + dx] === Terrain.Water) return true;
+      return false;
+    };
+    const order: number[] = [];
+    for (let i = 0; i < n; i++) if (m.coal[i] === 2 && (m.terrain[i] === Terrain.Slope || m.terrain[i] === Terrain.Steep) && !w.street[i] && w.use[i] <= Use.Farm) order.push(i);
+    order.sort((a, b) => tileNoise(seed, a, 0, 401) - tileNoise(seed, b, 0, 401));
+    for (const i of order) {
+      if (mines.length >= 16) break;
+      const x = i % m.width, y = (i / m.width) | 0;
+      if (mines.some(([a, b]) => Math.hypot(a - x, b - y) < 18)) continue;
+      if (!w.settlements.some((s) => Math.hypot(s.x - x, s.y - y) < 110)) continue;
+      if (!riverNear(x, y)) continue;
+      mines.push([x, y]);
+      w.use[i] = Use.Mine; w.pop[i] = 0;
+    }
+  }
+
+  // ---- building ages: 1850's houses went up over the previous sixty years
+  for (let i = 0; i < n; i++) {
+    if (w.use[i] >= Use.Cottage && w.use[i] <= Use.Civic || w.use[i] === Use.Commerce)
+      w.built[i] = 1850 - Math.floor(tileNoise(seed, i, 7, 501) * 60);
+  }
+  activateFeatures(m, w);
+
   // ---- pikes between settlements (nearest-first spanning tree)
   const order = w.settlements.slice();
   const connected = [order.shift()!];
@@ -227,6 +323,22 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   return w;
 }
 
+/** Inclines open in their year: track tiles from the river-level station up the bluff. */
+export function activateFeatures(m: GameMap, w: World) {
+  for (const inc of INCLINES) {
+    if (inc.year > w.year) continue;
+    const [x0, y0] = latLonToTile(m, inc.lower[0], inc.lower[1]);
+    const [x1, y1] = latLonToTile(m, inc.upper[0], inc.upper[1]);
+    for (const [x, y] of tileLine(x0, y0, x1, y1)) {
+      if (!inBounds(m, x, y)) continue;
+      const i = y * m.width + x;
+      if (w.use[i] === Use.Incline || m.terrain[i] === Terrain.Water) continue;
+      w.use[i] = Use.Incline; w.sub[i] = inc.id; w.pop[i] = 0; w.street[i] = 0;
+      if (!w.built[i]) w.built[i] = inc.year;
+    }
+  }
+}
+
 /** Streets appear on today's road alignments where the town has grown around them. */
 export function activateStreets(m: GameMap, w: World) {
   const W = m.width;
@@ -238,7 +350,7 @@ export function activateStreets(m: GameMap, w: World) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!inBounds(m, x + dx, y + dy)) continue;
       const u = w.use[(y + dy) * W + x + dx];
-      if (u >= Use.Cottage && u <= Use.Civic || u === Use.Wharf || u === Use.Landmark) settled++;
+      if (u >= Use.Cottage && u <= Use.Civic || u === Use.Wharf || u === Use.Landmark || u === Use.Commerce) settled++;
     }
     if (settled >= 2) {
       w.street[i] = m.road[i] === 2 ? Street.Pike : Street.Lane;
@@ -280,7 +392,7 @@ export function carveRoad(m: GameMap, w: World, x0: number, y0: number, x1: numb
     if (m.terrain[i] === Terrain.Water) continue; // ferry crossing: no road on water
     if (!w.street[i]) w.street[i] = Street.Pike;
     if (w.use[i] === Use.Forest || w.use[i] === Use.Farm || w.use[i] === Use.Rock) w.use[i] = Use.Empty;
-    if (w.pop[i] && w.use[i] !== Use.Landmark && w.use[i] !== Use.Civic) {
+    if (w.pop[i] && w.use[i] !== Use.Landmark && w.use[i] !== Use.Civic && w.use[i] !== Use.Commerce) {
       // the road takes the lot; people move next door
       w.pop[i] = 0;
       w.use[i] = Use.Empty;

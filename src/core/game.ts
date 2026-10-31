@@ -4,11 +4,14 @@
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, tilesFor } from "./map";
 import { RIVALS } from "./rivals";
-import { Rng } from "./rng";
+import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { calendar, SEASON_EFFECTS, type Calendar } from "./time";
-import { activateStreets, generateTown, POP_CAP, recomputeLandValue, Use, useForPop, type World } from "./town";
+import { activateFeatures, activateStreets, CivicSub, generateTown, HouseSub, POP_CAP, recomputeLandValue, Use, useForPop, type World } from "./town";
+
+export type RiverSide = "N" | "S" | "E" | "W";
+export type PlantStatus = "running" | "idle" | "strike" | "flooded";
 
 export interface Company {
   name: string;
@@ -21,6 +24,12 @@ export interface Company {
   produced: number;
   seasonsOperating: number;
   lastSeason?: SeasonReport;
+  riverSide: RiverSide;
+  status: PlantStatus;
+  strikeTurns: number;
+  library: boolean;
+  /** migrants settled since the last civic building went up */
+  civicDue: number;
 }
 
 export interface RivalState {
@@ -29,6 +38,7 @@ export interface RivalState {
   x: number; y: number;
   footprint: number;
   active: boolean;
+  riverSide: RiverSide;
 }
 
 export interface SeasonReport {
@@ -88,10 +98,76 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
     employees: 0,
     produced: 0,
     seasonsOperating: 0,
+    riverSide: riverSideOf(g.map, x, y, rep.footprint),
+    status: "running",
+    strikeTurns: 0,
+    library: false,
+    civicDue: 0,
   };
   log(g, `Founded ${g.company.name} (${ind.startsAs}) for $${rep.cost.toLocaleString()}.`);
   recomputeLandValue(g.map, g.world);
   return { ok: true };
+}
+
+/** Which side of a footprint faces the river (where the dock goes). */
+export function riverSideOf(m: GameMap, x: number, y: number, fp: number): RiverSide {
+  const count = (x0: number, y0: number, x1: number, y1: number) => {
+    let c = 0;
+    for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++)
+      if (inBounds(m, xx, yy) && m.terrain[yy * m.width + xx] === Terrain.Water) c++;
+    return c;
+  };
+  const sides: [RiverSide, number][] = [
+    ["N", count(x, y - 4, x + fp - 1, y - 1)], ["S", count(x, y + fp, x + fp - 1, y + fp + 3)],
+    ["W", count(x - 4, y, x - 1, y + fp - 1)], ["E", count(x + fp, y, x + fp + 3, y + fp - 1)],
+  ];
+  sides.sort((a, b) => b[1] - a[1]);
+  return sides[0][0];
+}
+
+/** Technologies a rival would be running in a given year. */
+export function techsForYear(ind: IndustryId, year: number): string[] {
+  return INDUSTRIES[ind].tech.filter((t) => t.year <= year - 2).map((t) => t.id);
+}
+
+/** Fund a public library near the works (the Carnegie gambit). */
+export const LIBRARY_COST = 40000;
+export function fundLibrary(g: GameState): { ok: boolean; reason?: string } {
+  const c = g.company;
+  if (!c) return { ok: false, reason: "No company" };
+  if (c.library) return { ok: false, reason: "Already funded a library" };
+  if (cal(g).year < 1880) return { ok: false, reason: "Libraries become a thing in the 1880s" };
+  if (c.cash < LIBRARY_COST) return { ok: false, reason: `Needs $${LIBRARY_COST.toLocaleString()}` };
+  const at = placeCivic(g, c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), CivicSub.Library);
+  if (!at) return { ok: false, reason: "No site for a library near the works" };
+  c.cash -= LIBRARY_COST;
+  c.library = true;
+  log(g, `${c.name} funds a free public library for the town.`);
+  return { ok: true };
+}
+
+/** Put a civic building on a settled lot near (cx, cy) that fronts a street. */
+function placeCivic(g: GameState, cx: number, cy: number, sub: CivicSub): boolean {
+  const { map: m, world: w } = g;
+  let best = -1, bd = Infinity;
+  for (let r = 3; r <= 45 && best < 0; r += 6) {
+    for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+      if (!inBounds(m, x, y)) continue;
+      const i = y * m.width + x;
+      const u = w.use[i];
+      if (u !== Use.Houses && u !== Use.Rowhouses && u !== Use.Cottage) continue;
+      if (w.owner[i] || !nearStreet(g, x, y)) continue;
+      const d = Math.hypot(x - cx, y - cy) + tileNoise(g.seed, x, y, 77) * 3;
+      if (d < bd) { bd = d; best = i; }
+    }
+  }
+  if (best < 0) return false;
+  w.use[best] = Use.Civic;
+  w.sub[best] = sub;
+  w.pop[best] = 0;
+  w.built[best] = cal(g).year;
+  w.version++;
+  return true;
 }
 
 /** Take the land, clear it, and grade it flat (vertex heights averaged). */
@@ -114,6 +190,7 @@ function claimFootprint(g: GameState, x: number, y: number, fp: number, owner: n
     w.use[i] = use;
     w.pop[i] = 0;
     w.street[i] = 0;
+    w.sub[i] = 0;
   }
   w.version++;
 }
@@ -149,6 +226,7 @@ export function advanceTurn(g: GameState): void {
   if (c1.year !== c0.year) {
     g.world.year = c1.year;
     activateStreets(g.map, g.world);
+    activateFeatures(g.map, g.world);
     recomputeLandValue(g.map, g.world);
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
@@ -173,6 +251,20 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) if (inBounds(m, x, y)) pool += g.world.pop[y * m.width + x];
   const workersHired = Math.round(Math.min(workersWanted, pool * PARTICIPATION));
   let output = Math.min(capacity, workersHired / wpu);
+  const year0 = cal(g).year;
+  c.status = "running";
+  if (c.strikeTurns > 0) {
+    c.strikeTurns--;
+    output = 0;
+    c.status = "strike";
+    notes.push("The men are out on strike. The works stand cold.");
+  } else if (year0 >= 1877 && c.employees > 300 && rng.chance(0.02 + Math.min(0.04, c.employees / 60000))) {
+    c.strikeTurns = rng.int(0, 2);
+    output = 0;
+    c.status = "strike";
+    notes.push("Strike! The men walked out over wages and hours.");
+    log(g, `Strike at ${c.name}.`);
+  }
   if (ind.site.riverWithinM) output *= riverMult;
   if (riverMult < 1) notes.push(riverMult <= 0.5 ? "River ice cut barge deliveries." : "Low water slowed barges.");
 
@@ -181,10 +273,12 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     if (m.terrain[(c.y + dy) * m.width + c.x + dx] === Terrain.Floodplain) flood++;
   if (flood && rng.chance(floodRisk)) {
     output *= 0.6;
+    c.status = "flooded";
     notes.push("Flood! The works stood in water for weeks.");
     log(g, "Flood damaged the works.");
   }
   output = Math.floor(output);
+  if (output === 0 && c.status === "running") c.status = "idle";
 
   const year = cal(g).year;
   const haul = 1 + Math.min(1, (g.fields.coal[cy * m.width + cx] * m.metersPerTile) / ind.site.coalWithinM) * 0.5;
@@ -208,6 +302,16 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const shortfall = Math.max(0, workersWanted - workersHired);
   const migrants = settleMigrants(g, cx, cy, R, Math.round(shortfall / PARTICIPATION * 0.35 + workersHired * 0.05));
   if (migrants > 0) notes.push(`${migrants} newcomers settled near the works.`);
+  // a growing mill town needs churches, schools and firehouses
+  c.civicDue += migrants;
+  if (c.civicDue >= 1500) {
+    c.civicDue = 0;
+    const kinds: CivicSub[] = [year0 >= 1885 ? CivicSub.OnionChurch : CivicSub.Church];
+    if (year0 >= 1865) kinds.push(CivicSub.School);
+    if (year0 >= 1870) kinds.push(CivicSub.Firehouse);
+    const kind = kinds[rng.int(0, kinds.length - 1)];
+    if (placeCivic(g, cx, cy, kind)) log(g, `The town near the works builds a new ${["church", "church", "school", "firehouse", "library"][kind]}.`);
+  }
 
   c.lastSeason = { produced: output, revenue, inputCost, wages, profit, workersWanted, workersHired, migrants, notes };
 }
@@ -248,15 +352,30 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
   let left = count;
   for (const { i } of cands) {
     if (left <= 0) break;
-    const room = POP_CAP.rowhouses - w.pop[i];
+    const room = capFor(w.sub[i]) - w.pop[i];
     if (room <= 0) continue;
     const add = Math.min(room, left, 12);
+    const fresh = w.pop[i] === 0;
     w.pop[i] += add;
     left -= add;
     w.use[i] = useForPop(w.pop[i]);
+    if (fresh && w.use[i] === Use.Cottage) w.use[i] = Use.Houses;
+    const x = i % m.width, y = (i / m.width) | 0;
+    const d = Math.hypot(x - cx, y - cy);
+    if (fresh) {
+      w.built[i] = g.world.year;
+      w.sub[i] = d <= 10 && w.landValue[i] < 60 ? HouseSub.Shanty : d <= 28 && g.world.year >= 1855 ? HouseSub.Company : HouseSub.Normal;
+    } else if (w.use[i] === Use.Rowhouses) {
+      if (w.sub[i] === HouseSub.Shanty || w.sub[i] === HouseSub.Company) { w.sub[i] = d <= 18 ? HouseSub.Boarding : HouseSub.Normal; w.built[i] = g.world.year; }
+    }
   }
   if (left < count) w.version++;
   return count - left;
+}
+
+/** Company doubles and shanty patches stay low-density; ordinary lots can fill up to rowhouses. */
+function capFor(sub: number) {
+  return sub === HouseSub.Shanty ? 16 : sub === HouseSub.Company ? POP_CAP.houses : POP_CAP.rowhouses;
 }
 
 function nearStreet(g: GameState, x: number, y: number) {
@@ -269,10 +388,25 @@ function nearStreet(g: GameState, x: number, y: number) {
 function naturalGrowth(g: GameState, rng: Rng) {
   const w = g.world;
   const n = w.pop.length;
+  if (w.year >= 1975) {
+    // the collapse: families leave the mill towns; empty houses stand boarded up
+    const plants: [number, number][] = g.rivals.map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
+    if (g.company) plants.push([g.company.x + g.company.footprint / 2, g.company.y + g.company.footprint / 2]);
+    const W = g.map.width;
+    for (let i = 0; i < n; i++) {
+      if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
+      const x = i % W, y = (i / W) | 0;
+      const millTown = w.pollution[i] > 0.05 || plants.some(([px, py]) => Math.abs(px - x) < 45 && Math.abs(py - y) < 45);
+      if (rng.chance(millTown ? 0.025 : 0.004)) w.pop[i] = 0;
+      else if (millTown) w.pop[i] = Math.floor(w.pop[i] * 0.98);
+    }
+    w.version++;
+    return;
+  }
   for (let k = 0; k < 3000; k++) {
     const i = rng.int(0, n - 1);
-    if (w.pop[i] > 0 && w.pop[i] < POP_CAP.rowhouses && (w.use[i] >= Use.Cottage && w.use[i] <= Use.Rowhouses)) {
-      w.pop[i] = Math.ceil(w.pop[i] * 1.05);
+    if (w.pop[i] > 0 && w.pop[i] < capFor(w.sub[i]) && (w.use[i] >= Use.Cottage && w.use[i] <= Use.Rowhouses)) {
+      w.pop[i] = Math.min(capFor(w.sub[i]), Math.ceil(w.pop[i] * 1.05));
       w.use[i] = useForPop(w.pop[i]);
     }
   }
@@ -297,7 +431,7 @@ function spawnRivals(g: GameState, year: number) {
     const fp = footprintTiles(g.map, def.industry);
     const ownerId = 2 + g.rivals.length;
     claimFootprint(g, best.x, best.y, fp, ownerId, Use.Rival);
-    g.rivals.push({ id: def.id, ownerId, x: best.x, y: best.y, footprint: fp, active: true });
+    g.rivals.push({ id: def.id, ownerId, x: best.x, y: best.y, footprint: fp, active: true, riverSide: riverSideOf(g.map, best.x, best.y, fp) });
     log(g, `${def.figures.join(" & ")} open ${def.company} near ${def.site}.`);
   }
 }

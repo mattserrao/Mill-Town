@@ -128,7 +128,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
     basePrice: 160,
     startCost: 45000,
     pollutionPerUnit: 0.008,
-    site: { footprintM: 180, riverWithinM: 30, coalWithinM: 2500, laborRadiusM: 1600, maxReliefM: 6 },
+    site: { footprintM: 180, riverWithinM: 60, coalWithinM: 2500, laborRadiusM: 1600, maxReliefM: 10 },
     tech: [
       { id: "steamboats", name: "Wooden steamboats", era: "I", year: 1850, cost: 0, seasons: 0, requires: [], effects: {}, note: "Starting tech." },
       { id: "iron_hulls", name: "Iron-hulled boats", era: "I", year: 1860, cost: 25000, seasons: 6, requires: ["steamboats"], effects: { quality: 1, capacity: 0.3 } },

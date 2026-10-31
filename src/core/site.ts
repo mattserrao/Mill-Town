@@ -11,9 +11,37 @@ export interface SiteFields {
   coal: Uint16Array;  // tiles to nearest coal outcrop
 }
 
+/** Navigable water: large connected bodies of river water (not creek pools that inherited a river name). */
+export function navigable(m: GameMap): Uint8Array {
+  const n = m.width * m.height;
+  const comp = new Int32Array(n).fill(-1);
+  const nav = new Uint8Array(n);
+  const q = new Int32Array(n);
+  let id = 0;
+  for (let s = 0; s < n; s++) {
+    if (comp[s] >= 0 || m.terrain[s] !== Terrain.Water) continue;
+    let head = 0, tail = 0;
+    q[tail++] = s; comp[s] = id;
+    while (head < tail) {
+      const i = q[head++];
+      const x = i % m.width, y = (i / m.width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= m.width || ny >= m.height) continue;
+        const j = ny * m.width + nx;
+        if (comp[j] < 0 && m.terrain[j] === Terrain.Water) { comp[j] = id; q[tail++] = j; }
+      }
+    }
+    if (tail >= 600) for (let k = 0; k < tail; k++) nav[q[k]] = 1;
+    id++;
+  }
+  return nav;
+}
+
 export function siteFields(m: GameMap): SiteFields {
+  const nav = navigable(m);
   return {
-    river: distanceField(m, (i) => m.terrain[i] === Terrain.Water && /River/.test(m.waterNames[String(m.water[i])] ?? "")),
+    river: distanceField(m, (i) => nav[i] === 1),
     coal: distanceField(m, (i) => m.coal[i] === Coal.Outcrop),
   };
 }
