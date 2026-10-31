@@ -137,3 +137,37 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #query .q-legend i { display: inline-block; width: 8px; height: 8px; margin-right: 3px; border: 1px solid #000; }
 #query .q-chip { display: inline-block; border-left: 6px solid; padding: 0 4px; margin: 1px 2px; background: #2a2f37; font-size: 11px; }
 #query .q-chart { display: block; margin-top: 6px; background: #161a1f; border: 1px solid var(--line); }
+
+/* overlay picker: grouped, each with its own palette chip */
+.ov-group { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin: 8px 0 2px; }
+.ov-group:first-child { margin-top: 0; }
+label.ov { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+label.ov input { margin: 0; }
+.ov-name { flex: 1; }
+.ov-sw { width: 34px; height: 9px; border: 1px solid #000; flex: none; }
+label.ov:has(input:checked) { color: #fff; background: rgba(214, 160, 74, 0.14); outline: 1px solid var(--accent); }
+
+/* legends */
+.lg-title { font-size: 11px; color: var(--text); margin: 4px 0; }
+.lg-bar { height: 10px; border: 1px solid #000; margin-top: 4px; }
+.lg-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.lg-keys { display: flex; flex-wrap: wrap; gap: 3px 10px; margin: 4px 0; font-size: 11px; }
+.lg-keys span { display: inline-flex; align-items: center; gap: 4px; }
+.lg-keys i { display: inline-block; width: 14px; height: 10px; border: 1px solid #000; }
+
+/* supply chain and competitors */
+.btn-row { display: flex; gap: 4px; margin-top: 4px; }
+.btn-row button { flex: 1; }
+.sc-head { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); margin: 8px 0 3px; }
+.sc-row { padding: 4px 5px; margin: 2px -5px; cursor: pointer; border-left: 2px solid transparent; }
+.sc-row:hover { background: rgba(255, 255, 255, 0.06); border-left-color: var(--accent); }
+.sc-row.later { opacity: 0.6; }
+.sc-top { display: flex; align-items: center; gap: 6px; }
+.sc-top i { width: 10px; height: 10px; border: 1px solid #000; flex: none; }
+.sc-top b { flex: 1; }
+.sc-top span { color: var(--muted); font-size: 11px; }
+.sc-bar { height: 4px; background: rgba(255, 255, 255, 0.08); margin: 3px 0 2px 16px; }
+.sc-bar div { height: 100%; }
+.sc-sub { color: var(--muted); font-size: 11px; line-height: 1.35; margin-left: 16px; }
+.ms-bar { display: flex; height: 12px; border: 1px solid #000; margin: 4px 0 2px; }
+.ms-bar div { height: 100%; border-right: 1px solid #000; }

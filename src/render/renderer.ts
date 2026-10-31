@@ -420,7 +420,10 @@ export class Renderer {
         if (pol > 0.02 && m.terrain[i] !== Terrain.Water) { tint = 0x2e2824; tintA = Math.min(0.55, pol * 0.35); }
         if (view.overlay) {
           const o = view.overlay(i);
+          // wash the ground out to a neutral grey so the data colours stand apart from grass and brick
           if (o) { tint = rgb(o[0], o[1], o[2]); tintA = o[3]; }
+          else if (m.terrain[i] === Terrain.Water) { tint = 0x40566e; tintA = 0.45; }
+          else { tint = 0x8c8a86; tintA = 0.62; }
         }
         const isWater = m.terrain[i] === Terrain.Water;
         const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT), -MPT * (hL - hT), MPT * MPT);

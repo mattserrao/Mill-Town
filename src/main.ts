@@ -12,7 +12,9 @@ import { SoundController, summarizeView } from "./audio";
 import { ANCHORS } from "./core/ancestry";
 import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
-import { makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
+import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
+import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type WorksRef } from "./core/economy";
+import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -42,6 +44,8 @@ let newsAt = 0;
 let querying = false;
 let soundWanted = (() => { try { return localStorage.getItem("mt.sound") !== "off"; } catch { return true; } })();
 let siteTried: { x: number; y: number }[] = [];
+/** flow or rival hovered in the side panel: drawn on top, the rest faded */
+let focusId: string | null = null;
 
 function announceVersion() {
   const v = window.__MT_VERSION__;
@@ -157,7 +161,7 @@ function requestRender() {
     const night = nightLevel(t);
     lastNight = night;
     const anim = ($<HTMLInputElement>("animate")).checked;
-    const ovOn = overlay !== "none";
+    const ovOn = overlay !== "none" && !isVectorOverlay(overlay);
     if (anim && !ovOn && cam.zoom >= 0.1875) traffic.drawSpills(ctx, game, cam, t, night);
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
@@ -166,6 +170,13 @@ function requestRender() {
     if (!ovOn) traffic.drawHaze(ctx, game, cam, canvas.width, canvas.height);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game);
+    if (overlay === "supply") {
+      const sc = currentChain();
+      if (sc) drawSupply(ctx, cam, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, reservedRects());
+    } else if (overlay === "rivals") {
+      const mine = playerWorks(game);
+      drawRivals(ctx, cam, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, reservedRects());
+    }
     drawMinimapView();
     $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
     if (more || animating()) requestRender();
@@ -211,6 +222,34 @@ function drawMinimapView() {
   mctx.stroke();
 }
 
+/** Screen areas covered by on-map controls (zoom buttons, minimap, zoom badge), in canvas px. */
+function reservedRects() {
+  const vr = canvas.getBoundingClientRect();
+  const sx = canvas.width / vr.width, sy = canvas.height / vr.height;
+  return ["zoomButtons", "minimap", "zoom"].map((id) => {
+    const r = $(id).getBoundingClientRect();
+    return { x: (r.left - vr.left) * sx - 4, y: (r.top - vr.top) * sy - 4, w: r.width * sx + 8, h: r.height * sy + 8 };
+  });
+}
+
+// ---------------------------------------------------------------- supply chain
+let chainCache: { key: string; works: WorksRef; flows: Flow[]; preview: boolean } | null = null;
+/** Your works' supply chain, or (before founding) a preview for the selected site and industry. */
+function currentChain() {
+  let works = playerWorks(game), preview = false;
+  if (!works) {
+    if (!selected) return null;
+    const rep = evaluateSite(map, game.world, game.fields, industry, selected.x, selected.y);
+    if (!rep.ok) return null;
+    const techs = [INDUSTRIES[industry].tech[0].id];
+    works = { industry, x: selected.x, y: selected.y, fp: rep.footprint, techs, produced: capacityOf(industry, techs), name: `${INDUSTRIES[industry].name} Co.` };
+    preview = true;
+  }
+  const key = `${game.turn}|${works.industry}|${works.x},${works.y}|${works.techs.join()}|${works.produced}|${game.rivals.length}`;
+  if (!chainCache || chainCache.key !== key) chainCache = { key, works, flows: supplyChain(game, works), preview };
+  return chainCache;
+}
+
 // ---------------------------------------------------------------- panels
 function row(k: string, v: string, cls = "") {
   return `<div class="k">${k}</div><div class="v ${cls}">${v}</div>`;
@@ -235,6 +274,9 @@ function refreshPanels() {
   $("cash").innerHTML = game.company ? `Cash <b>${money(game.company.cash)}</b>` : `Capital <b>$100,000</b>`;
   inspect();
   companyPanel();
+  supplyPanel();
+  rivalsPanel();
+  $("legend").innerHTML = overlayLegend(overlay, game);
   $("log").innerHTML = game.log.slice(-40).reverse().map((l) => {
     const lc = cal({ ...game, turn: l.turn });
     return `<li>${lc.season.slice(0, 3)} ${lc.year} — <b>${l.text}</b></li>`;
@@ -332,21 +374,87 @@ function companyPanel() {
   inc.title = cal(game).year < 1870 ? "Inclines arrive in 1870" : "Build an incline from a street near the works up to the hilltop houses";
 }
 
+const KIND_TITLE: Record<Flow["kind"], string> = { input: "Raw materials in", utilityIn: "Utilities in", utilityOut: "Utilities out (your customers)", output: "Finished goods out" };
+function supplyPanel() {
+  const sc = game.company ? currentChain() : null;
+  $("supplySection").hidden = !sc;
+  if (!sc) return;
+  const groups = (["input", "utilityIn", "utilityOut", "output"] as const).map((k) => [k, sc.flows.filter((f) => f.kind === k)] as const).filter(([, fl]) => fl.length);
+  $("supply").innerHTML = groups.map(([k, fl]) => `<div class="sc-head">${KIND_TITLE[k]}</div>` + fl.map((f) => `
+    <div class="sc-row" data-flow="${f.id}" data-x="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).x}" data-y="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).y}" title="Hover to highlight on the Supply chain overlay, click to go there">
+      <div class="sc-top"><i style="background:${FLOW_COLOUR(f)}"></i><b>${f.good}</b><span>${f.qty ? fmt(f.qty) : ""}</span></div>
+      ${f.qty ? `<div class="sc-bar"><div style="width:${Math.max(3, f.share * 100)}%;background:${FLOW_COLOUR(f)}"></div></div>` : ""}
+      <div class="sc-sub">${f.partner} · ${f.via}${f.value ? ` · ${money(f.value)}` : ""}</div>
+    </div>`).join("")).join("") + `<p class="hint">Quantities are units per season. Bars show each link's share of inputs (by value) or of output.</p>`;
+}
+
+function rivalsPanel() {
+  const mine = playerWorks(game);
+  const ind = mine?.industry ?? industry;
+  const list = competitors(game, ind, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined);
+  $("rivalsTitle").textContent = mine ? "Competitors" : `Who you'd face in ${INDUSTRIES[ind].name}`;
+  const direct = list.filter((c) => c.relation === "competitor" && c.state);
+  const myCap = mine ? capacityOf(mine.industry, mine.techs) : 0;
+  const total = myCap + direct.reduce((s, c) => s + c.capacity, 0);
+  const share = mine && total ? `<div class="full hint">Your share of ${INDUSTRIES[ind].name.toLowerCase()} capacity on the map</div>
+    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: c.def.company.replace(/ \(.*\)$/, ""), v: c.capacity, c: RELATION_COLOUR.competitor }))]
+      .map((p, k) => `<div title="${p.n}: ~${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? 1 - k * 0.15 : 1}"></div>`).join("")}</div>
+    <div class="hint">You ${Math.round((myCap / total) * 100)}% · ${direct.length} rival works open</div>` : "";
+  const label: Record<string, string> = { competitor: "Competitor", supplier: "Supplier", customer: "Customer", other: "Other industry" };
+  $("rivalsList").innerHTML = share + list.map((c) => `
+    <div class="sc-row ${c.state ? "" : "later"}" data-rival="${c.def.id}" title="Hover to highlight on the Competitors overlay, click to go there">
+      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${c.def.company.replace(/ \(.*\)$/, "")}</b><span>${label[c.relation]}</span></div>
+      <div class="sc-sub">${c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${c.km.toFixed(1)} km` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
+      <div class="sc-sub">${c.def.figures.join(" & ")} — ${c.def.note}</div>
+    </div>`).join("");
+}
+
+function setOverlay(id: OverlayId) {
+  (document.querySelector(`input[name="overlay"][value="${id}"]`) as HTMLInputElement | null)?.click();
+}
+
 // ---------------------------------------------------------------- UI wiring
 function setupUI() {
-  $("overlays").innerHTML = OVERLAYS.map((o) =>
-    `<label><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/> ${o.label}</label>`).join("");
+  $("overlays").innerHTML = (["Land", "Town", "Business"] as const).map((grp) => `<div class="ov-group">${grp}</div>` + OVERLAYS.filter((o) => o.group === grp).map((o) =>
+    `<label class="ov"><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/> <span class="ov-name">${o.label}</span>${o.swatch ? `<span class="ov-sw" style="background:${o.swatch}"></span>` : ""}</label>`).join("")).join("");
   $("overlays").addEventListener("change", (e) => {
     overlay = (e.target as HTMLInputElement).value as OverlayId;
-    $("legend").innerHTML = overlayLegend(overlay);
+    focusId = null;
+    $("legend").innerHTML = overlayLegend(overlay, game);
     if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; industryNote(); }
     inspect();
     requestRender();
   });
   const sel = $<HTMLSelectElement>("industry");
   sel.innerHTML = INDUSTRY_IDS.map((k) => `<option value="${k}">${INDUSTRIES[k].name}</option>`).join("");
-  sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); inspect(); requestRender(); });
+  sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); inspect(); rivalsPanel(); requestRender(); });
   industryNote();
+  // supply chain and competitor lists: hover highlights on the map, click flies there
+  for (const [list, attr, ov] of [["supply", "flow", "supply"], ["rivalsList", "rival", "rivals"]] as const) {
+    const el = $(list);
+    el.addEventListener("mouseover", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>(".sc-row");
+      const id = row?.dataset[attr] ?? null;
+      if (id !== focusId) { focusId = id; if (overlay === ov) requestRender(); }
+    });
+    el.addEventListener("mouseleave", () => { focusId = null; if (overlay === ov) requestRender(); });
+    el.addEventListener("click", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>(".sc-row");
+      if (!row) return;
+      if (overlay !== ov) setOverlay(ov);
+      focusId = row.dataset[attr] ?? null;
+      let x = Number(row.dataset.x), y = Number(row.dataset.y);
+      if (attr === "rival") {
+        const st = game.rivals.find((r) => r.id === focusId);
+        const lm = map.landmarks.find((l) => l.name === competitors(game, industry).find((c) => c.def.id === focusId)?.def.site);
+        if (st) { x = st.x + st.footprint / 2; y = st.y + st.footprint / 2; } else if (lm) { x = lm.x; y = lm.y; }
+      }
+      if (isFinite(x) && isFinite(y)) centerOn(Math.round(x), Math.round(y));
+      requestRender();
+    });
+  }
+  $("showSupply").addEventListener("click", () => setOverlay(overlay === "supply" ? "none" : "supply"));
+  $("showRivals").addEventListener("click", () => setOverlay(overlay === "rivals" ? "none" : "rivals"));
   $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; if (placing && querying) setQuerying(false); requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
   for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline]] as const) $(id).addEventListener("click", () => {
@@ -652,7 +760,8 @@ Object.assign(window, {
     cam,
     center: (x: number, y: number, z?: number) => centerOn(x, y, z),
     select: (x: number, y: number) => { selected = { x, y }; inspect(); requestRender(); },
-    overlay: (id: OverlayId) => { (document.querySelector(`input[value="${id}"]`) as HTMLInputElement)?.click(); },
+    overlay: (id: OverlayId) => setOverlay(id),
+    chain: () => currentChain(),
     industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); inspect(); requestRender(); },
     next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterTurn(); },
     found: (x: number, y: number, id: IndustryId = industry) => { const r = foundCompany(game, id, x, y); renderer.updateHeights(); afterChange(); return r; },
