@@ -351,10 +351,13 @@ def main():
             line = _shape(g)
             lines = line.geoms if hasattr(line, "geoms") else [line]
             for ln in lines:
-                for c in ln.coords:
-                    from shapely.geometry import Point
-                    if near_water.contains(Point(c[0], c[1])):
-                        pts.append((c[0], c[1]))
+                # clip the line itself to the bank buffer: long straight segments have
+                # no vertices mid-river, so vertex sampling cut spans short
+                cut = ln.intersection(near_water)
+                parts = [cut] if cut.geom_type == "LineString" else list(getattr(cut, "geoms", []))
+                for pc in parts:
+                    if pc.geom_type == "LineString" and not pc.is_empty:
+                        pts.extend((c[0], c[1]) for c in pc.coords)
         if len(pts) < 2:
             continue
         a, b = span_from_points(pts)

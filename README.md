@@ -14,7 +14,8 @@ npm test           # core model tests
 ## Controls
 
 - Drag / WASD / arrows: pan · scroll, +/- keys or the on-screen ± buttons: zoom (trackpad-friendly) · click: inspect a tile · Space: next season
-- Overlays (left panel): elevation, terrain class, coal seam, rail & roads by year, population, land value, pollution, site scores per industry
+- Overlays (left panel): elevation, terrain class, coal seam, rail & roads by year, population, land value, pollution, site scores per industry, ancestry
+- Sound (left panel): press Sound to start; separate music and ambience volume; the now-playing line names the style
 - Found a company: pick an industry, click a tile, check the site report, press **Found company here**
 - Browser console: `mt` exposes the game for quick iteration (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`)
 

@@ -6,6 +6,7 @@
 import { DIAMOND, HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { type GameMap, idx, inBounds, sat, satSum, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
+import { anchorAt, G, GROUPS, pickGroup, SETTLED_1850 } from "./ancestry";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
 
 export const enum Use {
@@ -32,7 +33,7 @@ export const enum HouseSub { Normal = 0, Estate = 1, Company = 2, Shanty = 3, Bo
 /** sub-types: commerce */
 export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5, Warehouse = 6, Block = 7, Office = 8 }
 /** sub-types: civic */
-export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4 }
+export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4, TwinChurch = 5, Synagogue = 6, BlackChurch = 7, Hall = 8 }
 
 export const USE_NAMES: Record<number, string> = {
   0: "Open land", 1: "Woods", 2: "Farm", 3: "Cottages", 4: "Frame houses", 5: "Brick rowhouses",
@@ -43,7 +44,7 @@ export const SUB_NAMES: Record<number, Record<number, string>> = {
   3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
   4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties" },
   5: { 4: "Boarding houses" },
-  6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library" },
+  6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library", 5: "Church (twin towers)", 6: "Synagogue", 7: "Church (AME)", 8: "Social hall" },
   12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building" },
 };
 
@@ -101,6 +102,7 @@ export interface World {
   owner: Uint8Array;       // 0 private/town, 1 player, 2+ rivals
   pollution: Float32Array;
   landValue: Float32Array;
+  eth: Uint8Array;         // community (ancestry group id) of the lot's residents or congregation
   sub: Uint8Array;         // building sub-type (HouseSub / ShopSub / CivicSub / incline id)
   built: Uint16Array;      // year the current building went up (drives its architectural style)
   settlements: { name: string; x: number; y: number; pop: number }[];
@@ -163,6 +165,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     pollution: new Float32Array(n),
     landValue: new Float32Array(n),
     sub: new Uint8Array(n),
+    eth: new Uint8Array(n),
     built: new Uint16Array(n),
     settlements: [],
     inclines: [],
@@ -222,6 +225,19 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
       w.use[c.i] = useForPop(p);
       left -= p;
       placed++;
+      // 1850 make-up, in clustered blocks, pulled toward each community's own neighbourhoods
+      {
+        const mix = SETTLED_1850[s.landmark] ?? [[G.OLD, 82], [G.IRISH, 10], [G.GERMAN, 8]];
+        const x = c.i % m.width, y = (c.i / m.width) | 0;
+        const an = anchorAt(m, x, y);
+        const ws = mix.map(([gid, wt]) => { let v = wt; if (an) for (const [ag, k, from] of an.prefs) if (ag === gid && (from ?? 0) <= 1850) v *= k; return v; });
+        const tot = ws.reduce((a, b) => a + b, 0);
+        let r = valueNoise(seed, x, y, 4, 900 + si) * 0.7 + tileNoise(seed, x, y, 901) * 0.3;
+        r *= tot;
+        let gid = mix[0][0];
+        for (let k = 0; k < mix.length; k++) { r -= ws[k]; if (r <= 0) { gid = mix[k][0]; break; } }
+        w.eth[c.i] = gid;
+      }
     }
     w.settlements.push({ name: s.landmark, x: lm.x, y: lm.y, pop: target - Math.max(0, left) });
     // the well-off build at the edge of the bigger towns, on good ground
@@ -230,7 +246,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
         const ci = cands[k].i;
         const t = m.terrain[ci];
         if (w.use[ci] === Use.Houses && (t === Terrain.Flat || t === Terrain.Upland || t === Terrain.Slope) && rng.chance(0.14)) {
-          w.sub[ci] = HouseSub.Estate; w.pop[ci] = 8;
+          w.sub[ci] = HouseSub.Estate; w.pop[ci] = 8; w.eth[ci] = G.OLD;
         }
       }
     }
@@ -312,7 +328,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   for (let i = 0; i < n; i++) {
     if (w.use[i] !== Use.Farm) continue;
     const x = i % m.width, y = (i / m.width) | 0;
-    if (x % 7 === 3 && y % 5 === 2 && tileNoise(seed, x, y, 103) < 0.45) { w.use[i] = Use.Cottage; w.pop[i] = rng.int(4, 8); }
+    if (x % 7 === 3 && y % 5 === 2 && tileNoise(seed, x, y, 103) < 0.45) { w.use[i] = Use.Cottage; w.pop[i] = rng.int(4, 8); w.eth[i] = tileNoise(seed, x, y, 104) < 0.8 ? G.OLD : G.GERMAN; }
   }
 
   // ---- drift mines on the Pittsburgh seam where it outcrops near the river and the towns
@@ -488,10 +504,12 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
   }
   cands.sort((a, b) => a.s - b.s);
   let left = count;
+  const grng = new Rng(`${w.seed}:${w.year}:${cx},${cy}`);
   for (const { i } of cands) {
     if (left <= 0) break;
     const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]), densityCap(m, w, i));
     const fresh = w.pop[i] === 0;
+    if (fresh) w.eth[i] = pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, grng);
     const add = Math.min(cap - w.pop[i], left, fresh ? 18 : 10);
     if (add <= 0) continue;
     w.pop[i] += add;
@@ -529,6 +547,79 @@ export function growRegion(m: GameMap, w: World, plants: [number, number][], cur
   }
   addSteps(m, w);
   rebuildDowntown(m, w);
+  turnover(m, w);
+  communityBuildings(m, w);
+}
+
+/**
+ * Succession: each year some households move up and out, and newcomers take their homes —
+ * faster in the neighbourhoods each new community was drawn to (the Hill, the South Side, the mill towns).
+ */
+export function turnover(m: GameMap, w: World) {
+  const rng = new Rng(`${w.seed}:turn:${w.year}`);
+  let changed = 0;
+  for (let i = 0; i < w.pop.length; i++) {
+    if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
+    const x = i % m.width, y = (i / m.width) | 0;
+    const a = anchorAt(m, x, y);
+    const active = a?.prefs.some(([, , from, to]) => w.year >= (from ?? 0) && w.year <= (to ?? 9999) && (from ?? 0) > 1850);
+    if (!rng.chance(active ? 0.03 : 0.006)) continue;
+    const gid = pickGroup(m, w.eth, w.pop, x, y, w.year, rng, active ? 3 : 10);
+    if (gid !== w.eth[i]) { w.eth[i] = gid; changed++; }
+  }
+  if (changed) w.version++;
+}
+
+// ---------------------------------------------------------------- churches and halls
+
+/**
+ * Each community builds its own church and social hall once enough of its people live together:
+ * Slovak and Polish twin-tower churches, Rusyn and Serbian onion domes, synagogues, AME churches,
+ * Sokol halls, Turnvereins, Hibernian halls.
+ */
+export function communityBuildings(m: GameMap, w: World, maxNew = 8) {
+  const C = 16, cw = Math.ceil(m.width / C), chh = Math.ceil(m.height / C);
+  const pop = new Float64Array(cw * chh * GROUPS.length);
+  const has = new Uint8Array(cw * chh * GROUPS.length * 2); // [church, hall]
+  for (let i = 0; i < w.pop.length; i++) {
+    const x = i % m.width, y = (i / m.width) | 0;
+    const c = (Math.floor(y / C) * cw + Math.floor(x / C)) * GROUPS.length;
+    if (w.pop[i] && w.eth[i]) pop[c + w.eth[i]] += w.pop[i];
+    if (w.use[i] === Use.Civic && w.eth[i]) {
+      const kind = w.sub[i] === CivicSub.Hall ? 1 : w.sub[i] === CivicSub.School || w.sub[i] === CivicSub.Firehouse || w.sub[i] === CivicSub.Library ? -1 : 0;
+      if (kind >= 0) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const cx = Math.floor(x / C) + dx, cy = Math.floor(y / C) + dy;
+        if (cx >= 0 && cy >= 0 && cx < cw && cy < chh) has[((cy * cw + cx) * GROUPS.length + w.eth[i]) * 2 + kind] = 1;
+      }
+    }
+  }
+  let made = 0;
+  for (let cell = 0; cell < cw * chh && made < maxNew; cell++) {
+    for (let gid = 1; gid < GROUPS.length && made < maxNew; gid++) {
+      const p = pop[cell * GROUPS.length + gid];
+      for (const kind of [0, 1]) {
+        if (kind === 1 && w.year < 1870) continue;
+        if (p < (kind === 0 ? 700 : 450) || has[(cell * GROUPS.length + gid) * 2 + kind]) continue;
+        // best lot in the cell: a home of this community on a street
+        const x0 = (cell % cw) * C, y0 = Math.floor(cell / cw) * C;
+        let best = -1, bp = -1;
+        for (let y = y0; y < Math.min(m.height, y0 + C); y++) for (let x = x0; x < Math.min(m.width, x0 + C); x++) {
+          const i = y * m.width + x;
+          if (w.eth[i] !== gid || !(w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) || w.owner[i]) continue;
+          let st = false;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) st = true;
+          if (st && w.pop[i] > bp) { bp = w.pop[i]; best = i; }
+        }
+        if (best < 0) continue;
+        w.use[best] = Use.Civic; w.pop[best] = 0; w.built[best] = w.year;
+        w.sub[best] = kind === 0 ? GROUPS[gid].church : CivicSub.Hall;
+        has[(cell * GROUPS.length + gid) * 2 + kind] = 1;
+        made++;
+      }
+    }
+  }
+  if (made) w.version++;
+  return made;
 }
 
 // ---------------------------------------------------------------- downtown

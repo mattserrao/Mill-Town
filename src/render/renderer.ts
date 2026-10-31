@@ -10,6 +10,8 @@ import { type GameMap, Special } from "../core/map";
 import { RIVALS } from "../core/rivals";
 import { Terrain } from "../core/terrain";
 import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
+import { ANCHORS } from "../core/ancestry";
+import { latLonToTile } from "../core/features";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
@@ -255,7 +257,6 @@ export class Renderer {
     }
 
     this.drawMarks(ctx, cam, marks);
-    if (marks.labels) this.drawLabels(ctx, cam, g);
     this.pending = missing;
     return missing > 0;
   }
@@ -1100,7 +1101,7 @@ export class Renderer {
     if (mk.selected) outline(mk.selected.x, mk.selected.y, "#ffd65a", "rgba(255,214,90,0.15)");
   }
 
-  private drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
     const m = this.map;
     ctx.textAlign = "center";
     const items: { name: string; x: number; y: number; col: string; min: number }[] = [];
@@ -1109,6 +1110,11 @@ export class Renderer {
       const min = lm.kind === "town" ? 0 : lm.kind === "hill" ? 0.1875 : 0.5;
       if (lm.kind === "historic_site" && g.world.year < 1870) continue;
       items.push({ name: lm.name, x: lm.x + 0.5, y: lm.y + 0.5, col, min });
+    }
+    for (const a of ANCHORS) {
+      if (m.landmarks.some((l) => l.name.startsWith(a.name))) continue;
+      const [ax, ay] = latLonToTile(m, a.lat, a.lon);
+      items.push({ name: a.name, x: ax + 0.5, y: ay + 0.5, col: "#b8d8ff", min: 0.375 });
     }
     for (const inc of g.world.inclines) {
       const mid = inc.path[Math.floor(inc.path.length / 2)];

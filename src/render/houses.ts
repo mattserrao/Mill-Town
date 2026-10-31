@@ -734,6 +734,68 @@ function civicSprite(s0: HouseSpec): Sprite {
       hip(p, tw, 6, "#3a3a40");
       break;
     }
+    case 5: { // twin-tower church: Slovak, Polish, Hungarian, Italian, Lithuanian parishes — big brick, two spires
+      const brick = ["#9a4a34", "#a8604a", "#b8a890"][s.v % 3];
+      const [u0, v0, u1, v1] = f.rect(0.18, 0.82, 0.28, 0.9);
+      const nave = box(p, u0, v0, u1, v1, 26, { wall: brick, z0, foundation: s.fnd + 3, fnd: "#8a8070" });
+      gable(p, nave, f.across, 14, "#3e4a52");
+      facade(p, nave, f.sideFace, { n: 4, stories: 1, storyH: 10, style: 1, dark: "#5a3a6a", tall: true });
+      for (const a of [0.2, 0.68]) {
+        const tw = box(p, ...f.rect(a, a + 0.14, 0.12, 0.28), 52, { wall: brick, z0 });
+        facade(p, tw, face, { n: 1, stories: 2, storyH: 18, style: 1, tall: true });
+        const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + 52 + 22);
+        p.poly([tw.D(z0 + 52), tw.C(z0 + 52), ap], "#4a7a6a");
+        p.poly([tw.C(z0 + 52), tw.B(z0 + 52), ap], "#3a6052");
+        p.px(ap[0], ap[1] - 4, "#c9b26a", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#c9b26a", 3, 1);
+      }
+      const rose = f.pt(p, 0.5, 0.27, z0 + 30); p.px(rose[0] - 2, rose[1] - 2, "#c84a6a", 4, 4); p.px(rose[0] - 1, rose[1] - 1, "#f0d070", 2, 2);
+      break;
+    }
+    case 6: { // synagogue: brick or stone, round-arched windows, small domes, Star of David
+      const wall = ["#c8b898", "#a8604a"][s.v % 2];
+      const [u0, v0, u1, v1] = f.rect(0.14, 0.86, 0.2, 0.8);
+      const b = box(p, u0, v0, u1, v1, 26, { wall, z0, foundation: s.fnd + 3 });
+      gable(p, b, f.across, 7, "#4a4a50");
+      facade(p, b, face, { n: 3, stories: 2, storyH: 11, style: 1, door: 1, tall: true, dark: "#3a4a6a" });
+      facade(p, b, f.sideFace, { n: 4, stories: 2, storyH: 11, style: 1, tall: true, dark: "#3a4a6a" });
+      for (const a of [0.18, 0.82]) {
+        const r = f.rect(a, a, 0.24, 0.24);
+        cylinder(p, r[0], r[1], 0.07, z0 + 26, 8, wall, "#6a8a7a");
+        const [x, y] = p.P(r[0], r[1], z0 + 40); p.px(x - 2, y - 2, "#6a8a7a", 4, 3);
+      }
+      const st = f.pt(p, 0.5, 0.2, z0 + 34);
+      p.line([st[0] - 3, st[1] + 2], [st[0] + 3, st[1] + 2], "#e8d080"); p.line([st[0] - 3, st[1] + 2], [st[0], st[1] - 3], "#e8d080"); p.line([st[0] + 3, st[1] + 2], [st[0], st[1] - 3], "#e8d080");
+      p.line([st[0] - 3, st[1] - 1], [st[0] + 3, st[1] - 1], "#e8d080"); p.line([st[0] - 3, st[1] - 1], [st[0], st[1] + 4], "#e8d080"); p.line([st[0] + 3, st[1] - 1], [st[0], st[1] + 4], "#e8d080");
+      break;
+    }
+    case 7: { // AME church: plain brick, square bell tower with pyramid cap
+      const brick = BRICK[(s.v + 1) % 6];
+      const [u0, v0, u1, v1] = f.rect(0.2, 0.8, 0.26, 0.8);
+      const nave = box(p, u0, v0, u1, v1, 20, { wall: brick, z0, foundation: s.fnd + 2 });
+      gable(p, nave, f.across, 10, "#3a3a40");
+      facade(p, nave, f.sideFace, { n: 3, stories: 1, storyH: 9, style: 0, tall: true, dark: "#6a3a3a" });
+      const tw = box(p, ...f.rect(0.62, 0.8, 0.12, 0.3), 36, { wall: brick, z0 });
+      facade(p, tw, face, { n: 1, stories: 1, storyH: 9, style: 0, door: 0 });
+      const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + 46);
+      p.poly([tw.D(z0 + 36), tw.C(z0 + 36), ap], "#3a3a40");
+      p.poly([tw.C(z0 + 36), tw.B(z0 + 36), ap], "#2a2a30");
+      p.px(ap[0], ap[1] - 4, "#efe9da", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#efe9da", 3, 1);
+      break;
+    }
+    case 8: { // social hall: Sokol, Turnverein, Falcons, Hibernians — two-storey hall, ballroom windows, flag
+      const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.06, 0.72);
+      const b = box(p, u0, v0, u1, v1, 24, { wall: BRICK[(s.v + 3) % 6], z0, foundation: s.fnd, top: "#3a3432" });
+      cornice(p, b, face, "#c8b898");
+      facade(p, b, face, { n: 5, stories: 2, storyH: 11, style: 1, door: 2, tall: true });
+      facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: 11, style: 1, tall: true });
+      const a = face === "left" ? b.D(z0 + 24) : b.C(z0 + 24), c = face === "left" ? b.C(z0 + 24) : b.B(z0 + 24);
+      const [x, y] = lerp(a, c, 0.5);
+      p.px(x - 7, y - 3, "#e8e0c8", 14, 3); p.px(x - 6, y - 2, "#3a2a24", 12, 1); // name band
+      p.px(x, y - 18, "#3a3a3a", 1, 15);
+      const flags = [["#ffffff", "#2e5aa8", "#d03030"], ["#ffffff", "#d03030", "#d03030"], ["#2a2a2a", "#d03030", "#e8c040"], ["#3a8a4a", "#ffffff", "#d0402a"]][s.v % 4];
+      flags.forEach((col, k) => p.px(x + 1, y - 18 + k * 2, col, 6, 2));
+      break;
+    }
     case 4: { // library: Beaux-Arts stone, columned entrance, dome
       const [u0, v0, u1, v1] = f.rect(0.08, 0.92, 0.18, 0.75);
       const b = box(p, u0, v0, u1, v1, 26, { wall: "#d8d0b8", z0, foundation: s.fnd + 4, fnd: "#b8b098", top: "#8a8a84" });

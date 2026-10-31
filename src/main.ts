@@ -3,9 +3,14 @@ import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles } from "./core/site";
 import { TERRAIN_NAMES } from "./core/terrain";
-import { STRUCTURES, SUB_NAMES, USE_NAMES } from "./core/town";
+import { STRUCTURES, SUB_NAMES, Use, USE_NAMES } from "./core/town";
+import { anchorAt, GROUPS } from "./core/ancestry";
 import { type Camera, pickTile, project, ZOOMS } from "./render/iso";
 import { Renderer } from "./render/renderer";
+import { Traffic } from "./render/traffic";
+import { SoundController, summarizeView } from "./audio";
+import { ANCHORS } from "./core/ancestry";
+import { HILLSIDES, latLonToTile } from "./core/features";
 import { makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -20,6 +25,9 @@ const mctx = mini.getContext("2d")!;
 let map: GameMap;
 let game: GameState;
 let renderer: Renderer;
+let traffic: Traffic;
+const sound = new SoundController();
+let lastNight = 0;
 const cam: Camera = { x: 0, y: 0, zoom: 0.5 };
 let overlay: OverlayId = "none";
 const overlayCache: OverlayCache = {};
@@ -34,9 +42,11 @@ async function start() {
   const seed = Number(params.get("seed") ?? Math.floor(Math.random() * 1e6));
   map = await loadMap("maps/mon-valley.json");
   renderer = new Renderer(map);
+  traffic = new Traffic(map);
   setupUI();
   resize();
   newTown(seed);
+  showNews();
   const p = map.landmarks.find((l) => l.name.startsWith("The Point"))!;
   centerOn(p.x + 25, p.y + 15, 0.5);
 }
@@ -118,9 +128,17 @@ function requestRender() {
       { hover, selected, footprint: fp, labels: $<HTMLInputElement>("labels").checked });
     const t = (now - t0) / 1000;
     const night = nightLevel(t);
+    lastNight = night;
+    const anim = ($<HTMLInputElement>("animate")).checked;
+    const ovOn = overlay !== "none";
+    if (anim && !ovOn && cam.zoom >= 0.1875) traffic.drawSpills(ctx, game, cam, t, night);
+    if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
-    if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, ($<HTMLInputElement>("animate")).checked ? t : 0);
-    if (($<HTMLInputElement>("animate")).checked || night > 0) renderer.drawAnimated(ctx, cam, game, ($<HTMLInputElement>("animate")).checked ? t : 0, night);
+    if (anim && !ovOn) traffic.draw(ctx, cam, game, t);
+    if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
+    if (!ovOn) traffic.drawHaze(ctx, game, cam, canvas.width, canvas.height);
+    if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
+    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game);
     drawMinimapView();
     $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
     if (more || animating()) requestRender();
@@ -171,6 +189,17 @@ function row(k: string, v: string, cls = "") {
   return `<div class="k">${k}</div><div class="v ${cls}">${v}</div>`;
 }
 
+const PAPERS = ["Pittsburgh Gazette", "Pittsburgh Dispatch", "Pittsburgh Press", "Pittsburgh Post-Gazette"];
+function showNews() {
+  const el = $("news");
+  if (!game.headlines.length) { el.hidden = true; return; }
+  const c = cal(game);
+  const paper = PAPERS[c.year < 1880 ? 0 : c.year < 1920 ? 1 : c.year < 1927 ? 2 : 3];
+  el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
+    game.headlines.map((e) => `<h3>${e.name}</h3><p>${e.description}</p>`).join("");
+  el.hidden = false;
+}
+
 function refreshPanels() {
   const c = cal(game);
   $("calendar").innerHTML = `<b>${c.season} ${c.year}</b> · Era ${c.era.id}: ${c.era.name}`;
@@ -216,6 +245,8 @@ function inspect() {
     row("Land use", struct ? struct[0].toUpperCase() + struct.slice(1) : SUB_NAMES[w.use[i]]?.[w.sub[i]] ?? USE_NAMES[w.use[i]]),
     w.built[i] ? row("Built", String(w.built[i])) : "",
     row("Residents", fmt(w.pop[i])),
+    w.eth[i] ? row(w.use[i] === Use.Civic ? "Congregation" : "Community", w.use[i] === Use.Civic && w.sub[i] === 8 ? GROUPS[w.eth[i]].hall : GROUPS[w.eth[i]].name) : "",
+    anchorAt(map, x, y) ? row("Neighbourhood", anchorAt(map, x, y)!.name) : "",
     row("Land value", money(w.landValue[i])),
     row("Pollution", w.pollution[i].toFixed(3)),
     row("Owner", owner),
@@ -278,7 +309,7 @@ function setupUI() {
     `<label><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/> ${o.label}</label>`).join("");
   $("overlays").addEventListener("change", (e) => {
     overlay = (e.target as HTMLInputElement).value as OverlayId;
-    $("legend").textContent = overlayLegend(overlay);
+    $("legend").innerHTML = overlayLegend(overlay);
     if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; industryNote(); }
     inspect();
     requestRender();
@@ -294,6 +325,13 @@ function setupUI() {
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     afterChange();
   });
+  $("sound").addEventListener("click", async () => {
+    if (sound.running) { await sound.stop(); $("sound").textContent = "Sound on"; }
+    else { await sound.start(); $("sound").textContent = "Sound off"; updateSound(); }
+  });
+  const vols = () => sound.setVolumes(Number(($<HTMLInputElement>("musicVol")).value), Number(($<HTMLInputElement>("ambVol")).value));
+  $("musicVol").addEventListener("input", vols); $("ambVol").addEventListener("input", vols);
+  setInterval(updateSound, 500);
   $("library").addEventListener("click", () => {
     const r = fundLibrary(game);
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
@@ -309,6 +347,7 @@ function setupUI() {
     afterChange();
   });
   $("next").addEventListener("click", nextSeason);
+  $("news").addEventListener("click", () => { $("news").hidden = true; });
   $("regen").addEventListener("click", () => {
     const v = ($<HTMLInputElement>("seed")).value.trim();
     newTown(v && !isNaN(Number(v)) ? Number(v) : Math.floor(Math.random() * 1e6));
@@ -382,6 +421,26 @@ function setupUI() {
   window.addEventListener("resize", resize);
 }
 
+/** Name of the place at the centre of the view. */
+function placeName(): string {
+  const wx = cam.x + canvas.width / 2 / cam.zoom, wy = cam.y + canvas.height / 2 / cam.zoom + (260 - 200) * 1.15;
+  const a = wx / 32, b = wy / 16;
+  const cx = (a + b) / 2, cy = (b - a) / 2;
+  let best = "", bd = 40;
+  const consider = (name: string, x: number, y: number) => { const d = Math.hypot(x - cx, y - cy); if (d < bd) { bd = d; best = name; } };
+  for (const an of ANCHORS) { const [x, y] = latLonToTile(map, an.lat, an.lon); consider(an.name, x, y); }
+  for (const h of HILLSIDES) { const [x, y] = latLonToTile(map, h.lat, h.lon); consider(h.name, x, y); }
+  for (const l of map.landmarks) if (l.kind === "town") consider(l.name.replace(/ \(.*\)$/, ""), l.x, l.y);
+  return best;
+}
+
+function updateSound() {
+  if (!sound.running || !game) return;
+  const v = summarizeView(game, map, cam, canvas.width, canvas.height, { ...traffic.counts(), night: lastNight, place: placeName() });
+  sound.update(v);
+  $("nowPlaying").textContent = `Now playing: ${sound.nowPlaying}`;
+}
+
 function industryNote() {
   const ind = INDUSTRIES[industry];
   const fp = footprintTiles(map, industry);
@@ -391,6 +450,7 @@ function industryNote() {
 function nextSeason() {
   advanceTurn(game);
   afterChange();
+  showNews();
 }
 
 function afterChange() {
@@ -418,6 +478,8 @@ Object.assign(window, {
     tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
     tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
     get pending() { return renderer.pending; },
+    get traffic() { return traffic; },
+    sound,
   },
 });
 

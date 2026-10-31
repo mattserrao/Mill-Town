@@ -10,6 +10,8 @@ import { habitable, Terrain } from "./terrain";
 import { calendar, SEASON_EFFECTS, type Calendar } from "./time";
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, growRegion, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, walkField, WALK_MIN_PER_COST, type World } from "./town";
 import { HILLSIDES, INCLINES, PARKS, tileLine } from "./features";
+import { EFFECTS, eventsFor, type HistEvent, type Mod, modMult } from "./events";
+import { GROUPS, immigrationPressure, pickGroup } from "./ancestry";
 
 export type RiverSide = "N" | "S" | "E" | "W";
 export type PlantStatus = "running" | "idle" | "strike" | "flooded";
@@ -66,6 +68,12 @@ export interface GameState {
   /** walking cost from the works to every tile (Infinity beyond an hour) */
   access?: Float64Array;
   inclinesBuilt: number;
+  /** timed modifiers from historical events */
+  mods: Mod[];
+  /** events that fired at the start of the current turn (for headlines) */
+  headlines: HistEvent[];
+  /** set by a flood event for this season */
+  floodNow?: number;
 }
 
 export const STARTING_CASH = 100000;
@@ -78,8 +86,32 @@ export function newGame(map: GameMap, seed: number): GameState {
   resetMap(map);
   const world = generateTown(map, seed, 1850);
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
-  return { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0 };
+  const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [] };
+  fireEvents(g);
+  return g;
 }
+
+/** Fire the historical events for the current season (headline, log, effects). */
+export function fireEvents(g: GameState) {
+  const c = cal(g);
+  g.headlines = eventsFor(c.year, c.season);
+  g.floodNow = undefined;
+  for (const e of g.headlines) {
+    log(g, `${e.name}. ${e.description}`);
+    for (const ef of EFFECTS[e.name] ?? []) {
+      if ("mods" in ef) for (const [kind, mult, dur] of ef.mods) g.mods.push({ kind, mult, until: g.turn + dur, source: e.name });
+      else if ("flood" in ef) g.floodNow = ef.flood;
+      else if ("epidemic" in ef) {
+        const w = g.world;
+        for (let i = 0; i < w.pop.length; i++) if (w.pop[i] > 30) w.pop[i] = Math.round(w.pop[i] * (1 - ef.epidemic * 2));
+        w.version++;
+      }
+    }
+  }
+  g.mods = g.mods.filter((m) => m.until > g.turn);
+}
+
+export const mod = (g: GameState, k: Parameters<typeof modMult>[1]) => modMult(g.mods, k, g.turn);
 
 export function cal(g: GameState): Calendar {
   return calendar(g.turn);
@@ -242,6 +274,20 @@ export function fundLibrary(g: GameState): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
+/** Most numerous community within r tiles. */
+export function dominantGroup(g: GameState, cx: number, cy: number, r: number): number {
+  const { map: m, world: w } = g;
+  const c = new Float64Array(GROUPS.length);
+  for (let y = cy - r; y <= cy + r; y += 2) for (let x = cx - r; x <= cx + r; x += 2) {
+    if (!inBounds(m, x, y)) continue;
+    const i = y * m.width + x;
+    if (w.pop[i] && w.eth[i]) c[w.eth[i]] += w.pop[i];
+  }
+  let best = 1;
+  for (let k = 1; k < c.length; k++) if (c[k] > c[best]) best = k;
+  return best;
+}
+
 /** Put a civic building on a settled lot near (cx, cy) that fronts a street. */
 function placeCivic(g: GameState, cx: number, cy: number, sub: CivicSub): boolean {
   const { map: m, world: w } = g;
@@ -260,6 +306,7 @@ function placeCivic(g: GameState, cx: number, cy: number, sub: CivicSub): boolea
   if (best < 0) return false;
   w.use[best] = Use.Civic;
   w.sub[best] = sub;
+  if (sub === CivicSub.School || sub === CivicSub.Firehouse || sub === CivicSub.Library) w.eth[best] = 0;
   w.pop[best] = 0;
   w.built[best] = cal(g).year;
   w.version++;
@@ -314,7 +361,7 @@ export function advanceTurn(g: GameState): void {
 
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk);
   spawnRivals(g, c0.year);
-  decayPollution(g);
+  decayPollution(g, mod(g, "pollution") < 0.9 ? 0.95 : 0.985);
   naturalGrowth(g, rng);
 
   g.turn++;
@@ -335,6 +382,7 @@ export function advanceTurn(g: GameState): void {
     updateAccess(g);
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
+  fireEvents(g);
   g.world.version++;
 }
 
@@ -368,7 +416,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     output = 0;
     c.status = "strike";
     notes.push("The men are out on strike. The works stand cold.");
-  } else if (year0 >= 1877 && c.employees > 300 && rng.chance(0.02 + Math.min(0.04, c.employees / 60000))) {
+  } else if (year0 >= 1877 && c.employees > 300 && rng.chance((0.02 + Math.min(0.04, c.employees / 60000)) * mod(g, "strike"))) {
     c.strikeTurns = rng.int(0, 2);
     output = 0;
     c.status = "strike";
@@ -381,7 +429,11 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   let flood = 0;
   for (let dy = 0; dy < c.footprint; dy++) for (let dx = 0; dx < c.footprint; dx++)
     if (m.terrain[(c.y + dy) * m.width + c.x + dx] === Terrain.Floodplain) flood++;
-  if (flood && rng.chance(floodRisk)) {
+  if (flood && g.floodNow !== undefined) {
+    output *= g.floodNow;
+    c.status = "flooded";
+    notes.push("The great flood put the works under water.");
+  } else if (flood && rng.chance(floodRisk)) {
     output *= 0.6;
     c.status = "flooded";
     notes.push("Flood! The works stood in water for weeks.");
@@ -393,8 +445,9 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const year = cal(g).year;
   const haul = 1 + Math.min(1, (g.fields.coal[cy * m.width + cx] * m.metersPerTile) / ind.site.coalWithinM) * 0.5;
   const unitInput = Object.values(ind.inputs).reduce((a, b) => a + (b ?? 0), 0) * 5 * haul * (1 - mods.efficiency);
-  const price = ind.basePrice * (1 + (year - 1850) * 0.004);
-  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012);
+  output = Math.floor(output * Math.min(1, mod(g, "output")));
+  const price = ind.basePrice * (1 + (year - 1850) * 0.004) * mod(g, "price");
+  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage");
 
   const revenue = Math.round(output * price);
   const inputCost = Math.round(output * unitInput);
@@ -405,22 +458,22 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   c.produced += output;
   c.seasonsOperating++;
 
-  const pol = output * ind.pollutionPerUnit * (1 + mods.pollution);
+  const pol = output * ind.pollutionPerUnit * (1 + mods.pollution) * mod(g, "pollution");
   const reachM = 250 + Math.sqrt(c.produced) * 6;
   spreadPollution(g, cx, cy, pol, Math.min(tilesFor(m, reachM), 120));
 
   const shortfall = Math.max(0, workersWanted - workersHired);
-  const migrants = settleMigrants(g, cx, cy, R, Math.round(shortfall / PARTICIPATION * 0.35 + workersHired * 0.05));
+  const migrants = settleMigrants(g, cx, cy, R, Math.round((shortfall / PARTICIPATION * 0.35 + workersHired * 0.05) * mod(g, "migrants") * Math.min(1.8, Math.max(0.5, 0.5 + immigrationPressure(year0) * 0.25))));
   if (migrants > 0) notes.push(`${migrants} newcomers settled near the works.`);
   // a growing mill town needs churches, schools and firehouses
   c.civicDue += migrants;
   if (c.civicDue >= 1500) {
     c.civicDue = 0;
-    const kinds: CivicSub[] = [year0 >= 1885 ? CivicSub.OnionChurch : CivicSub.Church];
+    const kinds: CivicSub[] = [GROUPS[dominantGroup(g, cx, cy, 30)].church as CivicSub];
     if (year0 >= 1865) kinds.push(CivicSub.School);
     if (year0 >= 1870) kinds.push(CivicSub.Firehouse);
     const kind = kinds[rng.int(0, kinds.length - 1)];
-    if (placeCivic(g, cx, cy, kind)) log(g, `The town near the works builds a new ${["church", "church", "school", "firehouse", "library"][kind]}.`);
+    if (placeCivic(g, cx, cy, kind)) log(g, `The town near the works builds a new ${kind === CivicSub.School ? "school" : kind === CivicSub.Firehouse ? "firehouse" : kind === CivicSub.Synagogue ? "synagogue" : "church"}.`);
   }
 
   c.lastSeason = { produced: output, revenue, inputCost, wages, profit, workersWanted, workersHired, migrants, notes };
@@ -438,9 +491,9 @@ function spreadPollution(g: GameState, cx: number, cy: number, amount: number, r
   }
 }
 
-function decayPollution(g: GameState) {
+function decayPollution(g: GameState, k: number) {
   const p = g.world.pollution;
-  for (let i = 0; i < p.length; i++) if (p[i] > 0) p[i] *= 0.985;
+  for (let i = 0; i < p.length; i++) if (p[i] > 0) p[i] *= k;
 }
 
 /** Add people near (cx,cy): fill existing homes first, then new lots beside streets. */
@@ -474,6 +527,7 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
     const d = Math.hypot(x - cx, y - cy);
     if (fresh) {
       w.built[i] = g.world.year;
+      w.eth[i] = pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, ethRng(g));
       w.sub[i] = d <= 10 && w.landValue[i] < 60 ? HouseSub.Shanty : d <= 28 && g.world.year >= 1855 ? HouseSub.Company : HouseSub.Normal;
     } else if (w.use[i] === Use.Rowhouses) {
       if (w.sub[i] === HouseSub.Shanty || w.sub[i] === HouseSub.Company) { w.sub[i] = d <= 18 ? HouseSub.Boarding : HouseSub.Normal; w.built[i] = g.world.year; }
@@ -481,6 +535,12 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
   }
   if (left < count) w.version++;
   return count - left;
+}
+
+let ethRngCache: { turn: number; rng: Rng } | null = null;
+function ethRng(g: GameState) {
+  if (!ethRngCache || ethRngCache.turn !== g.turn) ethRngCache = { turn: g.turn, rng: new Rng(`${g.seed}:eth:${g.turn}`) };
+  return ethRngCache.rng;
 }
 
 /** Company doubles and shanty patches stay low-density; ordinary lots can fill up to rowhouses. */

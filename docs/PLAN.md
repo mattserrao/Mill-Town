@@ -42,6 +42,18 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      blocks, with a skyline that grows by era (Romanesque → early skyscrapers → Art Deco → postwar glass);
      parks (Allegheny Commons 1867, Schenley 1889, Frick 1927); inclines drawn as trestles with moving cars
    - Animation: smoke and steam, furnace glow and flame, day/night with lit windows and lamps; strikes, floods, idle
+   - Bridges: real spans drawn as smooth single structures (covered, suspension, lenticular, truss, arch) that
+     change type on their historical rebuild dates; rail river crossings drawn as trusses
+   - Street life: walkers, wagons, carriages, streetcars (1890–1955), autos (1915+), trucks, trains with cars on open
+     lines, steamboats and towboats with barges; spawned only where you're looking; haze by era (gas boom, smoke control);
+     outfall spills downstream of plants and slag pours
+   - Historical events: `docs/EVENTS.csv` (Year, Season, Event Name, Description) drives newspaper headlines and
+     timed effects (prices, strikes, wages, migration, pollution, floods, epidemics) — edit the CSV to change the timeline
+   - Ancestry: 12 groups with real immigration wave timing, chain migration, anchor neighbourhoods, succession;
+     churches, synagogues and social halls appear where communities grow; Ancestry overlay
+   - Sound: procedural music by era and by the community in view (parlor, Irish, polka, csárdás, tamburitza,
+     tarantella, klezmer, ragtime, swing, bebop, doo-wop, soul, funk, synth-pop, mill-closing elegy); ambient beds and
+     one-shots mixed by zoom and what's on screen (mill, river, trains, whistles, bells, crowds, birds)
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
@@ -53,7 +65,8 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 ## Known gaps in the current build
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump or a turn (progressive); dirty-chunk tracking would cut that
 - Economy numbers are first-pass placeholders
-- Rail bridges on diagonal alignments look dashed; paddlewheels and boats don't move yet
+- Event effects are first-pass; dates for some events are approximate
+- Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal
 - Modern river pools (post lock-and-dam); 1850 shorelines were a little different

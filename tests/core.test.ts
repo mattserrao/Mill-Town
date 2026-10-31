@@ -135,3 +135,20 @@ describe("hillsides", () => {
     expect(isFinite(walkMinutes(g, 237 * map.width + 483))).toBe(true);
   }, 60000);
 });
+
+describe("events", () => {
+  it("parses the master CSV and fires events in their season", async () => {
+    const { EVENTS, EFFECTS } = await import("../src/core/events");
+    expect(EVENTS.length).toBeGreaterThan(80);
+    for (const e of EVENTS) {
+      expect(["Spring", "Summer", "Autumn", "Winter"]).toContain(e.season);
+      expect(e.year).toBeGreaterThanOrEqual(1850);
+      expect(e.description.length).toBeGreaterThan(20);
+    }
+    for (const name of Object.keys(EFFECTS)) expect(EVENTS.some((e) => e.name === name)).toBe(true);
+    const g = newGame(map, 5);
+    expect(g.headlines[0].name).toBe("A City Rebuilt");
+    while (g.world.year < 1858) advanceTurn(g);
+    expect(g.log.some((l) => l.text.startsWith("Panic of 1857"))).toBe(true);
+  }, 60000);
+});

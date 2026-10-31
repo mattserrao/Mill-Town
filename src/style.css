@@ -70,3 +70,14 @@ select { font: inherit; width: 100%; background: var(--panel2); color: var(--tex
 #zoomButtons button { width: 30px; height: 30px; font-size: 16px; padding: 0; }
 #library, #steps, #incline { margin-top: 6px; width: 100%; }
 label select { width: auto; margin-left: 6px; }
+
+#news {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(560px, 70%);
+  background: #efe6cf; color: #1e1a14; border: 2px solid #1e1a14; box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
+  padding: 8px 14px 10px; font-family: Georgia, "Times New Roman", serif; cursor: pointer;
+}
+#news .mast { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; border-bottom: 1px solid #1e1a14; padding-bottom: 3px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+#news h3 { margin: 4px 0 2px; font-size: 18px; line-height: 1.15; }
+#news p { margin: 0 0 6px; font-size: 13px; line-height: 1.35; }
+#sound { width: 100%; margin-bottom: 4px; }
+input[type=range] { width: 120px; vertical-align: middle; }

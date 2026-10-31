@@ -4,9 +4,10 @@ import { type GameState, walkMinutes } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { evaluateSite, popSAT } from "../core/site";
 import { Terrain } from "../core/terrain";
+import { GROUPS } from "../core/ancestry";
 import type { OverlayFn } from "../render/renderer";
 
-export type OverlayId = "none" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "population" | "landValue" | "pollution" | `site:${IndustryId}`;
+export type OverlayId = "none" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | `site:${IndustryId}`;
 
 export const OVERLAYS: { id: OverlayId; label: string }[] = [
   { id: "none", label: "None" },
@@ -15,6 +16,7 @@ export const OVERLAYS: { id: OverlayId; label: string }[] = [
   { id: "coal", label: "Coal seam" },
   { id: "transport", label: "Rail & roads (by year)" },
   { id: "commute", label: "Walk to the works" },
+  { id: "ancestry", label: "Ancestry" },
   { id: "population", label: "Population" },
   { id: "landValue", label: "Land value" },
   { id: "pollution", label: "Pollution" },
@@ -72,6 +74,8 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
         },
       };
     }
+    case "ancestry":
+      return { key: `${id}|${w.version}`, fn: (i) => (w.eth[i] && (w.pop[i] || w.use[i] === 6) ? [...GROUPS[w.eth[i]].colour, 0.65] as [number, number, number, number] : null) };
     case "population":
       return { key: `${id}|${w.version}`, fn: (i) => w.pop[i] > 0 ? ramp(Math.sqrt(w.pop[i] / 70), 0.6) : null };
     case "landValue":
@@ -109,6 +113,7 @@ export function overlayLegend(id: OverlayId): string {
     case "coal": return "Black = Pittsburgh seam outcrops (drift mines) · brown = seam underground";
     case "transport": return "Black = rail open this year · purple = future rail line · yellow = streets & pikes · faint = where streets will come";
     case "commute": return "Walking time to your works: green under 15 min → red at an hour; grey = too far. Steps and inclines shorten the climb.";
+    case "ancestry": return GROUPS.slice(1).map((g) => `<span style="color:rgb(${g.colour.join(",")})">■</span> ${g.name}`).join(" · ");
     case "population": return "Residents per tile (up to ~70)";
     case "landValue": return "Cheap (blue) → expensive (red)";
     case "pollution": return "Soot and smoke from the works";
