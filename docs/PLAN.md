@@ -15,6 +15,18 @@
 | Rivals | AI rivals, real figures (Carnegie, Frick, Jones & Laughlin, Westinghouse, PPG, Mellon, Dravo) |
 | Town | Grows on its own in response to the mill; the player doesn't zone |
 | History | Real figures and events |
+| Business tone | Everything goes: Pinkertons, violent strike-breaking, child labour, deliberate pollution are available, with heavy reputation/unrest/legal costs |
+| Sabotage | Legal-but-ruthless tactics plus literal sabotage (rare, risky; scandal and legal ruin if caught) |
+| Action pace | 2–3 actions per season plus standing policies (wages, hours, union stance) that persist until changed |
+| Meters | Visible: reputation, labour relations, political influence beside cash |
+| Building placement | The game suggests a spot; the player confirms or moves it |
+| Public works | Private infrastructure only (sidings, docks, private rail, company housing); lobby the city for roads, bridges, locks |
+| Acquisitions | An acquired works runs as a second site with its own panel (capacity, tech, labour, freight); a company view sums them |
+| Second industry (1890+) | Buy an existing rival works or found a new one |
+| Trust buy-out | Not available: always play to 1985 |
+| Historical moments | Decisions when they touch your works (e.g. Homestead 1892 at your mill); elsewhere history plays out as written |
+| Rival AI | Rivals take the same actions, by personality (Carnegie integrates and cuts prices, Frick corners coke and breaks strikes, Mellon finances and buys) |
+| Collapse | Hard but possible to survive: modernise, diversify, keep labour peace |
 
 ## Core loop
 Pick a site → found the works → each season: hire from the local labor pool, buy inputs, ship by river, sell output →
