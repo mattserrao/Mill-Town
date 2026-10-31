@@ -75,7 +75,9 @@ label select { width: auto; margin-left: 6px; }
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(560px, 70%);
   background: #efe6cf; color: #1e1a14; border: 2px solid #1e1a14; box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
   padding: 8px 14px 10px; font-family: Georgia, "Times New Roman", serif; cursor: pointer;
+  max-height: 70vh; overflow-y: auto;
 }
+#news .kicker { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; opacity: 0.7; }
 #news .mast { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; border-bottom: 1px solid #1e1a14; padding-bottom: 3px; margin-bottom: 6px; display: flex; justify-content: space-between; }
 #news h3 { margin: 4px 0 2px; font-size: 18px; line-height: 1.15; }
 #news p { margin: 0 0 6px; font-size: 13px; line-height: 1.35; }

@@ -205,7 +205,7 @@ function showNews() {
   const c = cal(game);
   const paper = PAPERS[c.year < 1880 ? 0 : c.year < 1920 ? 1 : c.year < 1927 ? 2 : 3];
   el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
-    game.headlines.map((e) => `<h3>${e.name}</h3><p>${e.description}</p>`).join("");
+    game.headlines.map((e) => `<div class="kicker">${e.category}</div><h3>${e.name}</h3><p>${e.description}</p>`).join("");
   el.hidden = false;
   newsAt = performance.now();
 }

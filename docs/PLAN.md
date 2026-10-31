@@ -47,7 +47,8 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Street life: walkers, wagons, carriages, streetcars (1890–1955), autos (1915+), trucks, trains with cars on open
      lines, steamboats and towboats with barges; spawned only where you're looking; haze by era (gas boom, smoke control);
      outfall spills downstream of plants and slag pours
-   - Historical events: `docs/EVENTS.csv` (Year, Season, Event Name, Description) drives newspaper headlines and
+   - Historical events: `docs/EVENTS.csv` (Year, Season, Event Name, Description, Category; ~400 events, sourced in
+     `docs/EVENTS-RESEARCH.md`) drives newspaper headlines and
      timed effects (prices, strikes, wages, migration, pollution, floods, epidemics) — edit the CSV to change the timeline
    - Ancestry: 12 groups with real immigration wave timing, chain migration, anchor neighbourhoods, succession;
      churches, synagogues and social halls appear where communities grow; Ancestry overlay
