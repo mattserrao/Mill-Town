@@ -84,7 +84,6 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Overlay review: grouped Land / Town / Business with a palette chip each; every overlay has its own palette
      (hypsometric elevation, viridis population, navy→gold land value, soot pollution, stepped walk-time bands,
      red→green site scores) shown in steps with a legend bar; the ground under an overlay is washed to grey
-2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); next: finished-goods shipping out, player-built docks, and one gateway/route model shared by the supply-chain map (`economy.ts`) and the freight simulation (`freight.ts`)
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
