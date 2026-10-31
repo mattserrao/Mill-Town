@@ -9,7 +9,8 @@ Columns: `Year, Season, Event Name, Description, Category, Suggested Action`
   An event in January or February belongs in the **previous** year's Winter.
 - Category is one of: Industry, Economy, Labor, Politics, Parks, Libraries, Universities, Culture, Health,
   Infrastructure, Disaster, Society. It is shown above the headline.
-- Suggested Action is a design note, not read by the game. It proposes what the event should do in play, tagged:
+- Suggested Action is a design note, not read by the game (yet: `EVENTS-PLAN.md` is the plan for making them play, and
+  `EVENTS-ACTIONS.md` classifies every event). It proposes what the event should do in play, tagged:
   **Spawn** (something appears on the map), **Rival** (an AI company acts), **Choice** (a player decision),
   **Effect** (an economy or town modifier; "Effect (existing)" means `events.ts` already does it),
   **Unlock** (a new option or technology) and **Off-map** (it happens beyond the map edge, so it acts through
