@@ -12,6 +12,7 @@ import { SoundController, summarizeView } from "./audio";
 import { ANCHORS } from "./core/ancestry";
 import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
+import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
 import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type WorksRef } from "./core/economy";
 import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
@@ -273,6 +274,11 @@ function refreshPanels() {
   $("calendar").innerHTML = `<b>${c.season} ${c.year}</b> · Era ${c.era.id}: ${c.era.name}`;
   $("population").innerHTML = `Population <b>${fmt(totalPopulation(game))}</b>`;
   $("cash").innerHTML = game.company ? `Cash <b>${money(game.company.cash)}</b>` : `Capital <b>$100,000</b>`;
+  const bz = game.company?.biz.meters;
+  $("standing").innerHTML = bz ? ["Rep", "Labour", "Infl"].map((k, i) => { const v = Math.round([bz.reputation, bz.labour, bz.influence][i]); return `${k} <b class="${i < 2 ? (v >= 0 ? "up" : "down") : ""}">${i < 2 && v > 0 ? "+" : ""}${v}</b>`; }).join(" · ") : "";
+  $("businessSection").hidden = !game.company;
+  businessPanel(game, $("biz"), () => { afterChange(); });
+  decisionCard(game, $("decision"), () => { afterChange(); });
   inspect();
   companyPanel();
   supplyPanel();
@@ -361,6 +367,7 @@ function companyPanel() {
       row("Revenue", money(s.revenue)),
       row("Inputs", money(-s.inputCost)),
       row("Wages", money(-s.wages)),
+      s.other ? row("Other", money(-s.other), s.other > 0 ? "" : "good") : "",
       row("Profit", money(s.profit), s.profit < 0 ? "bad" : "good"),
       row("Workers", `${fmt(s.workersHired)} / ${fmt(s.workersWanted)}`),
       row("Workforce health", `${Math.round(c.health * 100)}%`, c.health < 0.7 ? "bad" : ""),
@@ -661,6 +668,9 @@ function industryNote() {
 
 function nextSeason() {
   if (game.over) return;
+  // a historical moment is waiting for your answer
+  if (game.pendingDecision) { stopPlay(); decisionCard(game, $("decision"), () => afterChange()); return; }
+  resetBusinessUi();
   advanceTurn(game);
   afterTurn();
 }
@@ -668,7 +678,9 @@ function nextSeason() {
 function nextYear() {
   if (game.over) return;
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
-  do advanceTurn(game); while (!game.over && cal(game).season !== "Spring");
+  if (game.pendingDecision) { stopPlay(); decisionCard(game, $("decision"), () => afterChange()); return; }
+  resetBusinessUi();
+  do advanceTurn(game); while (!game.over && !game.pendingDecision && cal(game).season !== "Spring");
   afterTurn();
 }
 
@@ -738,6 +750,7 @@ function showFinal() {
       ["Cash, peak", `${money(st.peakCash)} (${st.peakCashYear})`],
       ["Cash, 1985", money(c.cash)],
       ["Strikes", fmt(st.strikes)],
+      ["Reputation · labour · influence", `${Math.round(c.biz.meters.reputation)} · ${Math.round(c.biz.meters.labour)} · ${Math.round(c.biz.meters.influence)}`],
     );
     verdict = c.cash > 0
       ? `${c.name} is still standing when the valley's great mills go quiet. Whether the town around it survives is another question.`
@@ -748,6 +761,7 @@ function showFinal() {
     <h3>The Mills Go Quiet</h3>
     <p>${verdict}</p>
     <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
+    ${c && c.biz.record.length ? `<p style="font-size:12px"><b>Your choices:</b> ${c.biz.record.filter((r) => r.includes("—")).concat(c.biz.record.filter((r) => !r.includes("—")).slice(-4)).slice(0, 8).join(" · ")}</p>` : ""}
     <div class="actions"><button id="finalLook">Look around</button><button id="finalNew" class="primary">New town</button></div>
   </div>`;
   $("final").hidden = false;

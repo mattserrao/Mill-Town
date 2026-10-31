@@ -11,6 +11,7 @@
       <div id="calendar" class="stat"></div>
       <div id="population" class="stat"></div>
       <div id="cash" class="stat"></div>
+      <div id="standing" class="stat" title="Reputation · labour relations · influence"></div>
       <div class="spacer"></div>
       <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
       <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
@@ -64,6 +65,7 @@
         <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
         <div id="zoom" class="badge"></div>
         <div id="final" hidden></div>
+        <div id="decision" hidden></div>
         <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button><button id="queryBtn" title="Query tool (Q): click a tile to inspect its building, objects, land and neighbourhood">?</button></div>
         <div id="query" hidden></div>
       </div>
@@ -85,6 +87,10 @@
           <button id="incline" title="Build an incline from a street near the works up to the hilltop houses">Build an incline ($60,000)</button>
           <button id="spur" title="Lay a siding from the works to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full" hidden></button>
           <div class="btn-row"><button id="showSupply" title="Show where your raw materials come from and where your goods go">Supply chain map</button><button id="showRivals" title="Show the rival works in your industry and related ones">Competitors map</button></div>
+        </section>
+        <section id="businessSection" hidden>
+          <h2>Running the business</h2>
+          <div id="biz"></div>
         </section>
         <section id="supplySection" hidden>
           <h2>Supply chain</h2>

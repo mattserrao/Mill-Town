@@ -13,6 +13,7 @@ import { HILLSIDES, INCLINES, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
 import { growByDesire } from "./growth";
 import { shipSeason, type Shipper, type ShipResult, spurOption } from "./freight";
+import { type Business, businessSeason, type Decision, DECISIONS, newBusiness, policyEffects, type PublicWorks, resolveDecision } from "./business";
 import { EFFECTS, eventsFor, type HistEvent, type Mod, modMult } from "./events";
 import { GROUPS, immigrationPressure, pickGroup } from "./ancestry";
 import { type History, newHistory, recordHistory } from "./neighbourhood";
@@ -20,7 +21,7 @@ import { type Env, newEnv, type Plant, SOOT_SCALE, updateAir, updateHealth, upda
 import { blockGrid, blockOf } from "./blocks";
 
 export type RiverSide = "N" | "S" | "E" | "W";
-export type PlantStatus = "running" | "idle" | "strike" | "flooded";
+export type PlantStatus = "running" | "idle" | "strike" | "flooded" | "lockout";
 
 export interface Company {
   name: string;
@@ -46,6 +47,8 @@ export interface Company {
   spur?: [number, number];
   /** this season's shipping: lanes, delivered share, costs */
   freight?: ShipResult;
+  /** standings, policies, actions and the record of decisions */
+  biz: Business;
 }
 
 export interface RivalState {
@@ -62,6 +65,8 @@ export interface SeasonReport {
   revenue: number;
   inputCost: number;
   wages: number;
+  /** safety men, fines and the like, less what the company store earns */
+  other: number;
   profit: number;
   workersWanted: number;
   workersHired: number;
@@ -99,6 +104,12 @@ export interface GameState {
   /** travel-time fields from the job centres (rebuilt yearly) */
   commute: Commute;
   lastGrowth?: { placed: number; byGroup: number[] };
+  /** river improvements won by lobbying */
+  publicWorks: PublicWorks;
+  /** a historical moment waiting for your decision */
+  pendingDecision?: Decision;
+  /** permanent share of the market lost to imports (the 1959 strike) */
+  priceLoss?: number;
 }
 
 export interface GameStats {
@@ -122,7 +133,7 @@ export function newGame(map: GameMap, seed: number): GameState {
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
   const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
-    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute };
+    history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} } };
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
@@ -137,6 +148,8 @@ export function fireEvents(g: GameState) {
   g.headlines = eventsFor(c.year, c.season);
   g.floodNow = undefined;
   for (const e of g.headlines) {
+    const dec = DECISIONS[e.name]?.(g);
+    if (dec && !g.pendingDecision) g.pendingDecision = dec;
     log(g, `${e.name}. ${e.description}`);
     for (const ef of EFFECTS[e.name] ?? []) {
       if ("mods" in ef) for (const [kind, mult, dur] of ef.mods) g.mods.push({ kind, mult, until: g.turn + dur, source: e.name });
@@ -181,6 +194,7 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
     civicDue: 0,
     health: 1,
     unrest: 0,
+    biz: newBusiness(cal(g).year),
   };
   g.stats.foundedYear = cal(g).year;
   g.commute = buildCommute(g.map, g.world, centersFor(g));
@@ -387,7 +401,7 @@ function claimFootprint(g: GameState, x: number, y: number, fp: number, owner: n
   w.version++;
 }
 
-function log(g: GameState, text: string) {
+export function log(g: GameState, text: string) {
   g.log.push({ turn: g.turn, text });
 }
 
@@ -410,11 +424,13 @@ export function advanceTurn(g: GameState): void {
   const rng = new Rng(g.seed).fork(`turn${g.turn}`);
   const fx = SEASON_EFFECTS[c0.season];
 
+  // a decision left open takes the course history took
+  if (g.pendingDecision) resolveDecision(g, rng.fork("decision"));
   g.plants = [];
   spawnRivals(g, c0.year);
   const rivals = rivalPlants(g, c0.year);
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk, rivals);
-  else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight);
+  else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks);
   g.plants.push(...rivals);
   const season = g.turn % 4;
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"));
@@ -484,8 +500,9 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const cx = c.x + (c.footprint >> 1), cy = c.y + (c.footprint >> 1);
   const notes: string[] = [];
 
+  const pe = policyEffects(g);
   const capacity = ind.baseCapacity * (1 + mods.capacity);
-  const wpu = Math.max(0.03, ind.workersPerUnit * (1 + mods.workersPerUnit));
+  const wpu = Math.max(0.03, ind.workersPerUnit * (1 + mods.workersPerUnit)) * pe.wpuMult; // long shifts need fewer men
   const workersWanted = Math.round(capacity * wpu);
   const R = tilesFor(m, ind.site.laborRadiusM);
   if (!g.access) updateAccess(g);
@@ -505,17 +522,22 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   // the workforce's health sets how much a shift gets done; its grievances, how likely a walkout is
   c.health = pool ? healthSum / pool : 1;
   c.unrest = pool ? unrestSum / pool : 0;
-  const workersHired = Math.round(Math.min(workersWanted, pool * PARTICIPATION));
+  const workersHired = Math.round(Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult));
   let output = Math.min(capacity, workersHired / wpu);
   const year0 = cal(g).year;
   c.status = "running";
-  if (c.strikeTurns > 0) {
+  if (c.biz.lockout > 0) {
+    c.biz.lockout--;
+    output = 0;
+    c.status = "lockout";
+    notes.push("The gates are locked. The works is dark.");
+  } else if (c.strikeTurns > 0) {
     c.strikeTurns--;
     output = 0;
     c.status = "strike";
     notes.push("The men are out on strike. The works stand cold.");
-  } else if (year0 >= 1877 && c.employees > 300 && rng.chance((0.02 + Math.min(0.04, c.employees / 60000)) * mod(g, "strike") * (0.4 + 1.6 * c.unrest))) {
-    c.strikeTurns = rng.int(0, 2);
+  } else if (year0 >= 1877 && c.employees > 300 && rng.chance((0.02 + Math.min(0.04, c.employees / 60000)) * mod(g, "strike") * (0.4 + 1.6 * c.unrest) * pe.strikeMult)) {
+    c.strikeTurns = rng.int(1, 3); // long enough to negotiate, call the Pinkertons or bring in strikebreakers
     g.stats.strikes++;
     output = 0;
     c.status = "strike";
@@ -545,7 +567,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   // ship the inputs in: river and rail lanes shared with the rivals; short deliveries cut output
   const needs: Shipper["needs"] = {};
   for (const [good, per] of Object.entries(ind.inputs)) needs[good as keyof typeof needs] = output * (per ?? 0);
-  const ship = shipSeason(m, year, riverMult, [...rivalShippers(g, rivals), { id: "p", site: { x: c.x, y: c.y, fp: c.footprint, spur: c.spur }, needs }], g.env.freight);
+  const ship = shipSeason(m, year, riverMult, [...rivalShippers(g, rivals), { id: "p", site: { x: c.x, y: c.y, fp: c.footprint, spur: c.spur }, needs }], g.env.freight, "p", g.publicWorks.locks);
   g.env.freightNorm = ship.norm;
   const fr = ship.player;
   c.freight = fr;
@@ -554,20 +576,25 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     if (riverMult < 1 && fr.lanes.some((l) => l.mode === "river")) notes.push(riverMult <= 0.5 ? "Ice on the rivers: barge capacity halved." : "Low water: barges run light.");
     for (const n of fr.notes.slice(0, 2)) notes.push(n);
   }
-  const price = ind.basePrice * (1 + (year - 1850) * 0.004) * mod(g, "price");
-  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage");
+  const price = ind.basePrice * (1 + (year - 1850) * 0.004) * mod(g, "price") * pe.priceMult * (1 - (g.priceLoss ?? 0));
+  const wage = WAGE_PER_SEASON_1850 * (1 + (year - 1850) * 0.012) * mod(g, "wage") * pe.wageMult;
 
   const revenue = Math.round(output * price);
   // what was bought and hauled, less what better furnaces save
-  const inputCost = Math.round(fr ? (fr.purchaseCost + fr.freightCost) * (1 - mods.efficiency) : 0);
-  const wages = Math.round(workersHired * wage);
-  const profit = revenue - inputCost - wages;
+  const inputCost = Math.round(fr ? (fr.purchaseCost + fr.freightCost) * (1 - mods.efficiency) * pe.inputCostMult : 0);
+  const working = c.status !== "lockout";
+  const wages = working ? Math.round(workersHired * wage) : 0;
+  // the season's business: meters drift, accidents, inspectors; safety men cost money; the company store earns
+  const biz = businessSeason(g, rng.fork("biz"), working ? workersHired : 0);
+  for (const n of biz.notes) notes.push(n);
+  const other = Math.round(biz.extraCost + biz.fines - wages * pe.storeIncomeShare);
+  const profit = revenue - inputCost - wages - other;
   c.cash += profit;
   c.employees = workersHired;
   c.produced += output;
   c.seasonsOperating++;
 
-  g.plants.push({ x: c.x, y: c.y, fp: c.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution), owner: "p" });
+  g.plants.push({ x: c.x, y: c.y, fp: c.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution) * pe.pollutionMult, owner: "p", outfall: pe.outfallMult });
 
   const shortfall = Math.max(0, workersWanted - workersHired);
   const migrants = settleMigrants(g, cx, cy, R, Math.round((shortfall / PARTICIPATION * 0.35 + workersHired * 0.05) * mod(g, "migrants") * Math.min(1.8, Math.max(0.5, 0.5 + immigrationPressure(year0) * 0.25))));
@@ -583,11 +610,16 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     if (placeCivic(g, cx, cy, kind)) log(g, `The town near the works builds a new ${kind === CivicSub.School ? "school" : kind === CivicSub.Firehouse ? "firehouse" : kind === CivicSub.Synagogue ? "synagogue" : "church"}.`);
   }
 
-  c.lastSeason = { produced: output, revenue, inputCost, wages, profit, workersWanted, workersHired, migrants, notes };
+  // families brought by recruiting agents or as strikebreakers
+  for (const [gid, n] of c.biz.recruits.splice(0)) {
+    const placed = settleMigrants(g, cx, cy, R, n, gid);
+    if (placed) notes.push(`${placed} ${GROUPS[gid].name} newcomers arrived for the works.`);
+  }
+  c.lastSeason = { produced: output, revenue, inputCost, wages, other, profit, workersWanted, workersHired, migrants, notes };
 }
 
 /** Add people near (cx,cy): fill existing homes first, then new lots beside streets. */
-function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: number): number {
+function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: number, group?: number): number {
   if (count <= 0) return 0;
   const { map: m, world: w } = g;
   const cands: { i: number; d: number }[] = [];
@@ -617,7 +649,7 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
     const d = Math.hypot(x - cx, y - cy);
     if (fresh) {
       w.built[i] = g.world.year;
-      w.eth[i] = pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, ethRng(g));
+      w.eth[i] = group ?? pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, ethRng(g));
       w.sub[i] = d <= 10 && w.landValue[i] < 60 ? HouseSub.Shanty : d <= 28 && g.world.year >= 1855 ? HouseSub.Company : HouseSub.Normal;
     } else if (w.use[i] === Use.Rowhouses) {
       if (w.sub[i] === HouseSub.Shanty || w.sub[i] === HouseSub.Company) { w.sub[i] = d <= 18 ? HouseSub.Boarding : HouseSub.Normal; w.built[i] = g.world.year; }

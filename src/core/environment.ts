@@ -13,7 +13,7 @@ import type { GameMap } from "./map";
 import { Terrain } from "./terrain";
 import { Use, type World } from "./town";
 
-export interface Plant { x: number; y: number; fp: number; output: number; pollutionPerUnit: number; owner: string }
+export interface Plant { x: number; y: number; fp: number; output: number; pollutionPerUnit: number; owner: string; /** river outfall multiplier (dumping ×3, treatment ×0.4) */ outfall?: number }
 
 export interface Env {
   /** smoke in the air this season, per block */
@@ -205,7 +205,7 @@ export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[]) {
   for (const p of plants) {
     const c = (p.y + (p.fp >> 1)) * m.width + p.x + (p.fp >> 1);
     const wi = r.nearWater[c];
-    if (wi >= 0 && r.nearDist[c] < 40 && r.pos[wi] >= 0) load[r.pos[wi]] += p.output * p.pollutionPerUnit * OUTFALL_K;
+    if (wi >= 0 && r.nearDist[c] < 40 && r.pos[wi] >= 0) load[r.pos[wi]] += p.output * p.pollutionPerUnit * OUTFALL_K * (p.outfall ?? 1);
   }
   // town sewage runs to the nearest river (sewers emptied straight into the rivers)
   for (let i = 0; i < w.pop.length; i++) {

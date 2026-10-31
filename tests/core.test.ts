@@ -226,3 +226,49 @@ describe("valley systems", () => {
     expect(w.kit.some((k) => k >= 5)).toBe(true); // some neighbourhood is held by a new-immigrant community
   }, 300000);
 });
+
+describe("running the business", () => {
+  it("has an action budget, strike-only actions, policies that move the meters, and recruits who arrive", async () => {
+    const { takeAction, setPolicy, ACTIONS_PER_SEASON } = await import("../src/core/business");
+    const g = newGame(map, 21);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    const c = g.company!;
+    c.cash = 1e7;
+    const rng = new Rng(5);
+    expect(takeAction(g, "negotiate", rng).ok).toBe(false); // no strike
+    expect(takeAction(g, "picnic", rng).ok).toBe(true);
+    expect(takeAction(g, "donate", rng).ok).toBe(true);
+    expect(takeAction(g, "recruit", rng, "10").ok).toBe(true);
+    expect(c.biz.actionsLeft).toBe(0);
+    expect(takeAction(g, "lobby", rng).ok).toBe(false); // budget spent
+    advanceTurn(g);
+    expect(c.biz.actionsLeft).toBe(ACTIONS_PER_SEASON);
+    let italians = 0;
+    for (let i = 0; i < g.world.pop.length; i++) if (g.world.eth[i] === 10 && g.world.pop[i]) italians++;
+    expect(italians).toBeGreaterThan(5); // the agents' families arrived
+    // high wages, eight hours and a safety programme earn labour peace; the opposite earns bitterness
+    expect(setPolicy(g, { wages: "high", hours: "eight", safety: "programme" }).ok).toBe(true);
+    for (let t = 0; t < 12; t++) advanceTurn(g);
+    const good = c.biz.meters.labour;
+    setPolicy(g, { wages: "low", hours: "twelve", safety: "none", companyStore: true });
+    for (let t = 0; t < 12; t++) advanceTurn(g);
+    expect(c.biz.meters.labour).toBeLessThan(good - 20);
+    // a strike opens the strike actions; negotiating ends it
+    c.strikeTurns = 2;
+    expect(takeAction(g, "negotiate", rng).ok).toBe(true);
+    expect(c.strikeTurns).toBe(0);
+  }, 120000);
+
+  it("puts Homestead 1892 to a steel owner as a decision, and history decides if you don't", () => {
+    const g = newGame(map, 22);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    g.company!.techs = ["puddling", "hot_blast", "coke_furnace", "bessemer"];
+    while (!(calendar(g.turn).year === 1892 && calendar(g.turn).season === "Summer")) advanceTurn(g);
+    if (g.company!.employees >= 400) {
+      expect(g.pendingDecision?.id).toBe("homestead1892");
+      advanceTurn(g); // left open: the owners' course (lockout and Pinkertons)
+      expect(g.pendingDecision).toBeUndefined();
+      expect(g.company!.biz.policy.union).toBe("fight");
+    }
+  }, 300000);
+});

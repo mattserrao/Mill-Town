@@ -96,10 +96,18 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Overlay review: grouped Land / Town / Business with a palette chip each; every overlay has its own palette
      (hypsometric elevation, viridis population, navy→gold land value, soot pollution, stepped walk-time bands,
      red→green site scores) shown in steps with a legend bar; the ground under an overlay is washed to grey
+   - Running the business (v0.9, `src/core/business.ts`, `src/ui/business.ts`): three visible meters (reputation,
+     labour relations, influence); 3 actions a season; standing policies (wages, hours, union, safety, boys under 14,
+     company store, slag and waste) that change output, wages, strikes, pollution and fines and set where the meters
+     drift; actions — labour (negotiate, Pinkertons, strikebreakers, lockout, blacklist, recruiting agents by
+     community, picnic), public (endow a hospital or church, buy the papers), politics (lobby, bribe, river locks
+     +35% barge capacity, tariff); historical decisions when your works is in them (Homestead 1892, 1919, 1937,
+     1959) with "what the owners did" marked and auto-chosen if you skip
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); next: finished-goods shipping out, player-built docks, and one gateway/route model shared by the supply-chain map (`economy.ts`) and the freight simulation (`freight.ts`)
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
-5. Rival AI behaviour (bid for land, price wars, buyouts, labor policy)
+5. Rival AI behaviour (bid for land, price wars, buyouts, labor policy — rivals use the player's actions by personality)
+   Next business actions: building placement (game suggests, player confirms), acquisitions as a second works, sabotage
 6. Second industry purchase (Era II) and cross-industry supply (power → mills, steel → shipyards)
 7. Historical events (1877 rail strike, 1892 Homestead, 1936 flood, wars, 1950s peak, 1980s collapse) and legacy choices
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
