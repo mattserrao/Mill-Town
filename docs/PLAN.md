@@ -33,6 +33,10 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      yard life (privies, laundry, gardens), soot and abandonment
    - Plants: process-flow layouts facing the river, multi-tile segmented buildings, technology stages per industry,
      coke ovens, ore bridges, docks and moored barges, rail spur cars, drift mines, inclines, rival palettes/signatures
+   - Hillsides: real neighbourhoods (South Side Slopes, Mt. Washington, Troy Hill, Polish Hill, Hill District,
+     Greenfield, the mill-town hilltops) fill in on their historical timing as the region grows; rowhouses step
+     down the slope, lots are cut into terraces with stone retaining walls, public steps link streets, seven real
+     inclines open on their dates; labor is weighted by walking time; players can build steps and inclines
    - Animation: smoke and steam, furnace glow and flame, day/night with lit windows and lamps; strikes, floods, idle
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback

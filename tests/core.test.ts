@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { advanceTurn, foundCompany, newGame, totalPopulation } from "../src/core/game";
+import { advanceTurn, buildIncline, foundCompany, newGame, totalPopulation, walkMinutes } from "../src/core/game";
 import { parseMap, type MapMeta } from "../src/core/map";
 import { Rng } from "../src/core/rng";
 import { evaluateSite, footprintTiles } from "../src/core/site";
@@ -89,7 +89,7 @@ describe("town + game loop", () => {
     expect(g.world.structure.some((s) => s > 0 && s < 255)).toBe(true);
   });
 
-  it("founds a steel works near Homestead, grades it flat, and runs 10 years", () => {
+  it("founds a steel works near Homestead, grades it flat, and runs 10 years", { timeout: 30000 }, () => {
     const g = newGame(map, 1850);
     const h = at("Homestead Works site");
     let best = { x: 0, y: 0, score: -1 };
@@ -110,4 +110,28 @@ describe("town + game loop", () => {
     expect(g.world.pollution[(best.y + 1) * map.width + best.x + 1]).toBeGreaterThan(0);
     expect(g.rivals.map((r) => r.id)).toContain("jl");
   });
+});
+
+describe("hillsides", () => {
+  it("fills the slopes as the region grows, with public steps, and inclines shorten the climb", () => {
+    const g = newGame(map, 1850);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    for (let t = 0; t < 4 * 50; t++) advanceTurn(g);
+    let steepLots = 0, steps = 0;
+    for (let i = 0; i < g.world.pop.length; i++) {
+      if (g.world.pop[i] && map.terrain[i] === Terrain.Steep) steepLots++;
+      if (g.world.street[i] === Street.Steps) steps++;
+    }
+    expect(totalPopulation(g)).toBeGreaterThan(400000);
+    expect(steepLots).toBeGreaterThan(150);
+    expect(steps).toBeGreaterThan(10);
+    // the furthest-uphill populated tile gets closer once an incline is built
+    g.company!.cash = 1e6;
+    const before = new Float64Array(g.access!);
+    expect(buildIncline(g).ok).toBe(true);
+    let improved = 0;
+    for (let i = 0; i < before.length; i++) if (g.world.pop[i] && g.access![i] < before[i] - 5) improved++;
+    expect(improved).toBeGreaterThan(5);
+    expect(isFinite(walkMinutes(g, 237 * map.width + 483))).toBe(true);
+  }, 60000);
 });

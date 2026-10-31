@@ -8,7 +8,8 @@ import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { calendar, SEASON_EFFECTS, type Calendar } from "./time";
-import { activateFeatures, activateStreets, CivicSub, generateTown, HouseSub, POP_CAP, recomputeLandValue, Use, useForPop, type World } from "./town";
+import { activateFeatures, activateStreets, addSteps, CivicSub, terrainCap, generateTown, growRegion, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, walkField, WALK_MIN_PER_COST, type World } from "./town";
+import { HILLSIDES, INCLINES, tileLine } from "./features";
 
 export type RiverSide = "N" | "S" | "E" | "W";
 export type PlantStatus = "running" | "idle" | "strike" | "flooded";
@@ -62,6 +63,9 @@ export interface GameState {
   company?: Company;
   rivals: RivalState[];
   log: { turn: number; text: string }[];
+  /** walking cost from the works to every tile (Infinity beyond an hour) */
+  access?: Float64Array;
+  inclinesBuilt: number;
 }
 
 export const STARTING_CASH = 100000;
@@ -74,7 +78,7 @@ export function newGame(map: GameMap, seed: number): GameState {
   resetMap(map);
   const world = generateTown(map, seed, 1850);
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
-  return { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }] };
+  return { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0 };
 }
 
 export function cal(g: GameState): Calendar {
@@ -106,6 +110,91 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
   };
   log(g, `Founded ${g.company.name} (${ind.startsAs}) for $${rep.cost.toLocaleString()}.`);
   recomputeLandValue(g.map, g.world);
+  updateAccess(g);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------- commuting
+
+const MAX_WALK_MIN = 60;
+
+/** Recompute walking times from the works (after streets, steps or inclines change). */
+export function updateAccess(g: GameState) {
+  const c = g.company;
+  if (!c) { g.access = undefined; return; }
+  g.access = walkField(g.map, g.world, c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), MAX_WALK_MIN / WALK_MIN_PER_COST);
+}
+
+export function walkMinutes(g: GameState, i: number): number {
+  const a = g.access?.[i];
+  return a === undefined || !isFinite(a) ? Infinity : a * WALK_MIN_PER_COST;
+}
+
+/** Share of a tile's working men who'll take a job at the works, by walking time. */
+export function commuteWeight(min: number): number {
+  if (min <= 15) return 1;
+  if (min <= 40) return 1 - (0.8 * (min - 15)) / 25;
+  if (min <= MAX_WALK_MIN) return 0.2 * (1 - (min - 40) / (MAX_WALK_MIN - 40));
+  return 0;
+}
+
+export const STEPS_COST = 4000;
+export const INCLINE_COST = 60000;
+
+/** Build public steps from the nearest unserved hillside houses down to the street. */
+export function buildSteps(g: GameState): { ok: boolean; reason?: string } {
+  const c = g.company;
+  if (!c) return { ok: false, reason: "No company" };
+  if (c.cash < STEPS_COST) return { ok: false, reason: `Needs $${STEPS_COST.toLocaleString()}` };
+  const made = addSteps(g.map, g.world, 1, [c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 70], true);
+  if (!made) return { ok: false, reason: "No hillside houses near the works need steps" };
+  c.cash -= STEPS_COST;
+  updateAccess(g);
+  log(g, `${c.name} builds a flight of public steps up the hillside.`);
+  return { ok: true };
+}
+
+/** Build an inclined plane from a street near the works up to the hillside houses the longest walk away. */
+export function buildIncline(g: GameState): { ok: boolean; reason?: string } {
+  const c = g.company;
+  if (!c) return { ok: false, reason: "No company" };
+  if (cal(g).year < 1870) return { ok: false, reason: "Inclines come to Pittsburgh in 1870" };
+  if (c.cash < INCLINE_COST) return { ok: false, reason: `Needs $${INCLINE_COST.toLocaleString()}` };
+  const { map: m, world: w } = g;
+  if (!g.access) updateAccess(g);
+  const cx = c.x + (c.footprint >> 1), cy = c.y + (c.footprint >> 1);
+  // foot: a street close to the works; head: hillside houses up to ~450 m away that are a long walk now
+  let bottom = -1, top = -1, best = -Infinity, bd = 0;
+  for (let y = cy - 45; y <= cy + 45; y += 2) for (let x = cx - 45; x <= cx + 45; x += 2) {
+    if (!inBounds(m, x, y)) continue;
+    const b = y * m.width + x;
+    if (!w.street[b] || w.street[b] === Street.Steps || w.street[b] === Street.Bridge || walkMinutes(g, b) > 15) continue;
+    for (let ty = y - 15; ty <= y + 15; ty++) for (let tx = x - 15; tx <= x + 15; tx++) {
+      if (!inBounds(m, tx, ty)) continue;
+      const t = ty * m.width + tx;
+      const len = Math.hypot(tx - x, ty - y);
+      if (!w.pop[t] || len < 4 || len > 15 || w.use[t] === Use.Incline) continue;
+      const rise = m.elevation[t] - m.elevation[b];
+      if (rise < 30) continue;
+      const saving = Math.min(90, walkMinutes(g, t)) - (walkMinutes(g, b) + len * 0.6);
+      const score = saving + rise * 0.1 - len;
+      if (score <= best) continue;
+      const line = tileLine(x, y, tx, ty);
+      if (line.some(([lx, ly]) => { const j = ly * m.width + lx; const u = w.use[j]; return m.terrain[j] === Terrain.Water || u === Use.Industry || u === Use.Rival || u === Use.Civic || u === Use.Landmark || u === Use.Incline; })) continue;
+      best = score; bottom = b; top = t; bd = len;
+    }
+  }
+  if (top < 0 || best < 5) return { ok: false, reason: "No hillside houses above the works that an incline would bring closer" };
+  const tx = top % m.width, ty = (top / m.width) | 0;
+  const id = 100 + g.inclinesBuilt++;
+  for (const [x, y] of tileLine(bottom % m.width, (bottom / m.width) | 0, tx, ty)) {
+    const i = y * m.width + x;
+    w.use[i] = Use.Incline; w.sub[i] = id; w.pop[i] = 0; w.street[i] = 0; w.built[i] = cal(g).year;
+  }
+  w.version++;
+  c.cash -= INCLINE_COST;
+  updateAccess(g);
+  log(g, `${c.name} opens an incline up the hill, ${(bd * m.metersPerTile).toFixed(0)} m long.`);
   return { ok: true };
 }
 
@@ -225,11 +314,17 @@ export function advanceTurn(g: GameState): void {
   const c1 = cal(g);
   if (c1.year !== c0.year) {
     g.world.year = c1.year;
+    const plants: [number, number][] = g.rivals.map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
+    if (g.company) plants.push([g.company.x + g.company.footprint / 2, g.company.y + g.company.footprint / 2]);
+    if (c1.year < 1975) growRegion(g.map, g.world, plants, totalPopulation(g));
     activateStreets(g.map, g.world);
     activateFeatures(g.map, g.world);
     recomputeLandValue(g.map, g.world);
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
+    for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
+    for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
+    updateAccess(g);
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
   g.world.version++;
@@ -247,8 +342,15 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const wpu = Math.max(0.03, ind.workersPerUnit * (1 + mods.workersPerUnit));
   const workersWanted = Math.round(capacity * wpu);
   const R = tilesFor(m, ind.site.laborRadiusM);
+  if (!g.access) updateAccess(g);
+  // the labor pool is everyone within an hour's walk, weighted by how long the walk is
   let pool = 0;
-  for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) if (inBounds(m, x, y)) pool += g.world.pop[y * m.width + x];
+  const RR = 160;
+  for (let y = cy - RR; y <= cy + RR; y++) for (let x = cx - RR; x <= cx + RR; x++) {
+    if (!inBounds(m, x, y)) continue;
+    const i = y * m.width + x;
+    if (g.world.pop[i]) pool += g.world.pop[i] * commuteWeight(walkMinutes(g, i));
+  }
   const workersHired = Math.round(Math.min(workersWanted, pool * PARTICIPATION));
   let output = Math.min(capacity, workersHired / wpu);
   const year0 = cal(g).year;
@@ -352,7 +454,7 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
   let left = count;
   for (const { i } of cands) {
     if (left <= 0) break;
-    const room = capFor(w.sub[i]) - w.pop[i];
+    const room = Math.min(capFor(w.sub[i]), terrainCap(m.terrain[i])) - w.pop[i];
     if (room <= 0) continue;
     const add = Math.min(room, left, 12);
     const fresh = w.pop[i] === 0;
@@ -405,8 +507,9 @@ function naturalGrowth(g: GameState, rng: Rng) {
   }
   for (let k = 0; k < 3000; k++) {
     const i = rng.int(0, n - 1);
-    if (w.pop[i] > 0 && w.pop[i] < capFor(w.sub[i]) && (w.use[i] >= Use.Cottage && w.use[i] <= Use.Rowhouses)) {
-      w.pop[i] = Math.min(capFor(w.sub[i]), Math.ceil(w.pop[i] * 1.05));
+    const cap = Math.min(capFor(w.sub[i]), terrainCap(g.map.terrain[i]));
+    if (w.pop[i] > 0 && w.pop[i] < cap && (w.use[i] >= Use.Cottage && w.use[i] <= Use.Rowhouses)) {
+      w.pop[i] = Math.min(cap, Math.ceil(w.pop[i] * 1.05));
       w.use[i] = useForPop(w.pop[i]);
     }
   }

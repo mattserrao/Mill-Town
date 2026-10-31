@@ -3,7 +3,7 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
-import { DIAMOND, INCLINES, latLonToTile, tileLine } from "./features";
+import { DIAMOND, HILLSIDES, INCLINES, latLonToTile, regionTarget, tileLine } from "./features";
 import { type GameMap, idx, inBounds, sat, satSum, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
@@ -46,7 +46,7 @@ export const SUB_NAMES: Record<number, Record<number, string>> = {
   12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house" },
 };
 
-export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3 }
+export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4 }
 
 export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitentiary"] as const;
 const STRUCTURE_SIZE: Record<string, number> = { blockhouse: 1, courthouse: 2, arsenal: 3, penitentiary: 3 };
@@ -67,6 +67,11 @@ export const SETTLEMENTS_1850: { landmark: string; pop: number; reachM: number }
 ];
 
 export const POP_CAP = { cottage: 8, houses: 24, rowhouses: 70 };
+
+/** Hillside lots hold frame houses, not brick blocks: hillside 24 people, steep 14. */
+export function terrainCap(t: number): number {
+  return t === Terrain.Steep ? 14 : t === Terrain.Slope ? POP_CAP.houses : POP_CAP.rowhouses;
+}
 
 export interface World {
   seed: number;
@@ -323,12 +328,26 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   return w;
 }
 
+/** Nearest lowest (dir -1) or highest (dir 1) dry tile within r — stations sit at the foot and the brow. */
+function snapHeight(m: GameMap, x: number, y: number, r: number, dir: number): [number, number] {
+  let best: [number, number] = [x, y], bv = -Infinity;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const nx = x + dx, ny = y + dy;
+    if (!inBounds(m, nx, ny) || dx * dx + dy * dy > r * r) continue;
+    const i = ny * m.width + nx;
+    if (m.terrain[i] === Terrain.Water) continue;
+    const v = m.elevation[i] * dir - Math.hypot(dx, dy) * 0.4;
+    if (v > bv) { bv = v; best = [nx, ny]; }
+  }
+  return best;
+}
+
 /** Inclines open in their year: track tiles from the river-level station up the bluff. */
 export function activateFeatures(m: GameMap, w: World) {
   for (const inc of INCLINES) {
     if (inc.year > w.year) continue;
-    const [x0, y0] = latLonToTile(m, inc.lower[0], inc.lower[1]);
-    const [x1, y1] = latLonToTile(m, inc.upper[0], inc.upper[1]);
+    const [x0, y0] = snapHeight(m, ...latLonToTile(m, inc.lower[0], inc.lower[1]), 12, -1);
+    const [x1, y1] = snapHeight(m, ...latLonToTile(m, inc.upper[0], inc.upper[1]), 10, 1);
     for (const [x, y] of tileLine(x0, y0, x1, y1)) {
       if (!inBounds(m, x, y)) continue;
       const i = y * m.width + x;
@@ -339,13 +358,195 @@ export function activateFeatures(m: GameMap, w: World) {
   }
 }
 
+// ---------------------------------------------------------------- walking: streets, steps, inclines, grade
+
+/**
+ * Walking cost field from (sx, sy) in "flat street tiles" (30 m each, ~0.4 min).
+ * Streets wind up hills (gentle grade penalty), public steps climb directly, inclines lift for free,
+ * open hillside is slow; rivers only on bridges (ferry otherwise).
+ */
+export function walkField(m: GameMap, w: World, sx: number, sy: number, maxCost: number): Float64Array {
+  const n = m.width * m.height;
+  const dist = new Float64Array(n).fill(Infinity);
+  const heap = new MinHeap();
+  const s = idx(m, sx, sy);
+  dist[s] = 0;
+  heap.push(s, 0);
+  while (heap.size) {
+    const [i, d] = heap.pop();
+    if (d > dist[i] || d > maxCost) continue;
+    const x = i % m.width, y = (i / m.width) | 0;
+    for (let k = 0; k < 8; k++) {
+      const nx = x + DX[k], ny = y + DY[k];
+      if (!inBounds(m, nx, ny)) continue;
+      const j = ny * m.width + nx;
+      const t = m.terrain[j];
+      const dh = Math.abs(m.elevation[j] - m.elevation[i]);
+      let c: number;
+      if (t === Terrain.Water) c = w.street[j] === Street.Bridge ? 1 : 30;
+      else if (w.use[j] === Use.Incline && w.use[i] === Use.Incline) c = 0.4;
+      else if (w.street[j] === Street.Steps) c = 1.3 + dh * 0.12;
+      else if (w.street[j]) c = 1 + dh * 0.22;
+      else c = TRAVEL_COST[t] * 1.6 + dh * 0.35;
+      const nd = d + c * (k >= 4 ? 1.414 : 1);
+      if (nd < dist[j]) { dist[j] = nd; heap.push(j, nd); }
+    }
+  }
+  return dist;
+}
+
+export const WALK_MIN_PER_COST = 0.4;
+
+/** Lots a growing town may take. Steep lots only where a hillside neighbourhood is open (or pressure is high). */
+function lotOk(m: GameMap, w: World, i: number, steepOk: boolean) {
+  const t = m.terrain[i];
+  if (w.owner[i] || w.street[i] || m.road[i] && !steepOk) return false;
+  const u = w.use[i];
+  if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Mine || u === Use.Incline || u === Use.Industry || u === Use.Rival) return false;
+  if (m.road[i]) return false;
+  return habitable(t) || (steepOk && t === Terrain.Steep);
+}
+
+/**
+ * Grow `count` people around (cx, cy) within `reach` walking cost, along today's streets.
+ * Fills existing lots first, then opens new ones nearest first. Returns people placed.
+ */
+export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: number, count: number, opts: {
+  steep: boolean; seed: number; plants?: [number, number][]; cap?: number;
+}): number {
+  if (count <= 0) return 0;
+  const field = walkField(m, w, cx, cy, reach);
+  const nearRoad = (x: number, y: number) => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+      if (inBounds(m, x + dx, y + dy) && (m.road[(y + dy) * m.width + x + dx] || w.street[(y + dy) * m.width + x + dx])) return true;
+    return false;
+  };
+  const cands: { i: number; s: number }[] = [];
+  const R = Math.ceil(reach);
+  for (let y = Math.max(0, cy - R); y <= Math.min(m.height - 1, cy + R); y++) for (let x = Math.max(0, cx - R); x <= Math.min(m.width - 1, cx + R); x++) {
+    const i = y * m.width + x;
+    if (!isFinite(field[i]) || !lotOk(m, w, i, opts.steep)) continue;
+    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]));
+    if (w.pop[i] >= cap) continue;
+    const onStreet = nearRoad(x, y);
+    if (!onStreet && w.pop[i] === 0) continue; // houses front onto streets
+    // hillsides keep wooded ravines and gaps between the terraces
+    const t = m.terrain[i];
+    if (w.pop[i] === 0 && (t === Terrain.Steep || t === Terrain.Slope) && valueNoise(opts.seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) continue;
+    const steepPenalty = m.terrain[i] === Terrain.Steep ? 2 : m.terrain[i] === Terrain.Slope ? 0.8 : 0;
+    cands.push({ i, s: field[i] + steepPenalty + tileNoise(opts.seed, x, y, 611) * 4 - (w.pop[i] > 0 ? 3 : 0) });
+  }
+  cands.sort((a, b) => a.s - b.s);
+  let left = count;
+  for (const { i } of cands) {
+    if (left <= 0) break;
+    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]));
+    const fresh = w.pop[i] === 0;
+    const add = Math.min(cap - w.pop[i], left, fresh ? 18 : 10);
+    if (add <= 0) continue;
+    w.pop[i] += add;
+    left -= add;
+    w.use[i] = useForPop(w.pop[i]);
+    if (fresh) {
+      w.built[i] = w.year;
+      const x = i % m.width, y = (i / m.width) | 0;
+      const near = opts.plants?.some(([px, py]) => Math.hypot(px - x, py - y) < 12);
+      w.sub[i] = near ? HouseSub.Shanty : 0;
+    }
+  }
+  if (left < count) w.version++;
+  return count - left;
+}
+
+/** Yearly regional growth: the city and the mill towns grow toward the historical population, up the hillsides. */
+export function growRegion(m: GameMap, w: World, plants: [number, number][], currentPop: number) {
+  const target = regionTarget(w.year);
+  const room = Math.round((target - currentPop) * 0.6);
+  if (room <= 0) return;
+  const shares: { x: number; y: number; reach: number; weight: number; steep: boolean }[] = [];
+  for (const h of HILLSIDES) {
+    if (w.year < h.year) continue;
+    const ramp = w.year <= h.peak ? 1 : Math.max(0.15, 1 - (w.year - h.peak) / 30);
+    const [x, y] = latLonToTile(m, h.lat, h.lon);
+    shares.push({ x, y, reach: (h.radiusM / m.metersPerTile) * 1.8, weight: h.weight * ramp * 1.6, steep: true });
+  }
+  for (const s of w.settlements) shares.push({ x: s.x, y: s.y, reach: 70, weight: s.pop > 5000 ? 1.2 : 0.35, steep: false });
+  for (const [x, y] of plants) shares.push({ x: Math.round(x), y: Math.round(y), reach: 60, weight: 1.0, steep: w.year >= 1880 });
+  const total = shares.reduce((a, s) => a + s.weight, 0);
+  for (const s of shares) {
+    const n = Math.round((room * s.weight) / total);
+    growAround(m, w, s.x, s.y, s.reach, n, { steep: s.steep, seed: w.seed + w.year, plants });
+  }
+  addSteps(m, w);
+}
+
+/**
+ * Public steps: where houses have climbed a hillside, run a flight of steps straight down the slope
+ * to the nearest street below (Pittsburgh has hundreds of these).
+ */
+export function addSteps(m: GameMap, w: World, maxNew = 24, around?: [number, number, number], any = false): number {
+  const W = m.width;
+  let made = 0;
+  const tops: number[] = [];
+  for (let i = 0; i < w.pop.length; i++) {
+    if (!w.pop[i] || (m.terrain[i] !== Terrain.Steep && m.terrain[i] !== Terrain.Slope)) continue;
+    const x = i % W, y = (i / W) | 0;
+    if (around && Math.hypot(x - around[0], y - around[1]) > around[2]) continue;
+    if (!any) {
+      if (tileNoise(w.seed, Math.floor(x / 6), Math.floor(y / 6), 707) > 0.75) continue; // ~one candidate per 6x6 block
+      if (x % 6 !== 3 || y % 6 !== 3) continue;
+    }
+    tops.push(i);
+  }
+  if (around) tops.sort((a, b) => Math.hypot((a % W) - around[0], ((a / W) | 0) - around[1]) - Math.hypot((b % W) - around[0], ((b / W) | 0) - around[1]));
+  for (const top of tops) {
+    if (made >= maxNew) break;
+    const tx = top % W, ty = (top / W) | 0;
+    // already served?
+    let served = false;
+    for (let dy = -4; dy <= 4 && !served; dy++) for (let dx = -4; dx <= 4; dx++)
+      if (inBounds(m, tx + dx, ty + dy) && w.street[(ty + dy) * W + tx + dx] === Street.Steps) { served = true; break; }
+    if (served) continue;
+    // walk downhill greedily through non-built tiles until a street at least 12 m lower
+    const path: number[] = [];
+    let cur = top, ok = false;
+    const h0 = m.elevation[top];
+    for (let step = 0; step < 30; step++) {
+      const x = cur % W, y = (cur / W) | 0;
+      let best = -1, bh = m.elevation[cur];
+      for (let k = 0; k < 4; k++) {
+        const nx = x + DX[k], ny = y + DY[k];
+        if (!inBounds(m, nx, ny)) continue;
+        const j = ny * W + nx;
+        if (m.terrain[j] === Terrain.Water) continue;
+        if (m.elevation[j] < bh - 0.5) { bh = m.elevation[j]; best = j; }
+      }
+      if (best < 0) break;
+      cur = best;
+      if (w.street[cur] && w.street[cur] !== Street.Steps && h0 - m.elevation[cur] >= 12) { ok = true; break; }
+      const u = w.use[cur];
+      if (u === Use.Civic || u === Use.Landmark || u === Use.Industry || u === Use.Rival || u === Use.Commerce) break;
+      path.push(cur);
+    }
+    if (!ok || path.length < 3) continue;
+    for (const j of path) {
+      w.street[j] = Street.Steps;
+      if (w.use[j] === Use.Forest || w.use[j] === Use.Farm || w.use[j] === Use.Rock) w.use[j] = Use.Empty;
+      if (w.pop[j]) { w.pop[j] = 0; w.use[j] = Use.Empty; }
+    }
+    made++;
+  }
+  if (made) w.version++;
+  return made;
+}
+
 /** Streets appear on today's road alignments where the town has grown around them. */
 export function activateStreets(m: GameMap, w: World) {
   const W = m.width;
   for (let y = 0; y < m.height; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
     if (activeBridge(m, i, w.year)) { w.street[i] = m.terrain[i] === Terrain.Water ? Street.Bridge : Street.Pike; continue; }
-    if (!m.road[i] || w.street[i] || m.terrain[i] === Terrain.Water) continue;
+    if (!m.road[i] || w.street[i] || m.terrain[i] === Terrain.Water || w.use[i] === Use.Incline) continue;
     let settled = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!inBounds(m, x + dx, y + dy)) continue;

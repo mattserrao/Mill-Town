@@ -18,8 +18,9 @@ export interface HouseSpec {
   front: "+" | "-";  // street on the + or - side across the frontage
   corner: number;    // 1 = this tile is a street corner (corner shop / end unit)
   v: number;         // variant 0..7
-  lift: number;      // px the floor sits above the tile-centre ground (uphill corner)
-  fnd: number;       // px of foundation below the floor (downhill side)
+  g: [number, number, number, number]; // ground height (px) at corners T(0,0) R(1,0) B(1,1) L(0,1), relative to tile centre
+  lift: number;      // derived: floor above tile-centre ground
+  fnd: number;       // derived: foundation below the floor
   soot: number;      // 0..3
   boarded: number;   // 1 = abandoned
 }
@@ -29,12 +30,13 @@ export function styleForYear(y: number): number {
 }
 
 export function houseKey(s: HouseSpec): string {
-  return `H|${s.kind}|${s.sub}|${s.style}|${s.o}|${s.front}|${s.corner}|${s.v}|${s.lift}|${s.fnd}|${s.soot}|${s.boarded}`;
+  return `H|${s.kind}|${s.sub}|${s.style}|${s.o}|${s.front}|${s.corner}|${s.v}|${s.g.join(",")}|${s.soot}|${s.boarded}`;
 }
 
 export function parseHouseKey(k: string): HouseSpec {
-  const [, kind, sub, style, o, front, corner, v, lift, fnd, soot, boarded] = k.split("|");
-  return { kind: kind as HouseKind, sub: +sub, style: +style, o: o as "a" | "b", front: front as "+" | "-", corner: +corner, v: +v, lift: +lift, fnd: +fnd, soot: +soot, boarded: +boarded };
+  const [, kind, sub, style, o, front, corner, v, g, soot, boarded] = k.split("|");
+  const gg = g.split(",").map(Number) as [number, number, number, number];
+  return { kind: kind as HouseKind, sub: +sub, style: +style, o: o as "a" | "b", front: front as "+" | "-", corner: +corner, v: +v, g: gg, lift: 0, fnd: 0, soot: +soot, boarded: +boarded };
 }
 
 // ---------------------------------------------------------------- palettes
@@ -172,9 +174,68 @@ function stoop(p: Painter, at: Pt, h: number, col = "#9a9282") {
   for (let k = 0; k < Math.min(4, Math.ceil(h / 2) + 1); k++) p.px(at[0] - 1, at[1] - k * 2 + k, col, 3, 1);
 }
 
+// ---------------------------------------------------------------- hillside lots
+
+/** Ground height (px) at a point of the tile, bilinear over the corner heights. */
+export function gz(s: HouseSpec, u: number, v: number): number {
+  const [t, r, b, l] = s.g;
+  return (t * (1 - u) + r * u) * (1 - v) + (l * (1 - u) + b * u) * v;
+}
+
+export const TERRACE_PX = 9; // relief across a lot above which it's cut into a level terrace
+
+const STONE = "#8e8474";
+
+/**
+ * Cut-and-fill terrace: a level platform at height F over the rect, with stone retaining walls where
+ * the hill was cut away behind it and where fill was built up in front of it.
+ */
+export function terrace(p: Painter, s: HouseSpec, r: Rect, F: number, top: string) {
+  const [u0, v0, u1, v1] = r;
+  const gA = gz(s, u0, v0), gB = gz(s, u1, v0), gC = gz(s, u1, v1), gD = gz(s, u0, v1);
+  const wall = (a: [number, number, number], b: [number, number, number], col: string) => {
+    // a/b = [u, v, ground]; draw between ground and F on the side where they differ
+    const za = a[2], zb = b[2];
+    if (Math.abs(za - F) < 1 && Math.abs(zb - F) < 1) return;
+    p.poly([p.P(a[0], a[1], F), p.P(b[0], b[1], F), p.P(b[0], b[1], zb), p.P(a[0], a[1], za)], col);
+    const lo = Math.min(za, zb, F), hi = Math.max(za, zb, F);
+    for (let z = Math.ceil(lo / 3) * 3; z < hi; z += 3) {
+      const ta = (z - za) / (F - za || 1e-6), tb = (z - zb) / (F - zb || 1e-6);
+      if (ta >= 0 && ta <= 1 && tb >= 0 && tb <= 1) p.line(p.P(a[0], a[1], z), p.P(b[0], b[1], z), shade(col, 0.85));
+    }
+  };
+  // cut walls at the back (only where the hill rises above the platform)
+  if (gA > F || gB > F) wall([u0, v0, Math.max(gA, F)], [u1, v0, Math.max(gB, F)], STONE);
+  if (gA > F || gD > F) wall([u0, v0, Math.max(gA, F)], [u0, v1, Math.max(gD, F)], shade(STONE, 0.78));
+  // platform
+  p.poly([p.P(u0, v0, F), p.P(u1, v0, F), p.P(u1, v1, F), p.P(u0, v1, F)], top);
+  // fill walls at the front (where the ground falls away below the platform)
+  if (gD < F || gC < F) wall([u0, v1, Math.min(gD, F)], [u1, v1, Math.min(gC, F)], STONE);
+  if (gC < F || gB < F) wall([u1, v1, Math.min(gC, F)], [u1, v0, Math.min(gB, F)], shade(STONE, 0.74));
+  // coping stones along the front edges
+  p.line(p.P(u0, v1, F), p.P(u1, v1, F), "#b8b0a0");
+  p.line(p.P(u1, v1, F), p.P(u1, v0, F), "#9a9282");
+}
+
+const YARD_TOP = ["#6e8e40", "#7a8a52", "#6a7a48"];
+
+/** Decide floor and foundation for a whole lot; cut a terrace when the lot is steep. */
+function prepareLot(p: Painter, s: HouseSpec): HouseSpec {
+  const relief = Math.max(...s.g) - Math.min(...s.g);
+  if (relief >= TERRACE_PX && s.kind !== "row" && s.kind !== "civic") {
+    const F = Math.round(gz(s, 0.5, 0.5) / 3) * 3;
+    terrace(p, s, [0.02, 0.02, 0.98, 0.98], F, YARD_TOP[s.v % 3]);
+    return { ...s, lift: F, fnd: 2 };
+  }
+  const hi = Math.max(...s.g), lo = Math.min(...s.g);
+  const lift = Math.round(hi / 3) * 3;
+  return { ...s, lift, fnd: lift - lo + 2 };
+}
+
 // ---------------------------------------------------------------- yard life
-function yard(p: Painter, s: HouseSpec, f: ReturnType<typeof frame>, a0: number, a1: number, d0: number, d1: number) {
+function yard(p0: Painter, s: HouseSpec, f: ReturnType<typeof frame>, a0: number, a1: number, d0: number, d1: number) {
   const r = (k: number) => rnd(s, 100 + k);
+  const p = lifted(p0, s.lift > 0 && Math.max(...s.g) - Math.min(...s.g) >= TERRACE_PX ? s.lift : 0);
   // fence along the yard's back/side
   if (s.style <= 3 && r(1) < 0.75) {
     const col = s.kind === "mansion" ? "#2a2a2e" : s.style === 2 && r(2) < 0.5 ? "#efe9da" : "#8a7656";
@@ -209,6 +270,14 @@ function yard(p: Painter, s: HouseSpec, f: ReturnType<typeof frame>, a0: number,
     shedRoof(p, box(p, u0, v0, u1, v1, 5, { wall: "#5a4a3c" }), 2, "#3a3430");
   }
   if (r(7) < 0.3) { const t = tree(r(8) < 0.5 ? "maple" : "oak", s.v); p.ctx.drawImage(t.canvas, ...offsetAt(p, t, f.rect(a0 + 0.25, a0 + 0.25, d1 - 0.15, d1 - 0.15))); }
+}
+
+/** A view of the painter with every point raised by z (yard items on a terrace). */
+function lifted(p: Painter, z: number): Painter {
+  if (!z) return p;
+  const q = Object.create(p) as Painter;
+  q.P = (u: number, v: number, zz = 0) => p.P(u, v, zz + z);
+  return q;
 }
 
 function offsetAt(p: Painter, t: Sprite, r: Rect): [number, number] {
@@ -261,8 +330,10 @@ function detachedHouse(p: Painter, s: HouseSpec, a0: number, a1: number, z0: num
   return b;
 }
 
-function houseSprite(s: HouseSpec): Sprite {
-  const p = new Painter(1, 150);
+function houseSprite(s0: HouseSpec): Sprite {
+  const p = new Painter(1, 190);
+  if (s0.kind === "row") return rowSprite(s0, p);
+  const s = prepareLot(p, s0);
   const f = frame(s);
   const z0 = s.lift, fnd = s.fnd;
   switch (s.kind) {
@@ -353,9 +424,8 @@ function houseSprite(s: HouseSpec): Sprite {
       yard(p, { ...s, v: s.v + 3 }, f, 0.05, 0.95, 0.56, 0.97);
       break;
     }
-    case "row": return rowSprite(s, p);
     case "shop": return shopSprite(s, p);
-    case "civic": return civicSprite(s);
+    case "civic": return civicSprite(s0);
   }
   return finish(p, s);
 }
@@ -371,55 +441,72 @@ function logCabin(p: Painter, s: HouseSpec, z0: number, fnd: number) {
   if (f.streetFace) facade(p, b, f.streetFace, { n: 2, stories: 1, storyH: 9, style: 0, door: 0, boarded: s.boarded });
 }
 
-/** Terrace: 4-5 attached units filling the tile edge to edge along the street. */
+/**
+ * Rowhouse terrace: 4-5 attached units filling the tile edge to edge along the street.
+ * On a hillside each unit steps down the slope on its own level, with stone foundations and
+ * retaining walls between the steps; back yards are cut into level terraces behind.
+ */
 function rowSprite(s: HouseSpec, p: Painter): Sprite {
   const f = frame(s);
   const st = s.style;
   const n = st >= 2 ? 4 : 5;
-  const units: number[] = [];
-  for (let k = 0; k < n; k++) units.push(k / n);
   const depth = 0.44;
   const back = f.backFace !== null;
-  // back yards first (they sit in front of the row when the street is behind)
-  yard(p, s, f, 0.02, 0.98, depth + 0.06, 0.98);
+  const relief = Math.max(...s.g) - Math.min(...s.g);
+  const steep = relief >= TERRACE_PX;
+  const q3 = (z: number) => Math.round(z / 3) * 3;
+  const unitFloor = (a0: number, a1: number) => {
+    const r = f.rect(a0, a1, 0.02, depth);
+    const cs = [gz(s, r[0], r[1]), gz(s, r[2], r[1]), gz(s, r[2], r[3]), gz(s, r[0], r[3])];
+    const fl = steep ? q3(gz(s, (r[0] + r[2]) / 2, (r[1] + r[3]) / 2)) : q3(Math.max(...cs));
+    return { fl, lo: Math.min(...cs), r };
+  };
+  const drawYard = () => {
+    const yr = f.rect(0.02, 0.98, depth + 0.04, 0.98);
+    let ys = s;
+    if (steep) {
+      const F = q3(gz(s, (yr[0] + yr[2]) / 2, (yr[1] + yr[3]) / 2));
+      terrace(p, s, yr, F, YARD_TOP[s.v % 3]);
+      ys = { ...s, lift: F };
+    }
+    yard(p, ys, f, 0.02, 0.98, depth + 0.06, 0.98);
+  };
+  // the yard is behind the row when the street is in front, in front of it when the street is behind
+  if (!back) drawYard();
   for (let k = 0; k < n; k++) {
-    const a0 = units[k], a1 = k + 1 < n ? units[k + 1] : 1;
+    const a0 = k / n, a1 = (k + 1) / n;
+    const { fl, lo, r } = unitFloor(a0, a1);
+    if (steep) terrace(p, s, f.rect(a0, a1, -0.01, depth + 0.03), fl, "#7a7064");
     const stories = Math.min(4, (st === 0 ? 2 : st === 1 ? 3 : st === 2 ? 3 : 2) + (rnd(s, 40 + k) < 0.2 ? 1 : 0) - (rnd(s, 50 + k) < 0.15 ? 1 : 0));
     const h = stories * 9 + 2;
     const brick = BRICK[Math.floor(rnd(s, 60 + k) * BRICK.length)];
     const wall = st === 2 && rnd(s, 70 + k) < 0.3 ? CLAP_BY_STYLE[2][(s.v + k) % 6] : brick;
-    const [u0, v0, u1, v1] = f.rect(a0, a1, 0.02, depth);
-    const b = box(p, u0, v0, u1, v1, h, { wall, z0: s.lift, foundation: s.fnd, fnd: "#8a8070" });
+    const b = box(p, r[0], r[1], r[2], r[3], h, { wall, z0: fl, foundation: Math.max(2, fl - lo + 2), fnd: "#8a8070" });
     const roof = ROOF[(s.v + k) % ROOF.length];
-    if (st === 0) { gable(p, b, f.ridge, 6, roof, undefined, k === n - 1); if (rnd(s, 80 + k) < 0.5) dormer(p, f, (a0 + a1) / 2, 0.15, s.lift + h + 1); }
-    else if (st === 1) { if (rnd(s, 81 + k) < 0.35) mansard(p, b, 6, "#4a5058", 0.04); else p.poly([b.A(s.lift + h), b.B(s.lift + h), b.C(s.lift + h), b.D(s.lift + h)], "#3a3432"); }
-    else p.poly([b.A(s.lift + h), b.B(s.lift + h), b.C(s.lift + h), b.D(s.lift + h)], "#3a3432");
+    const top = fl + h;
+    if (st === 0) { gable(p, b, f.ridge, 6, roof, undefined, steep || k === n - 1); if (rnd(s, 80 + k) < 0.5) dormer(p, f, (a0 + a1) / 2, 0.15, top + 1); }
+    else if (st === 1) { if (rnd(s, 81 + k) < 0.35) mansard(p, b, 6, "#4a5058", 0.04); else p.poly([b.A(top), b.B(top), b.C(top), b.D(top)], "#3a3432"); }
+    else p.poly([b.A(top), b.B(top), b.C(top), b.D(top)], "#3a3432");
     if (st >= 1 && f.streetFace) cornice(p, b, f.streetFace, st === 2 ? "#e0d8c4" : "#4a3a32");
-    { const m = (a0 + a1) / 2; const r = f.rect(m, m, 0.3, 0.3); chimney(p, r[0], r[1], s.lift + h, 5); }
-    const shop = s.corner && k === (s.front === "+" ? n - 1 : n - 1) && f.streetFace ? AWNING[s.v % 4] : null;
+    { const m = (a0 + a1) / 2; const rr = f.rect(m, m, 0.3, 0.3); chimney(p, rr[0], rr[1], top, 5); }
+    const shop = s.corner && k === n - 1 && f.streetFace ? AWNING[s.v % 4] : null;
     if (f.streetFace) {
       facade(p, b, f.streetFace, { n: 2, stories, storyH: 9, style: st, door: shop ? undefined : 0, boarded: s.boarded, shop, tall: st >= 1 });
-      if (!shop) stoop(p, f.pt(p, a0 + (a1 - a0) * 0.25, 0.0, 0), s.lift + 2);
-      // bay windows (late Victorian)
-      if (st === 2 && rnd(s, 90 + k) < 0.7) {
-        const bay = box(p, ...f.rect(a0 + (a1 - a0) * 0.45, a0 + (a1 - a0) * 0.9, -0.05, 0.02), 16, { wall, z0: s.lift + 6 });
-        void bay;
-      }
-      // interwar front porches
+      if (!shop) stoop(p, f.pt(p, a0 + (a1 - a0) * 0.25, 0.0, Math.min(fl, gz(s, ...(f.rect(a0, a0, 0, 0).slice(0, 2) as [number, number])))), Math.max(2, fl - lo + 2));
+      if (st === 2 && rnd(s, 90 + k) < 0.7) box(p, ...f.rect(a0 + (a1 - a0) * 0.45, a0 + (a1 - a0) * 0.9, -0.05, 0.02), 16, { wall, z0: fl + 6 });
       if (st === 3) {
-        const pr = box(p, ...f.rect(a0 + 0.01, a1 - 0.01, -0.08, 0.02), 8, { wall: "#c8c0b0", top: shade(roof, 1.15), z0: s.lift });
-        for (const t of [0.1, 0.9]) { const [x, y] = lerp(pr.D(s.lift), pr.C(s.lift), t); p.px(x, y - 8, "#e8e0d0", 1, 8); }
+        const pr = box(p, ...f.rect(a0 + 0.01, a1 - 0.01, -0.08, 0.02), 8, { wall: "#c8c0b0", top: shade(roof, 1.15), z0: fl });
+        for (const t of [0.1, 0.9]) { const [x, y] = lerp(pr.D(fl), pr.C(fl), t); p.px(x, y - 8, "#e8e0d0", 1, 8); }
       }
     } else if (back) {
       facade(p, b, f.backFace!, { n: 2, stories, storyH: 9, style: st, boarded: s.boarded });
-      // back kitchen ell and wooden back porch
-      const ell = box(p, ...f.rect(a0 + 0.02, a0 + (a1 - a0) * 0.55, depth, depth + 0.12), 9, { wall: shade(brick, 0.95), z0: s.lift, foundation: s.fnd });
+      const ell = box(p, ...f.rect(a0 + 0.02, a0 + (a1 - a0) * 0.55, depth, depth + 0.12), 9, { wall: shade(brick, 0.95), z0: fl, foundation: Math.max(2, fl - lo + 2) });
       shedRoof(p, ell, 2, "#3e3a38");
     }
-    if (k === n - 1 || rnd(s, 95 + k) < 0.3) facade(p, b, f.sideFace, { n: 1, stories, storyH: 9, style: st, boarded: s.boarded });
+    if (k === n - 1 || steep || rnd(s, 95 + k) < 0.3) facade(p, b, f.sideFace, { n: 1, stories, storyH: 9, style: st, boarded: s.boarded });
   }
-  // gas lamp at the kerb
-  if (f.streetFace && st <= 2) { const q = f.pt(p, 0.02, -0.02, 0); p.px(q[0], q[1] - 9, "#2a2a2a", 1, 9); p.px(q[0] - 1, q[1] - 11, "#e8d080", 3, 2); }
+  if (back) drawYard();
+  if (f.streetFace && st <= 2) { const q = f.pt(p, 0.02, -0.02, gz(s, 0.02, 0.98)); p.px(q[0], q[1] - 9, "#2a2a2a", 1, 9); p.px(q[0] - 1, q[1] - 11, "#e8d080", 3, 2); }
   return finish(p, s);
 }
 
@@ -497,8 +584,10 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
   return finish(p, s);
 }
 
-function civicSprite(s: HouseSpec): Sprite {
-  const p = new Painter(1, 190);
+function civicSprite(s0: HouseSpec): Sprite {
+  const p = new Painter(1, 210);
+  const s = prepareLot(p, { ...s0, kind: "shop" });
+  s.kind = "civic";
   const f = frame(s);
   const z0 = s.lift;
   const face = f.streetFace ?? f.backFace!;

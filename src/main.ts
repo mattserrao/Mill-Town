@@ -1,4 +1,4 @@
-import { advanceTurn, cal, foundCompany, fundLibrary, LIBRARY_COST, newGame, totalPopulation, type GameState } from "./core/game";
+import { advanceTurn, buildIncline, buildSteps, cal, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles } from "./core/site";
@@ -208,7 +208,8 @@ function inspect() {
     creek ? row("Creek", creek) : "",
     rail ? row("Rail", `${rail.name} (${rail.year})`, rail.year > w.year ? "bad" : "") : "",
     bridge ? row("Bridge", `${bridge.name} (${bridge.year})`, bridge.year > w.year ? "bad" : "") : "",
-    w.street[i] ? row("Street", ["", "Lane", "Pike", "Bridge"][w.street[i]]) : "",
+    w.street[i] ? row("Street", ["", "Lane", "Pike", "Bridge", "Public steps"][w.street[i]]) : "",
+    game.company && game.access ? row("Walk to works", isFinite(walkMinutes(game, i)) ? `${walkMinutes(game, i).toFixed(0)} min (${Math.round(commuteWeight(walkMinutes(game, i)) * 100)}% take the job)` : "over an hour") : "",
     row("Coal", ["None", "Seam underground", "Seam outcrop"][map.coal[i]]),
     row("Land use", struct ? struct[0].toUpperCase() + struct.slice(1) : SUB_NAMES[w.use[i]]?.[w.sub[i]] ?? USE_NAMES[w.use[i]]),
     w.built[i] ? row("Built", String(w.built[i])) : "",
@@ -263,6 +264,10 @@ function companyPanel() {
   const lib = $<HTMLButtonElement>("library");
   lib.disabled = c.library || cal(game).year < 1880 || c.cash < LIBRARY_COST;
   lib.textContent = c.library ? "Library funded" : `Fund a library ($${fmt(LIBRARY_COST)})`;
+  ($<HTMLButtonElement>("steps")).disabled = c.cash < STEPS_COST;
+  const inc = $<HTMLButtonElement>("incline");
+  inc.disabled = c.cash < INCLINE_COST || cal(game).year < 1870;
+  inc.title = cal(game).year < 1870 ? "Inclines arrive in 1870" : "Build an incline from a street near the works up to the hilltop houses";
 }
 
 // ---------------------------------------------------------------- UI wiring
@@ -282,6 +287,11 @@ function setupUI() {
   industryNote();
   $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
+  for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline]] as const) $(id).addEventListener("click", () => {
+    const r = fn(game);
+    if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
+    afterChange();
+  });
   $("library").addEventListener("click", () => {
     const r = fundLibrary(game);
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
@@ -401,6 +411,8 @@ Object.assign(window, {
     next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterChange(); },
     found: (x: number, y: number, id: IndustryId = industry) => { const r = foundCompany(game, id, x, y); renderer.updateHeights(); afterChange(); return r; },
     library: () => { const r = fundLibrary(game); afterChange(); return r; },
+    steps: () => { const r = buildSteps(game); afterChange(); return r; },
+    incline: () => { const r = buildIncline(game); afterChange(); return r; },
     tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
     tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
     get pending() { return renderer.pending; },

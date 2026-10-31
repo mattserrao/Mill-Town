@@ -403,7 +403,8 @@ export class Renderer {
           if (tx === W - 1) sk(Bx, By, Rx, Ry, hB, hR, 0.68);
         }
 
-        for (const sp of this.tileSprites(g, tx, ty, i)) blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
+        // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
+        for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
       }
     }
 
@@ -561,7 +562,7 @@ export class Renderer {
 
     // linear features
     const incline = use === Use.Incline ? mask((j) => w.use[j] === Use.Incline) : -1;
-    const stairs = w.street[i] > 0 && m.slope[i] >= 16;
+    const stairs = w.street[i] === Street.Steps || (w.street[i] > 0 && m.slope[i] >= 24);
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
     const streetW = w.street[i] === Street.Pike ? 0.17 : dense ? 0.26 : 0.14;
@@ -590,10 +591,12 @@ export class Renderer {
         }
       }
       if (w.street[i] && stairs) {
-        // Pittsburgh city steps: wooden stairs with a handrail climbing the hillside
+        // Pittsburgh city steps: concrete or timber treads with landings and pipe handrails
         const [ds, along] = lineDist(streetMask, u, v);
-        if (ds < 0.1) c = (Math.floor(along / 0.035) & 1) ? 0x8a7a5e : 0x6a5a44;
-        else if (Math.abs(ds - 0.12) < pxu) c = 0x3a3028;
+        const landing = (Math.floor(along / 0.25) & 1) === 1 && (along % 0.25) < 0.06;
+        const wood = w.year < 1910;
+        if (ds < 0.09) c = landing ? (wood ? 0x9a8a6a : 0xb0aca4) : (Math.floor(along / 0.03) & 1) ? (wood ? 0x8a7a5e : 0xa8a49c) : (wood ? 0x5e4e3a : 0x6e6a64);
+        else if (Math.abs(ds - 0.11) < pxu * 1.2) c = wood ? 0x3a3028 : 0x4a5a6a;
       } else if (w.street[i]) {
         const [ds] = lineDist(streetMask, u, v);
         if (ds < streetW) {
@@ -635,15 +638,13 @@ export class Renderer {
     const corner = (st(0, 1) || st(0, -1)) && (st(1, 0) || st(-1, 0)) ? 1 : 0;
     const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
     const hc = (hT + hR + hL + hB) / 4;
-    const hmax = Math.max(hT, hR, hL, hB), hmin = Math.min(hT, hR, hL, hB);
-    const q = (px: number, cap: number) => Math.min(cap, Math.round(px / 3) * 3);
-    const lift = q((hmax - hc) * ZPX, 24);
-    const fnd = q(lift + (hc - hmin) * ZPX + 2, 42);
+    const q = (h: number) => Math.max(-60, Math.min(60, Math.round(((h - hc) * ZPX) / 3) * 3));
+    const ground: [number, number, number, number] = [q(hT), q(hR), q(hB), q(hL)];
     const pol = w.pollution[i];
     const soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
     const housing = kind !== "civic" && kind !== "shop";
     const boarded = housing && w.pop[i] === 0 && kind !== "mansion" ? 1 : 0;
-    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), lift, fnd, soot, boarded });
+    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded });
   }
 
   private denseStreet(g: GameState, x: number, y: number) {
@@ -714,7 +715,7 @@ export class Renderer {
         let nb = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if ((dx || dy) && nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.use[ny * W + nx] === Use.Incline && w.sub[ny * W + nx] === sub) nb++; }
         if (nb <= 1) out.push({ key: "incline:station", u: 0.5, v: 0.5 });
-        else if (n(13) < 0.3) out.push({ key: "incline:car", u: 0.5, v: 0.5 });
+        else if (nb === 2 && n(13) < 0.07) out.push({ key: "incline:car", u: 0.5, v: 0.5 });
         break;
       }
       case Use.Landmark: {
