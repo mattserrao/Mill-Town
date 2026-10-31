@@ -890,7 +890,7 @@ export class Renderer {
           if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
           const j = ny * W + nx;
           const pl = Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? this.plants.get(j) : undefined;
-          if (pl?.t.ground === "dock") { dock = true; dockInd = pl.c.ind; }
+          if (pl?.t.ground === "dock" && pl.c.status !== "idle") { dock = true; dockInd = pl.c.ind; } // a closed works' dock is empty
           if (m.special[j] === Special.Wharf) nearWharf = true;
         }
         const axis = riverAxis(m, x, y);
@@ -899,7 +899,8 @@ export class Renderer {
         const cargo = dockInd === "steel" ? (r < 0.5 ? 0 : r < 0.85 ? 1 : 2) : dockInd === "glass" ? (r < 0.3 ? 0 : 2) : dockInd === "power" ? 0 : dockInd ? (r < 0.6 ? 0 : 2) : r < 0.75 ? 0 : r < 0.9 ? 1 : 2;
         if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         else if ((x + 2 * y) % 5 === 0) {
-          if (nearWharf && n(20) < 0.3) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 });
+          // packets at the wharves until the railroads and the Depression end them (~1930); then a moored towboat now and then
+          if (nearWharf && n(20) < 0.3) { if (w.year < 1930) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 }); else if (n(23) < 0.35) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 }); }
           else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         }
       }

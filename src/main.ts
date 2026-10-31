@@ -9,6 +9,7 @@ import { ANCHORS, anchorAt, GROUPS } from "./core/ancestry";
 import { type Camera, pickTile, project, ZOOMS } from "./render/iso";
 import { Renderer } from "./render/renderer";
 import { Traffic } from "./render/traffic";
+import { drawHaze, drawSpills } from "./render/pollution";
 import { SoundController, summarizeView } from "./audio";
 import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
@@ -215,13 +216,13 @@ function requestRender() {
     lastNight = night;
     const anim = ($<HTMLInputElement>("animate")).checked;
     const ovOn = overlay !== "none" && !isVectorOverlay(overlay);
-    if (anim && !ovOn && cam.zoom >= 0.1875) traffic.drawSpills(ctx, game, cam, t, night);
+    if (anim && !ovOn && cam.zoom >= 0.1875) drawSpills(ctx, game, cam, t, night);
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
     if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t);
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
-    if (!ovOn) traffic.drawHaze(ctx, game, cam, canvas.width, canvas.height);
+    if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
     if (overlay === "supply") {
