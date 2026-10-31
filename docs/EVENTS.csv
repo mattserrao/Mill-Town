@@ -1,94 +1,405 @@
-Year,Season,Event Name,Description
-1850,Spring,A City Rebuilt,"Five years after the Great Fire of 1845 burned a third of Pittsburgh, the rebuilt brick city of 46,000 smokes with glassworks, rolling mills, foundries and boatyards. Choose your industry and where to found your works."
-1850,Summer,Famine Irish and German Forty-Eighters,"Irish refugees from the Great Famine and Germans fleeing the failed revolutions of 1848 arrive by canal and river, settling in the Point, Lawrenceville and Allegheny City."
-1851,Summer,Ohio & Pennsylvania Railroad Arrives,"The first railroad reaches Allegheny City from the west, beginning the end of the canal era."
-1852,Winter,Pennsylvania Railroad Reaches Pittsburgh,"The Pennsylvania Railroad opens its line over the mountains. Philadelphia is now hours, not days, away; the canal and the Conestoga wagon fade."
-1854,Summer,Cholera Epidemic,Cholera sweeps the crowded riverfront wards. Hundreds die; families flee to the hills.
-1857,Autumn,Panic of 1857,A financial panic spreads from New York. Iron prices collapse and mills bank their furnaces.
-1859,Summer,Oil Struck at Titusville,Edwin Drake strikes oil up the Allegheny. Refineries spring up along Pittsburgh's riverbanks and barges of crude crowd the wharves.
-1860,Winter,Lincoln Passes Through,President-elect Lincoln speaks at the Monongahela House on his way to Washington.
-1861,Spring,Civil War Begins,The Union calls for men and guns. The Fort Pitt Foundry casts great Rodman cannon; every mill runs night and day.
-1862,Autumn,Allegheny Arsenal Explosion,"An explosion tears through the Allegheny Arsenal's cartridge laboratory in Lawrenceville, killing 78 workers, most of them young women."
-1863,Summer,Defences Thrown Up on the Hills,"As Lee's army invades Pennsylvania, thousands of workers dig earthworks on the hills around the city. The rebels turn back at Gettysburg."
-1865,Spring,The War Ends,"Peace returns. War contracts end, but railroads and cities across the country need iron as never before."
-1867,Summer,Allegheny Commons Laid Out,Allegheny City turns its old common pasture into a landscaped public park.
-1867,Winter,Hell with the Lid Off,A visiting writer describes the smoky valley at night as 'hell with the lid off'. The name sticks.
-1868,Summer,The City Annexes the East End,"Pittsburgh annexes Lawrenceville, Oakland, East Liberty and the farms beyond, tripling its area."
-1870,Spring,The Monongahela Incline Opens,The first passenger incline lifts workers up Coal Hill to the new streets of Mt. Washington.
-1871,Winter,The South Side Joins the City,Birmingham and the other South Side boroughs are annexed to Pittsburgh.
-1873,Autumn,Panic of 1873,The collapse of Jay Cooke's bank starts the Long Depression. Orders vanish; wages are cut across the valley.
-1875,Autumn,First Rail at Edgar Thomson,Andrew Carnegie's Edgar Thomson Works at Braddock rolls its first Bessemer steel rail. A new age of steel begins.
-1877,Summer,Great Railroad Strike,Railroad workers strike against wage cuts. Militia fire on a crowd at 28th Street; the crowd burns the Pennsylvania Railroad's roundhouse and hundreds of cars.
-1880,Spring,New Immigrants from Eastern Europe,"Slovak, Hungarian, Polish and Rusyn labourers begin arriving for mill jobs, recruited by agents and letters home."
-1881,Spring,Homestead Works Opens,The Pittsburgh Bessemer Steel Company opens a works on the Homestead flats. Carnegie buys it two years later.
-1883,Spring,St. Anthony's Chapel,"Father Mollinger completes St. Anthony's Chapel on Troy Hill, with thousands of relics. Pilgrims arrive by the trainload."
-1883,Summer,The New Smithfield Street Bridge,Gustav Lindenthal's lenticular truss bridge replaces Roebling's suspension span over the Monongahela.
-1884,Spring,Natural Gas Boom,Natural gas is piped into Pittsburgh's mills and homes. For a few years the smoke thins and the sky turns blue.
-1885,Winter,Westinghouse Electric Founded,George Westinghouse founds his electric company to sell alternating current. The battle of the currents begins.
-1888,Autumn,New Allegheny County Courthouse,H. H. Richardson's massive stone courthouse and jail open on Grant's Hill.
-1889,Spring,Johnstown Flood,"The South Fork Dam, owned by a club of Pittsburgh industrialists, fails upriver. More than 2,200 die in Johnstown; relief trains leave from Pittsburgh."
-1889,Autumn,Schenley Park Given to the City,Mary Schenley gives 300 acres of land in Oakland for a great public park.
-1889,Winter,First Carnegie Library,"The Carnegie Free Library of Allegheny opens, the first of the libraries Andrew Carnegie will give to American towns."
-1892,Summer,Battle of Homestead,Locked-out steelworkers fight Pinkerton guards landing from barges at the Homestead Works. Seven workers and three Pinkertons die; the state militia occupies the town and the union is broken.
-1892,Summer,Attempt on Frick,Anarchist Alexander Berkman shoots and stabs Henry Clay Frick in his office downtown. Frick survives and returns to work within a week.
-1893,Summer,Panic of 1893,Banks and railroads fail across the country. Mills close; soup kitchens open in the mill towns.
-1895,Autumn,Carnegie Institute Opens,"Carnegie's library, music hall and museum open in Oakland."
-1896,Spring,Union Railroad Opens,"Carnegie's Union Railroad links his works along the Monongahela, moving hot metal and ore between mills."
-1901,Spring,U.S. Steel Formed,"J. P. Morgan buys Carnegie Steel for $480 million and forms the United States Steel Corporation, the first billion-dollar company. Dozens of Pittsburgh men become millionaires overnight."
-1903,Autumn,The First World Series,The Pittsburgh Pirates play Boston in the first modern World Series. Boston wins.
-1907,Spring,St. Patrick's Day Flood,The rivers rise to 36 feet. Downtown streets and the riverfront mills are under water for days.
-1907,Autumn,Panic of 1907,A run on the banks spreads from New York. Orders are cancelled and furnaces banked.
-1907,Winter,Allegheny City Annexed,"After a long legal fight, the city of Allegheny is annexed to Pittsburgh and becomes the North Side."
-1908,Spring,The Pittsburgh Survey,"Social investigators document twelve-hour shifts, seven-day weeks, industrial deaths and typhoid in the mill districts."
-1908,Winter,Clean Water at Last,"The city's sand filtration plant opens. Typhoid deaths, once the worst in the nation, fall sharply."
-1909,Summer,Pressed Steel Car Strike,Immigrant workers at McKees Rocks strike against the 'pool' pay system. State troopers and strikebreakers clash with strikers; a dozen die.
-1909,Summer,Forbes Field Opens,The Pirates open their steel-and-concrete ballpark in Oakland.
-1909,Autumn,Pirates Win the World Series,Honus Wagner and the Pirates beat Ty Cobb's Detroit Tigers.
-1912,Summer,The Hump Cut,Downtown's Grant's Hill is lowered by fourteen feet to level the streets around the courthouse.
-1914,Summer,War in Europe,War breaks out in Europe. Immigration stops almost overnight while orders for steel and shells pour in.
-1916,Spring,The Great Migration Begins,"Black families from the South arrive for mill jobs left open by the war, settling in the Hill District, Homestead and Beltzhoover."
-1917,Spring,America Enters the War,The United States declares war on Germany. The mills run at full capacity; German street names are changed.
-1918,Autumn,Influenza,"The influenza pandemic hits Pittsburgh harder than almost any American city. Schools, churches and saloons close."
-1918,Autumn,Armistice,The war ends on November 11. Steel orders fall away.
-1919,Autumn,Great Steel Strike,"Some 350,000 steelworkers walk out nationwide demanding union recognition and the eight-hour day. Strikers are arrested and meetings banned; the strike collapses by January."
-1919,Winter,Prohibition,The saloons close. Speakeasies open in back rooms in every neighbourhood.
-1920,Autumn,KDKA Goes on the Air,"Westinghouse's KDKA in East Pittsburgh makes the first commercial radio broadcast, reporting the Harding-Cox election returns."
-1921,Spring,Immigration Restricted,Congress passes emergency immigration quotas. The great waves from Southern and Eastern Europe come to an end.
-1923,Summer,Eight-Hour Day,"Under public pressure, U.S. Steel ends the twelve-hour shift."
-1924,Spring,National Origins Act,Permanent quotas all but close immigration from Southern and Eastern Europe. The mill towns' ethnic neighbourhoods stop growing from abroad.
-1926,Summer,Cathedral of Learning Begun,The University of Pittsburgh starts building its 42-storey Gothic skyscraper in Oakland.
-1928,Summer,The Three Sisters,"Three matching self-anchored suspension bridges open over the Allegheny at Sixth, Seventh and Ninth Streets."
-1929,Autumn,The Crash,The stock market collapses. By 1932 the mills run at a fifth of capacity.
-1931,Winter,Father Cox's Army,"Father James Cox of Old St. Patrick's leads 25,000 unemployed Pittsburghers to Washington to demand relief."
-1933,Winter,Repeal,Prohibition ends. The saloons and clubs reopen legally.
-1936,Spring,St. Patrick's Day Flood,"The worst flood in the city's history crests at 46 feet. Downtown is under water to the second floor, the mills stand idle and power fails for days."
-1936,Summer,Steel Workers Organizing Committee,Philip Murray's SWOC opens offices in the mill towns and signs up workers in secret.
-1937,Spring,Big Steel Signs,U.S. Steel recognises the union without a strike. Two months later Jones & Laughlin's men strike and win too.
-1939,Autumn,War in Europe Again,War breaks out in Europe. Orders for steel climb.
-1941,Winter,Pearl Harbor,America enters the war. The valley becomes the arsenal of democracy; Dravo builds landing ships on Neville Island.
-1942,Spring,United Steelworkers of America,SWOC becomes the United Steelworkers of America.
-1943,Spring,Allegheny Conference Formed,Business and civic leaders under Richard King Mellon form a council to clean up the smoke and rebuild downtown.
-1945,Summer,Victory,The war ends. Workers and veterans want higher wages and better homes.
-1945,Winter,Postwar Steel Strike,Three-quarters of a million steelworkers strike nationwide for higher wages.
-1946,Autumn,Smoke Control Enforced,The city's smoke ordinance takes effect for homes and mills. Coal gives way to natural gas and the skies begin to clear.
-1948,Autumn,Donora Smog,"A temperature inversion traps smoke from the zinc works in Donora, up the Monongahela. Twenty die; thousands fall ill."
-1950,Spring,Renaissance I,The old warehouse district at the Point is cleared for Gateway Center and Point State Park.
-1952,Spring,Truman Seizes the Mills,President Truman seizes the steel industry to prevent a wartime strike. The Supreme Court overturns the seizure and the men walk out.
-1956,Summer,Lower Hill Cleared,"Bulldozers clear the Lower Hill District for a civic arena, displacing 8,000 residents and hundreds of businesses."
-1957,Winter,Shippingport Atomic Power,The first full-scale nuclear power plant in America begins sending power to Pittsburgh.
-1959,Summer,116-Day Strike,The longest steel strike in history. Customers turn to imported steel and many never come back.
-1960,Autumn,Mazeroski's Home Run,Bill Mazeroski's ninth-inning home run wins the World Series for the Pirates over the Yankees.
-1961,Autumn,Civic Arena Opens,The domed arena with its retractable stainless-steel roof opens in the cleared Lower Hill.
-1968,Spring,The Hill Burns,"After the murder of Martin Luther King, Jr., unrest breaks out in the Hill District and Homewood."
-1970,Summer,Three Rivers Stadium,The Pirates and Steelers move to a new stadium on the North Side.
-1971,Autumn,Pirates Win Again,Roberto Clemente leads the Pirates to a World Series title.
-1972,Winter,The Immaculate Reception,Franco Harris's last-second catch gives the Steelers their first playoff win.
-1973,Autumn,Oil Crisis,"The Arab oil embargo sends energy prices soaring. Detroit's car sales, and its steel orders, fall."
-1974,Summer,Point State Park Fountain,"The fountain at the Point is turned on, completing the park where Fort Pitt stood."
-1974,Winter,Super Bowl Champions,The Steelers win their first Super Bowl.
-1979,Autumn,City of Champions,The Pirates win the World Series and the Steelers will win a fourth Super Bowl in January.
-1979,Autumn,Closures Announced,"U.S. Steel announces the shutdown of plants across the country. Imports, old open hearths and lost markets catch up with the valley."
-1981,Summer,The Bottom Falls Out,Steel demand collapses in a deep recession. Layoffs spread through every mill town.
-1982,Winter,Mon Valley Unemployment Peaks,Nearly one in five workers in the Monongahela Valley is out of work. Food banks open in union halls.
-1984,Spring,Duquesne Works Closes,U.S. Steel shuts the Duquesne Works. A campaign to save its giant 'Dorothy Six' blast furnace fails.
-1985,Summer,The Mills Go Quiet,Jones & Laughlin's Pittsburgh works and most of the Homestead Works have closed. The steel era is ending; what the valley does next is up to those who remain.
+Year,Season,Event Name,Description,Category
+1850,Spring,A City Rebuilt,"Five years after the Great Fire of 1845 burned a third of Pittsburgh, the rebuilt brick city of 46,000 smokes with glassworks, rolling mills, foundries and boatyards. Choose your industry and where to found your works.",Industry
+1850,Summer,Famine Irish and German Forty-Eighters,"Irish refugees from the Great Famine and Germans fleeing the failed revolutions of 1848 arrive by canal and river, settling in the Point, Lawrenceville and Allegheny City.",Society
+1850,Autumn,Fugitive Slave Act Panic,"Congress passes the Fugitive Slave Act. Pittsburgh's Black community meets in protest, Martin Delany vows resistance, and hundreds flee to Canada within weeks.",Politics
+1851,Spring,McKeesport's First Mill,"McKeesport, a coal-mining village since 1830, gets its first iron and steel mill.",Industry
+1851,Summer,Ohio & Pennsylvania Railroad Arrives,"The first railroad reaches Allegheny City from the west, beginning the end of the canal era.",Infrastructure
+1852,Spring,American Iron Company Founded,Bernard Lauth and B.F. Jones found the American Iron Company on the Monongahela south of the city: the seed of Jones & Laughlin.,Industry
+1852,Winter,Pennsylvania Railroad Reaches Pittsburgh,"The Pennsylvania Railroad opens its line over the mountains. Philadelphia is now hours, not days, away; the canal and the Conestoga wagon fade.",Infrastructure
+1853,Spring,Western Pennsylvania Hospital Opens,"The city's first chartered public hospital opens a four-story, 120-patient building in the 12th Ward.",Health
+1854,Summer,Cholera Epidemic,Cholera sweeps the crowded riverfront wards. Hundreds die; families flee to the hills.,Health
+1854,Summer,Laughlin Buys In,Banker James Laughlin buys out Lauth's share of the American Iron Company. Its American Mine opens to feed the furnaces with coal.,Industry
+1854,Autumn,Western University Rebuilds,"Twice burned out, Western University finishes a 16-room brick building at Ross and Diamond Streets. Classes resume the next year.",Universities
+1855,Autumn,Central High School Opens,"Pittsburgh opens Central High School, one of the region's first public high schools.",Society
+1855,Winter,Republicans Organize at Lafayette Hall,"Anti-slavery delegates meet in Pittsburgh, form the first Republican National Committee, and call the convention that will nominate Frémont.",Politics
+1857,Summer,State Sells the Main Line,Pennsylvania sells its canal and portage railroad to the Pennsylvania Railroad for $7.5 million. Within a year the Philadelphia route is all-rail.,Infrastructure
+1857,Autumn,Panic of 1857,A financial panic spreads from New York. Iron prices collapse and mills bank their furnaces.,Economy
+1858,Spring,Sons of Vulcan Founded,"Iron puddlers found the Sons of Vulcan at a Diamond Street hotel bar, with Miles Humphreys as Grand Master. It becomes one of the era's strongest unions.",Labor
+1859,Summer,Oil Struck at Titusville,Edwin Drake strikes oil up the Allegheny. Refineries spring up along Pittsburgh's riverbanks and barges of crude crowd the wharves.,Industry
+1860,Winter,Lincoln Passes Through,President-elect Lincoln speaks at the Monongahela House on his way to Washington.,Politics
+1860,Winter,Citizens Stop the Cannon,"The Secretary of War orders heavy guns shipped from the Allegheny Arsenal to Southern forts. A mass meeting blocks the shipment, and the order is countermanded.",Politics
+1861,Spring,Civil War Begins,The Union calls for men and guns. The Fort Pitt Foundry casts great Rodman cannon; every mill runs night and day.,Politics
+1861,Spring,Jones & Laughlin Named,"The first firm bearing the Jones and Laughlin name is organized, headquartered at Third and Ross downtown.",Industry
+1862,Summer,Dixmont Asylum; West Penn Goes to War,Western Pennsylvania's first mental hospital opens at Dixmont. The Army takes over West Penn Hospital as a military hospital for three years.,Health
+1862,Autumn,Allegheny Arsenal Explosion,"An explosion tears through the Allegheny Arsenal's cartridge laboratory in Lawrenceville, killing 78 workers, most of them young women.",Disaster
+1863,Summer,Defences Thrown Up on the Hills,"As Lee's army invades Pennsylvania, thousands of workers dig earthworks on the hills around the city. The rebels turn back at Gettysburg.",Politics
+1864,Winter,Iron Wages Tied to Iron Prices,"Ending an eight-month strike, ironmasters sign the Vulcans' first contract: a sliding scale linking puddlers' pay to the price of bar iron.",Labor
+1865,Spring,The War Ends,"Peace returns. War contracts end, but railroads and cities across the country need iron as never before.",Politics
+1865,Spring,Coal and Iron Police Authorized,"The state lets railroads commission private police. A year later the power extends to coal and iron companies, at $1 per commission.",Politics
+1865,Summer,Observatory Given to the University,The Allegheny Observatory passes to Western University. Samuel Langley becomes director two years later.,Universities
+1867,Summer,Allegheny Commons Laid Out,Allegheny City turns its old common pasture into a landscaped public park.,Parks
+1867,Summer,Vulcan Locals Collapse,Failed strikes break 11 Sons of Vulcan locals this year and 16 more the next.,Labor
+1867,Winter,Hell with the Lid Off,A visiting writer describes the smoky valley at night as 'hell with the lid off'. The name sticks.,Society
+1868,Summer,The City Annexes the East End,"Pittsburgh annexes Lawrenceville, Oakland, East Liberty and the farms beyond, tripling its area.",Politics
+1869,Spring,Westinghouse Patents the Air Brake,Young George Westinghouse receives his patent for a railroad air brake.,Industry
+1869,Spring,Heinz Bottles Horseradish,"Henry J. Heinz and L.C. Noble form Heinz, Noble & Company in Sharpsburg to sell bottled horseradish.",Industry
+1869,Autumn,Westinghouse Air Brake Company,The Westinghouse Air Brake Company is incorporated and starts production in Pittsburgh the next year.,Industry
+1869,Autumn,Pennsylvania Female College Founded,"A college for women, the future Chatham, is founded in Pittsburgh.",Universities
+1870,Spring,The Monongahela Incline Opens,The first passenger incline lifts workers up Coal Hill to the new streets of Mt. Washington.,Infrastructure
+1870,Spring,Black Men Regain the Vote,"The Fifteenth Amendment is ratified. Black Pennsylvanians, disfranchised since 1838, can vote again.",Politics
+1871,Spring,Saturday Half-Holiday,Westinghouse Air Brake becomes one of the first American firms to give workers a Saturday half-day.,Labor
+1871,Summer,Frick Coke Company,"Henry Clay Frick, 21, joins two cousins and a friend to turn Connellsville coal into coke.",Industry
+1871,Winter,The South Side Joins the City,Birmingham and the other South Side boroughs are annexed to Pittsburgh.,Politics
+1872,Spring,Edgar Thomson Works Begun,"Carnegie breaks ground for a Bessemer steel works at Braddock's Field, named for the Pennsylvania Railroad's president.",Industry
+1872,Summer,"National Tube Works, McKeesport",The Flagler brothers of Boston open a pipe works at McKeesport. It becomes the fastest-growing town in the nation.,Industry
+1873,Autumn,Panic of 1873,The collapse of Jay Cooke's bank starts the Long Depression. Orders vanish; wages are cut across the valley.,Economy
+1875,Autumn,First Rail at Edgar Thomson,Andrew Carnegie's Edgar Thomson Works at Braddock rolls its first Bessemer steel rail. A new age of steel begins.,Industry
+1875,Winter,Heinz Goes Bust,The Long Depression sinks young H.J. Heinz's business. He restarts as F & J Heinz and adds ketchup.,Economy
+1876,Summer,Amalgamated Association Founded,"At Emerald Hall, Pittsburgh, the Vulcans, Heaters and Roll Hands merge into the Amalgamated Association of Iron and Steel Workers.",Labor
+1877,Spring,Duquesne Incline Opens,Samuel Diescher's incline begins hauling riders up Mount Washington at a grade of up to 30 degrees.,Infrastructure
+1877,Summer,Great Railroad Strike,Railroad workers strike against wage cuts. Militia fire on a crowd at 28th Street; the crowd burns the Pennsylvania Railroad's roundhouse and hundreds of cars.,Labor
+1878,Autumn,Pittsburgh Catholic College Founded,Catholic Holy Ghost Fathers found the college that becomes Duquesne University.,Universities
+1878,Winter,Pittsburgh & Lake Erie Completed,Last rails are laid to Youngstown. The P&LE is the only major line free of the Pennsylvania Railroad and is an immediate success.,Infrastructure
+1880,Spring,New Immigrants from Eastern Europe,"Slovak, Hungarian, Polish and Rusyn labourers begin arriving for mill jobs, recruited by agents and letters home.",Society
+1880,Spring,Mellon Money Backs Frick,"With loans from the Mellon bank, Frick buys out his partners and forms H.C. Frick & Company.",Economy
+1880,Summer,City's First Electric Company,"The Allegheny County Light Company is founded with $90,000 to sell electric light.",Industry
+1880,Autumn,The Magee–Flinn Ring,Republican Christopher Magee runs the votes while contractor William Flinn takes the paving and sewer contracts. Their machine will rule the city for two decades.,Politics
+1881,Spring,Homestead Works Opens,The Pittsburgh Bessemer Steel Company opens a works on the Homestead flats. Carnegie buys it two years later.,Industry
+1881,Spring,Air Brake Moves to Allegheny,Westinghouse Air Brake moves to a bigger plant in Allegheny City. Within ten years it builds a company town at Wilmerding.,Industry
+1881,Summer,Union Switch & Signal,Westinghouse founds Union Switch & Signal at Swissvale to build railroad signals.,Industry
+1881,Winter,Frick Meets Carnegie,"The Coke King meets Andrew Carnegie in New York. Their partnership forms the next year, joining coke to steel.",Economy
+1882,Spring,Courthouse Fire Moves the University,"After the courthouse burns, Western University sells its downtown buildings to Allegheny County and moves out.",Universities
+1883,Spring,St. Anthony's Chapel,"Father Mollinger completes St. Anthony's Chapel on Troy Hill, with thousands of relics. Pilgrims arrive by the trainload.",Society
+1883,Summer,The New Smithfield Street Bridge,Gustav Lindenthal's lenticular truss bridge replaces Roebling's suspension span over the Monongahela.,Infrastructure
+1883,Summer,Pittsburgh Plate Glass Founded,"John B. Ford and John Pitcairn found Pittsburgh Plate Glass, with its first works at Creighton on the Allegheny.",Industry
+1883,Autumn,The Pittsburgh Proclamation,"Anarchists meet in Pittsburgh, found the International Working People's Association, and reject reform through the ballot.",Politics
+1883,Winter,February Flood,"The rivers rise high in February, flooding wharves and riverfront mills.",Disaster
+1884,Spring,Natural Gas Boom,Natural gas is piped into Pittsburgh's mills and homes. For a few years the smoke thins and the sky turns blue.,Industry
+1884,Summer,Carrie Furnaces Built,Blast furnaces rise at Rankin across the river from Homestead.,Industry
+1884,Autumn,Shadyside Nursing School,Shadyside Hospital opens a school of nursing.,Health
+1885,Autumn,Davis Island Dam Opens,The first dam on the Ohio River opens at Avalon. The great wicket dam gives the harbor deep water in all seasons.,Infrastructure
+1885,Winter,Westinghouse Electric Founded,George Westinghouse founds his electric company to sell alternating current. The battle of the currents begins.,Industry
+1886,Spring,Open Hearths at Homestead,Open-hearth furnaces are installed at the Homestead Works.,Industry
+1886,Summer,Jones & Laughlin Makes Steel,"After three decades of iron, J&L begins making steel.",Industry
+1886,Autumn,Allegheny General Hospital,A general hospital opens in Allegheny City.,Health
+1887,Spring,New City Charter,"A new charter centralizes city government in departments such as Public Works and Public Safety, which the ring uses to steer contracts.",Politics
+1888,Summer,Pittsburgh Reduction Company,Alfred Hunt and Charles Martin Hall open an experimental aluminum smelter on Smallman Street.,Industry
+1888,Autumn,New Allegheny County Courthouse,H. H. Richardson's massive stone courthouse and jail open on Grant's Hill.,Politics
+1888,Autumn,First Aluminum Poured,On Thanksgiving Day the Smallman Street works pours the first commercial aluminum. The metal sells for nearly $5 a pound.,Industry
+1888,Autumn,H.J. Heinz Company,Heinz gains control of the family firm and renames it the H.J. Heinz Company.,Industry
+1889,Spring,Johnstown Flood,"The South Fork Dam, owned by a club of Pittsburgh industrialists, fails upriver. More than 2,200 die in Johnstown; relief trains leave from Pittsburgh.",Disaster
+1889,Spring,Braddock Carnegie Library Dedicated,Carnegie personally dedicates the first Carnegie library in America near his Edgar Thomson Works. A basement bathhouse lets millworkers wash before reading.,Libraries
+1889,Summer,Highland Park Assembled,"Public Works chief Edward Bigelow spends over $900,000 buying farms parcel by parcel for a 377-acre park around the city reservoirs.",Parks
+1889,Autumn,Schenley Park Given to the City,Mary Schenley gives 300 acres of land in Oakland for a great public park.,Parks
+1889,Winter,Carnegie Library of Allegheny,"The Carnegie Free Library of Allegheny opens. It was the first library Andrew Carnegie commissioned, though Braddock's opened first.",Libraries
+1890,Spring,Electric Trolleys Arrive,The Second Avenue Traction Company runs electric streetcars. Horsecars begin to vanish.,Infrastructure
+1890,Autumn,McKinley Tariff,"Congress raises import duties to about 50%, with new protection for tinplate. Pittsburgh steel and glass men cheer, and tinplate mills rise along the Mon.",Politics
+1891,Spring,Morewood Massacre,"Striking coke workers march on Frick's company store at Morewood. National Guardsmen fire into the crowd of a thousand, killing nine.",Labor
+1891,Summer,Aluminum Moves to New Kensington,"Pittsburgh Reduction begins smelting at New Kensington, the start of an aluminum town on the Allegheny.",Industry
+1891,Summer,Dravo Founded,Brothers Frank and Ralph Dravo found a contracting firm in Pittsburgh.,Industry
+1891,Autumn,AC Power at Telluride,"Westinghouse installs the nation's first alternating-current power system, at a Colorado mine.",Industry
+1892,Spring,"""57 Varieties""","Heinz coins his famous ""57 Varieties"" slogan.",Industry
+1892,Spring,Medical College Joins the University,The Western Pennsylvania Medical College merges into Western University.,Universities
+1892,Summer,Battle of Homestead,Locked-out steelworkers fight Pinkerton guards landing from barges at the Homestead Works. Seven workers and three Pinkertons die; the state militia occupies the town and the union is broken.,Labor
+1892,Summer,Attempt on Frick,Anarchist Alexander Berkman shoots and stabs Henry Clay Frick in his office downtown. Frick survives and returns to work within a week.,Labor
+1892,Summer,Carnegie Steel Company Formed,"On July 1, Carnegie consolidates all his plants into the Carnegie Steel Company, days before the Homestead lockout.",Economy
+1892,Autumn,West Penn Nursing School,West Penn Hospital opens a nursing school with 15 students.,Health
+1892,Autumn,Homestead Strike Called Off,"Nearly bankrupt, the Amalgamated Association votes on November 20 to send its men back to Homestead.",Labor
+1892,Winter,Homestead Charges Dropped,"Company and union drop their criminal charges against each other, closing the Homestead affair in the courts.",Labor
+1893,Spring,Anti-Pinkerton Act,"Stung by the Homestead barges, Congress bars the federal government from hiring Pinkerton agents or similar private armies.",Politics
+1893,Spring,Westinghouse Lights the World's Fair,"Westinghouse alternating current lights the Chicago World's Fair, and the company wins the Niagara Falls generator contract.",Industry
+1893,Summer,Panic of 1893,Banks and railroads fail across the country. Mills close; soup kitchens open in the mill towns.,Economy
+1893,Summer,Highland Park Opens,Highland Park opens to the public four years after the city began buying land.,Parks
+1893,Autumn,Braddock Library Doubled,"An addition gives the Braddock library a 964-seat music hall, gymnasium, swimming pool and bowling alleys. Carnegie employees pay half price.",Libraries
+1893,Winter,Phipps Conservatory Opens,Henry Phipps gives the city a great glasshouse in Schenley Park and insists it open on Sundays so working people can visit.,Parks
+1894,Spring,Coal Miners' Strike,"The United Mine Workers call a national bituminous coal strike, and pits across the Pittsburgh district go idle.",Labor
+1894,Summer,Riverview Park Given,Allegheny City's mayor and residents pool money to buy the Watson farm for a 251-acre park crowned by the Allegheny Observatory.,Parks
+1894,Autumn,Croatian Fraternal Union,Six Croatian benefit societies merge in Allegheny City into a national federation headquartered in Pittsburgh.,Society
+1894,Autumn,Mellon Joins the University Board,"Banker Andrew Mellon, whose father graduated in 1837, joins Western University's board of trustees.",Universities
+1895,Summer,Niagara Power Plant,Westinghouse generators at Niagara's Adams plant send power about 20 miles to Buffalo.,Industry
+1895,Autumn,Carnegie Institute Opens,"Carnegie's library, music hall and museum open in Oakland.",Culture
+1895,Autumn,Pittsburgh Symphony Founded,The Pittsburgh Orchestra is founded and plays in Carnegie Music Hall.,Culture
+1895,Winter,Boss Magee Offers a Zoo,"Streetcar magnate Christopher Magee offers the city a zoo, provided it sits in Highland Park at the end of his trolley line.",Parks
+1896,Spring,Union Railroad Opens,"Carnegie's Union Railroad links his works along the Monongahela, moving hot metal and ore between mills.",Industry
+1896,Spring,Westinghouse–GE Patent Truce,"Westinghouse and General Electric pool their electrical patents, ending the war of the currents in court.",Economy
+1896,Summer,Union Revival Crushed,Frick crushes an attempt to rebuild the union at Homestead. Carnegie also beats union drives at Duquesne and Edgar Thomson.,Labor
+1897,Summer,J&L Refuses the Union,"Jones & Laughlin refuses to sign with the Amalgamated Association, starting the de-unionization of Pittsburgh's mills.",Labor
+1897,Summer,Washington Takes the Mon,The federal government seizes the private Monongahela Navigation Company's locks and dams by eminent domain. Tolls on coal barges end.,Infrastructure
+1898,Spring,Lawrenceville Library Opens,"The Carnegie Library's first branch opens, the first in America with open shelves and a children's room.",Libraries
+1898,Summer,Highland Park Zoo Dedicated,"Ten thousand people, many riding Magee's trolleys, attend the zoo's dedication.",Parks
+1898,Summer,Mesta Machine Company,George Mesta merges two machine shops into a heavy-machinery maker at West Homestead.,Industry
+1898,Summer,Carnegie Buys the Carrie Furnaces,Carnegie adds the Rankin blast furnaces across the river to his Homestead empire.,Economy
+1898,Autumn,Homestead Library Opens Above the Mill,"Carnegie's $300,000 library, music hall and athletic club opens on the hill overlooking the works where the 1892 strike was fought.",Libraries
+1898,Autumn,First Women Graduates,Sisters Margaret and Stella Stein become Western University's first women graduates.,Universities
+1898,Winter,Mellon Line Buys Kenny's Grove,Andrew Mellon's Monongahela Street Railway buys the Kenny family's picnic grove to draw riders to the end of the line.,Parks
+1898,Winter,West End Library Opens,The West End branch opens with open stacks.,Libraries
+1899,Spring,Boss Quay Acquitted,State Republican boss Matthew Quay of Beaver is acquitted of misusing state funds. A deadlocked legislature leaves his Senate seat empty for two years.,Politics
+1899,Spring,Homestead Lodge Snuffed Out,Three hundred Homestead men secretly form a union lodge. Frick shuts the works down.,Labor
+1899,Summer,Kennywood Opens,"Mellon's trolley park opens above the Monongahela, drawing three times the zoo's opening crowd.",Parks
+1899,Summer,Dippy Found in Wyoming,Carnegie's fossil hunters find a giant dinosaur skeleton near Medicine Bow. It is named Diplodocus carnegii.,Culture
+1899,Autumn,National Tube Trust,"National Tube merges with 20 pipe makers into the National Tube Company, soon the world's largest steel-pipe producer.",Economy
+1899,Autumn,Pittsburgh Coal Company,Dozens of river and rail mines combine into the Pittsburgh Coal Company.,Industry
+1899,Winter,Carnegie Steel Clears $21 Million,Carnegie Steel posts a record net profit of $21 million for the year.,Economy
+1900,Spring,No Union Steel Left,"No unionized steel plant remains in Pennsylvania. Amalgamated membership has fallen from 24,000 to about 8,000 in a decade.",Labor
+1900,Summer,PPG Rules Plate Glass,"With ten plants, Pittsburgh Plate Glass controls 65% of the nation's plate glass and is its second-largest paint maker.",Economy
+1900,Summer,American Bridge Company,"J.P. Morgan's interests merge bridge builders into the American Bridge Company, headquartered in Pittsburgh.",Industry
+1900,Autumn,Carnegie Technical Schools Founded,Andrew Carnegie founds a technical school in Oakland to train the sons and daughters of working families.,Universities
+1900,Winter,Spindletop Gusher,"Oil gushes at Spindletop, Texas. The Mellons are the largest investors in the venture that becomes Gulf Oil.",Economy
+1901,Spring,U.S. Steel Formed,"J. P. Morgan buys Carnegie Steel for $480 million and forms the United States Steel Corporation, the first billion-dollar company. Dozens of Pittsburgh men become millionaires overnight.",Industry
+1901,Spring,Magee Dies; the Ripper Act,"Boss Magee dies. The Quay legislature abolishes the elected mayor and lets the governor appoint a ""recorder"" to run the city.",Politics
+1901,Spring,Carnegie's Lawyer Goes to Washington,"Philander Knox, Carnegie Steel's lawyer through Homestead and the U.S. Steel merger, becomes Attorney General.",Politics
+1901,Summer,Union Rejects Half a Loaf,"U.S. Steel offers to recognize the union at most sheet mills. AA president Shaffer demands all plants, and Morgan withdraws the offer.",Labor
+1901,Autumn,1901 Steel Strike Collapses,Thousands of strikebreakers and no help from the AFL break the strike. The union loses most of its U.S. Steel lodges.,Labor
+1901,Winter,Pittsburgh Railways Formed,"The traction companies combine into Pittsburgh Railways, a 400-mile streetcar monopoly.",Infrastructure
+1902,Autumn,Phipps Botany Hall,"Phipps gives $30,000 for a teaching hall where schoolchildren take botany classes.",Parks
+1903,Spring,"""Pittsburg: A City Ashamed""",Lincoln Steffens's magazine exposé lays bare the Magee–Flinn machine to the whole nation.,Politics
+1903,Summer,Duquesne Light Formed,Most of Pittsburgh's electric companies are consolidated into Duquesne Light.,Industry
+1903,Autumn,The First World Series,The Pittsburgh Pirates play Boston in the first modern World Series. Boston wins.,Culture
+1903,Autumn,U.S. Steel Comes to Clairton,U.S. Steel buys a half-interest in Crucible Steel's furnaces and steel plant at Clairton.,Industry
+1903,Winter,Harwick Mine Disaster,An explosion at Cheswick kills 179 miners and two rescuers. One boy survives. A third of Homestead's Hungarian Reformed congregation is lost.,Disaster
+1904,Spring,Carnegie Hero Fund,"Moved by the Harwick rescuers' deaths, Carnegie endows a $5 million fund to honor civilians who risk their lives for others.",Society
+1904,Spring,Wabash Terminal Opens,"George Gould opens an $800,000 Beaux-Arts terminal and a tunnel through Mount Washington to break the Pennsylvania Railroad's grip.",Infrastructure
+1905,Spring,Dippy Goes to London,"A plaster cast of Carnegie's dinosaur is unveiled in London, the first of many given to the world's museums.",Culture
+1905,Summer,J&L Builds at Aliquippa,Jones & Laughlin begins a vast new works and company town at Aliquippa on the Ohio.,Industry
+1905,Summer,Ambridge Incorporated,"American Bridge incorporates a company town on the old Harmony Society lands. It will grow from 5,000 to 20,000 people in twenty years.",Society
+1905,Winter,Reform Mayor Guthrie,Reformer George Guthrie wins the mayoralty on a fusion ticket against the Republican organization.,Politics
+1906,Summer,Westinghouse Research Department,Westinghouse sets up a formal research and development department.,Industry
+1906,Winter,Aluminum Company of America,Pittsburgh Reduction renames itself the Aluminum Company of America. Mellon's brother Richard is president.,Industry
+1906,Winter,Gulf Oil Corporation,"Mellon oil interests, including Guffey Petroleum, combine into the Gulf Oil Corporation.",Industry
+1907,Spring,St. Patrick's Day Flood,The rivers rise to 36 feet. Downtown streets and the riverfront mills are under water for days.,Disaster
+1907,Spring,Dippy Comes Home,The original Diplodocus skeleton goes on display in the enlarged Carnegie Institute.,Culture
+1907,Summer,Carrie Furnaces 6 and 7,Two new blast furnaces fire up at Rankin. They will run for seventy years.,Industry
+1907,Summer,Puddlers Secede,More than half the union's iron puddlers break away under the old Sons of Vulcan name.,Labor
+1907,Autumn,Panic of 1907,A run on the banks spreads from New York. Orders are cancelled and furnaces banked.,Economy
+1907,Autumn,Westinghouse Loses His Empire,"In the panic, Westinghouse Electric's board forces George Westinghouse to take leave. Bankers take control, though he keeps the air brake company.",Economy
+1907,Winter,Allegheny City Annexed,"After a long legal fight, the city of Allegheny is annexed to Pittsburgh and becomes the North Side.",Politics
+1907,Winter,Darr Mine Disaster,"An explosion near Van Meter kills 239 men and boys, the worst coal-mine disaster in Pennsylvania history. Most are Rusyn, Hungarian and Slovak immigrants.",Disaster
+1907,Winter,University Buys Oakland Land,Western University buys a 43-acre site in Oakland for a new campus.,Universities
+1908,Spring,The Pittsburgh Survey,"Social investigators document twelve-hour shifts, seven-day weeks, industrial deaths and typhoid in the mill districts.",Labor
+1908,Spring,University of Pittsburgh Named,The legislature renames Western University the University of Pittsburgh.,Universities
+1908,Summer,Wabash Railroad Fails,Gould's Wabash venture into Pittsburgh collapses financially.,Economy
+1908,Autumn,Marianna Mine Explosion,"An explosion kills 154 men in the Pittsburgh Buffalo Company's ""model"" mine town. One survives.",Disaster
+1908,Winter,Clean Water at Last,"The city's sand filtration plant opens. Typhoid deaths, once the worst in the nation, fall sharply.",Health
+1909,Summer,Pressed Steel Car Strike,Immigrant workers at McKees Rocks strike against the 'pool' pay system. State troopers and strikebreakers clash with strikers; a dozen die.,Labor
+1909,Summer,Forbes Field Opens,The Pirates open their steel-and-concrete ballpark in Oakland.,Culture
+1909,Summer,U.S. Steel Goes Open Shop,U.S. Steel withdraws recognition at its last 12 union mills. The tin-plate workers strike.,Labor
+1909,Autumn,Pirates Win the World Series,Honus Wagner and the Pirates beat Ty Cobb's Detroit Tigers.,Culture
+1909,Autumn,Pitt Moves to Oakland,"University departments move to Oakland under Hornbostel's ""Acropolis"" plan. Only four of its buildings are ever built.",Universities
+1910,Spring,Westmoreland Coal Strike,"Miners strike across Westmoreland County. Before it ends in July 1911, deputies and state police have killed six miners.",Labor
+1910,Spring,Shooting at Yukon,"Deputies and state police fire into a crowd of striking miners at Yukon, killing one.",Labor
+1910,Spring,Councilmanic Graft Scandal,Prosecutors reveal that bankers bribed city councilmen to win city deposits. Dozens of councilmen are indicted or confess.,Politics
+1910,Spring,Pittsburgh Courier Founded,The Pittsburgh Courier is incorporated. It grows into one of the nation's leading Black newspapers.,Society
+1910,Summer,George Westinghouse Ousted,"Unable to meet $14 million in debts, George Westinghouse is pushed out of his electric company. He cuts all ties the next year.",Economy
+1910,Winter,Tin-Plate Strike Broken,"After 14 months, the union's strike against U.S. Steel collapses. Big Steel is union-free.",Labor
+1911,Summer,Small Council Charter,"The state replaces the city's two ward-based councils with a nine-member council elected at large, and replaces ward school boards with a judge-appointed board.",Politics
+1911,Winter,West Penn Moves to Bloomfield,West Penn Hospital moves into a new building in Bloomfield.,Health
+1912,Spring,Homestead Grays,"Under Cumberland Posey, a team of Black mill workers takes the name Homestead Grays.",Culture
+1912,Summer,The Hump Cut,Downtown's Grant's Hill is lowered by fourteen feet to level the streets around the courthouse.,Infrastructure
+1912,Autumn,Carnegie Tech Grants Degrees,"The Carnegie Technical Schools become the Carnegie Institute of Technology, granting four-year degrees.",Universities
+1912,Autumn,Bull Moose Carries Pennsylvania,"With ex-boss William Flinn among his leaders, Theodore Roosevelt's Progressives carry Pennsylvania.",Politics
+1913,Autumn,Mellon Institute Founded,"Andrew and Richard Mellon found an institute of industrial research, at first a department of Pitt.",Universities
+1914,Summer,War in Europe,War breaks out in Europe. Immigration stops almost overnight while orders for steel and shells pour in.,Politics
+1915,Summer,Donora Zinc Works Opens,A zinc smelter starts up at Donora beside the American Steel & Wire works.,Industry
+1915,Summer,High-Voltage Ring,"Duquesne Light begins what may be the world's first 69,000-volt urban power ring.",Infrastructure
+1915,Autumn,Votes for Women Defeated,"Pennsylvania's men reject a women's suffrage amendment by about 55,000 votes despite a hard campaign by Pittsburgh suffragists.",Politics
+1916,Spring,The Great Migration Begins,"Black families from the South arrive for mill jobs left open by the war, settling in the Hill District, Homestead and Beltzhoover.",Society
+1916,Spring,Streetcar Strike,"About 3,100 motormen and conductors walk out for three days. They win raises, and crowds cheer the first trolley back on Fifth Avenue.",Labor
+1916,Spring,Battle of Braddock,"Striking Westinghouse workers march on the Edgar Thomson gate, and guards open fire, killing three. The National Guard arrives and the strike breaks.",Labor
+1916,Summer,Clairton Coke Works,"U.S. Steel opens an $18 million plant with 1,500 by-product coke ovens that capture coal tar and benzol.",Industry
+1916,Autumn,Schenley High School,"The city opens Schenley High School in Oakland, a showpiece of Progressive-era school building.",Society
+1917,Spring,America Enters the War,The United States declares war on Germany. The mills run at full capacity; German street names are changed.,Politics
+1917,Summer,Air Brake Buys Union Switch,Westinghouse Air Brake acquires Union Switch & Signal.,Economy
+1918,Summer,Wartime Aluminum Boom,"War orders lift Alcoa's output 40%. New Kensington employs 3,292 by war's end.",Economy
+1918,Autumn,Influenza,"The influenza pandemic hits Pittsburgh harder than almost any American city. Schools, churches and saloons close.",Health
+1918,Autumn,Armistice,The war ends on November 11. Steel orders fall away.,Politics
+1919,Spring,Neville Island Shipyard,Dravo starts a shipyard on Neville Island in the Ohio.,Industry
+1919,Summer,Pennsylvania Ratifies the 19th,"Four years after its voters said no, Pennsylvania ratifies the women's suffrage amendment.",Politics
+1919,Summer,Fannie Sellins Murdered,Coal company guards shoot organizer Fannie Sellins and miner Joseph Starzeleski outside a Brackenridge mine. A jury later acquits.,Labor
+1919,Autumn,Great Steel Strike,"Some 350,000 steelworkers walk out nationwide demanding union recognition and the eight-hour day. Strikers are arrested and meetings banned; the strike collapses by January.",Labor
+1919,Autumn,Mother Jones Jailed in Homestead,"Mother Jones is arrested for speaking to strikers. Asked who gave her permission, she names Patrick Henry, Jefferson and Adams.",Labor
+1919,Winter,Prohibition,The saloons close. Speakeasies open in back rooms in every neighbourhood.,Politics
+1919,Winter,Frick Leaves a Park,H.C. Frick dies and leaves the city land and money for a large park in the East End.,Parks
+1920,Autumn,KDKA Goes on the Air,"Westinghouse's KDKA in East Pittsburgh makes the first commercial radio broadcast, reporting the Harding-Cox election returns.",Industry
+1921,Spring,Immigration Restricted,Congress passes emergency immigration quotas. The great waves from Southern and Eastern Europe come to an end.,Politics
+1921,Spring,Mellon at the Treasury,Pittsburgh banker Andrew Mellon becomes Treasury Secretary. He will serve three presidents.,Politics
+1921,Autumn,Robert Morris Founded,A business school is founded that becomes Robert Morris University.,Universities
+1922,Spring,Coal Strike of 1922,The United Mine Workers strike nationwide. Pittsburgh-district mines stay shut into the summer.,Labor
+1922,Summer,Emsworth Replaces Davis Island,The old Davis Island dam is retired and a new dam at Emsworth takes over.,Infrastructure
+1923,Summer,Eight-Hour Day,"Under public pressure, U.S. Steel ends the twelve-hour shift.",Labor
+1923,Winter,Liberty Tubes Open,The $6 million twin tunnels through Mount Washington open the South Hills to commuters and suburbs.,Infrastructure
+1924,Spring,National Origins Act,Permanent quotas all but close immigration from Southern and Eastern Europe. The mill towns' ethnic neighbourhoods stop growing from abroad.,Politics
+1925,Summer,Coke Centralized at Clairton,U.S. Steel centralizes coke making at Clairton. Patch-town mines and beehive ovens close across the coalfields.,Industry
+1925,Autumn,Pitt Stadium Opens,The University of Pittsburgh opens a large football stadium in Oakland.,Universities
+1925,Winter,Mellon Tax Cuts,"The Revenue Act of 1926 completes Mellon's program, cutting the top income-tax rate to 25% and slashing estate taxes.",Politics
+1926,Summer,Cathedral of Learning Begun,The University of Pittsburgh starts building its 42-storey Gothic skyscraper in Oakland.,Universities
+1927,Spring,County Parks Open,"Commissioner E.V. Babcock buys land at his own cost for North Park, over 3,000 acres. South Park opens too, home of the county fair.",Parks
+1927,Spring,Loew's Penn Theatre,A Rapp & Rapp movie palace opens on Sixth Street.,Culture
+1927,Autumn,Gasometer Explosion,Repair work on the world's largest gas tank sets off a blast on the North Side. Twenty-eight die and buildings for half a mile are wrecked.,Disaster
+1928,Spring,Liberty Bridge Opens,A new Monongahela bridge links downtown directly to the Liberty Tubes.,Infrastructure
+1928,Summer,The Three Sisters,"Three matching self-anchored suspension bridges open over the Allegheny at Sixth, Seventh and Ninth Streets.",Infrastructure
+1928,Winter,John Barkoski Beaten to Death,"Coal and Iron Police beat miner John Barkoski at Imperial. He dies the next morning, and a jury acquits three officers.",Labor
+1929,Spring,Musmanno's Crusade,"Legislator Michael Musmanno campaigns to abolish the private police. A weakened reform, the Mustin Act, passes.",Politics
+1929,Summer,Metropolitan Pittsburgh Rejected,A charter to federate the city and county boroughs wins a countywide majority but fails the two-thirds rule in most towns.,Politics
+1929,Autumn,The Crash,The stock market collapses. By 1932 the mills run at a fifth of capacity.,Economy
+1929,Autumn,Ohio River Canalized,"The last locks are finished, and the Ohio becomes a chain of slackwater pools from Pittsburgh to Cairo.",Infrastructure
+1929,Autumn,Mount Mercy College,"The Sisters of Mercy found Mount Mercy College, later Carlow.",Universities
+1931,Spring,Pinchot Strips the Private Police,"Governor Gifford Pinchot refuses to issue or renew Coal and Iron Police commissions, effectively ending the system.",Politics
+1931,Summer,Charity Hospital in Hard Times,"Mercy Hospital gives more than $600,000 in free care to the Depression's jobless.",Health
+1931,Autumn,County Airport Dedicated,"Allegheny County Airport opens in West Mifflin, the third-largest airport in the nation.",Infrastructure
+1931,Winter,Father Cox's Army,"Father James Cox of Old St. Patrick's leads 25,000 unemployed Pittsburghers to Washington to demand relief.",Politics
+1931,Winter,Impeach Mellon!,Congressman Wright Patman files impeachment charges against Mellon. Hoover sends him to London as ambassador and the charges lapse.,Politics
+1932,Spring,Greenlee Field Opens,"Numbers king Gus Greenlee opens a $100,000 ballpark in the Hill District, home of the Crawfords and the Grays.",Culture
+1932,Autumn,The Forbes Field Promise,"Campaigning at Forbes Field, Franklin Roosevelt attacks Hoover's deficits and promises a balanced budget.",Politics
+1933,Summer,Section 7(a),The National Industrial Recovery Act promises workers the right to organize. Organizers flood into the mill towns.,Labor
+1933,Autumn,Clairton Strike,"Half of Clairton's workers join a round-the-clock strike. The miners win a contract, but the steelworkers do not.",Labor
+1933,Autumn,Mill Organizing Drives,"More than 6,000 J&L workers at Aliquippa sign union cards. At Duquesne a quarter of the unskilled men join.",Labor
+1933,Autumn,Ambridge Massacre,"Deputies recruited with J&L's help attack strikers at the Spang-Chalfant tube mill in Ambridge, killing one.",Labor
+1933,Autumn,Captive Mines Strike,Miners strike the coal mines owned by the steel companies. President Roosevelt intervenes publicly.,Labor
+1933,Autumn,Democrat McNair Elected Mayor,"With David Lawrence's party behind him, William McNair becomes the first Democratic mayor in decades.",Politics
+1933,Winter,Repeal,Prohibition ends. The saloons and clubs reopen legally.,Politics
+1934,Spring,Mesta Builds the Irvin Works,Mesta wins the contract to equip U.S. Steel's new continuous strip mill at Irvin.,Industry
+1934,Summer,Steel Strike Called Off,"Days before a planned national steel strike, AFL chief William Green persuades the union to cancel it.",Labor
+1934,Autumn,Democrats Take Harrisburg,"George Earle is elected governor, and Pittsburgh's Joseph Guffey wins a Senate seat. Lawrence joins the state cabinet.",Politics
+1934,Autumn,Penn State Comes to McKeesport,Penn State opens a campus in the mill town of McKeesport.,Universities
+1935,Summer,The Wagner Act,"The Supreme Court kills the NIRA in May. In July, Congress passes the Wagner Act, guaranteeing collective bargaining.",Politics
+1935,Summer,Coal and Iron Police Abolished,The Earle administration formally ends the private industrial police.,Politics
+1935,Autumn,CIO Formed,John L. Lewis forms the Committee for Industrial Organization inside the AFL to organize mass-production workers.,Labor
+1936,Spring,St. Patrick's Day Flood,"The worst flood in the city's history crests at 46 feet. Downtown is under water to the second floor, the mills stand idle and power fails for days.",Disaster
+1936,Summer,Steel Workers Organizing Committee,Philip Murray's SWOC opens offices in the mill towns and signs up workers in secret.,Labor
+1936,Summer,Flood Control Act,"Three months after the great flood, Congress authorizes a reservoir system for the upper Ohio, Allegheny and Monongahela.",Politics
+1936,Autumn,McNair Quits,"Feuding with Lawrence over WPA patronage, Mayor McNair resigns. Lawrence ally Cornelius Scully takes over.",Politics
+1937,Spring,Big Steel Signs,U.S. Steel recognises the union without a strike. Two months later Jones & Laughlin's men strike and win too.,Labor
+1937,Spring,The Aliquippa Case,"In NLRB v. Jones & Laughlin, the Supreme Court upholds the Wagner Act 5–4 and orders fired Aliquippa organizers reinstated.",Labor
+1937,Summer,Death on the Beaver Falls Picket,A deputy's tear-gas shell fatally wounds a striker on a steel picket line at Beaver Falls.,Labor
+1937,Summer,Little New Deal,"Earle's legislature passes a state labor relations act, wage and hour laws, and creates the Turnpike Commission.",Politics
+1937,Autumn,Housing Authority Founded,The city creates a housing authority under the new federal Housing Act to build public homes for working families.,Politics
+1937,Autumn,Mellon Institute Building,The Mellon Institute's colonnaded research building is completed on Fifth Avenue.,Universities
+1937,Autumn,Fallingwater,"Frank Lloyd Wright completes Fallingwater, a country house for the Kaufmann department-store family, in the Laurel Highlands.",Culture
+1938,Spring,Alcoa Antitrust Suit,The Justice Department charges Alcoa with monopolizing aluminum and seeks to break it up.,Economy
+1938,Summer,Tygart Dam Completed,The first of the Pittsburgh District's flood-control dams is finished on a Monongahela tributary in West Virginia.,Infrastructure
+1938,Autumn,Heinz Memorial Chapel,The Heinz family dedicates a Gothic chapel at Pitt in memory of H.J. Heinz and his mother.,Universities
+1939,Autumn,War in Europe Again,War breaks out in Europe. Orders for steel climb.,Politics
+1939,Autumn,Buhl Planetarium Opens,The Buhl Foundation opens a $1 million planetarium and science museum on the North Side.,Culture
+1940,Spring,Lawrence on Trial,Democratic boss David Lawrence is tried on graft charges from the Earle years and acquitted.,Politics
+1940,Autumn,Pennsylvania Turnpike Opens,"""America's First Superhighway"" opens from Irwin to Carlisle, reusing tunnels from an abandoned railroad.",Infrastructure
+1940,Autumn,Roosevelt Dedicates Terrace Village,"FDR dedicates Terrace Village in the Hill District, one of the nation's largest public housing projects.",Politics
+1941,Summer,Smoke Ordinance Passed,City council passes a smoke-control law. War delays enforcement for five years.,Politics
+1941,Winter,Pearl Harbor,America enters the war. The valley becomes the arsenal of democracy; Dravo builds landing ships on Neville Island.,Politics
+1941,Winter,Double V,"The Pittsburgh Courier launches its ""Double V"" campaign: victory over fascism abroad and over racism at home.",Society
+1942,Spring,United Steelworkers of America,SWOC becomes the United Steelworkers of America.,Labor
+1942,Spring,"Dravo Wins the First ""E""","Dravo becomes the first company to receive the Army-Navy ""E"" Award. Its Neville Island yard will employ 16,000.",Industry
+1943,Spring,Allegheny Conference Formed,Business and civic leaders under Richard King Mellon form a council to clean up the smoke and rebuild downtown.,Politics
+1943,Summer,Mesta's Big Guns,"West Homestead forges 16-inch naval guns, propeller shafts and ""Long Tom"" cannon and wins a six-star Army-Navy ""E"".",Industry
+1945,Summer,Victory,The war ends. Workers and veterans want higher wages and better homes.,Politics
+1945,Autumn,Lawrence Elected Mayor,Party boss David Lawrence wins the mayoralty and allies with Richard King Mellon's Republican business elite.,Politics
+1945,Winter,Postwar Steel Strike,Three-quarters of a million steelworkers strike nationwide for higher wages.,Labor
+1945,Winter,Westinghouse Strike,"About 75,000 Westinghouse workers, led by the UE, strike for 115 days and win an 18.5-cent raise.",Labor
+1946,Spring,Mounted Police at East Pittsburgh,"About 250 mounted and foot state troopers break up a crowd of 2,000 Westinghouse strikers at the plant gates.",Labor
+1946,Autumn,Smoke Control Enforced,The city's smoke ordinance takes effect for homes and mills. Coal gives way to natural gas and the skies begin to clear.,Politics
+1946,Autumn,Duquesne Light Strike,"Power workers strike Duquesne Light, threatening to black out the region's homes and mills.",Labor
+1946,Autumn,Urban Redevelopment Authority,The city forms the URA with Mayor Lawrence as chairman. Its first project is Gateway Center at the Point.,Politics
+1947,Spring,The Pittsburgh Package,"Harrisburg passes a bundle of Pittsburgh laws: county smoke control, a parking authority, a sanitary authority and broad local taxing power.",Politics
+1947,Summer,Taft-Hartley,Congress passes the Taft-Hartley Act over Truman's veto. Pittsburgh's unions split into factions.,Labor
+1948,Summer,Elrama Power Plant,Duquesne Light announces a $28 million coal-fired power station at Elrama.,Industry
+1948,Autumn,Donora Smog,"A temperature inversion traps smoke from the zinc works in Donora, up the Monongahela. Twenty die; thousands fall ill.",Disaster
+1948,Winter,Television Arrives,WDTV signs on as Pittsburgh's first television station.,Culture
+1949,Autumn,CIO Expels the UE,"The CIO expels the left-led electrical workers' union. Westinghouse locals split, and Monsignor Charles Owen Rice leads the anti-communist side.",Labor
+1949,Autumn,Steel Pension Strike,Steelworkers strike for company-paid pensions and win them.,Labor
+1949,Winter,Homer Brown Takes the Bench,"Homer S. Brown, author of the state's 1935 equal-rights law, becomes the first Black judge on the county Common Pleas court.",Politics
+1950,Spring,Renaissance I,The old warehouse district at the Point is cleared for Gateway Center and Point State Park.,Politics
+1950,Spring,City Population Peaks,"The census counts 676,806 Pittsburghers, the most the city will ever have.",Society
+1950,Spring,The Cvetic Hearings,"FBI informant Matt Cvetic names local unionists as communists. Their lawyer, Hymen Schlesinger, is himself put on trial.",Labor
+1952,Spring,Truman Seizes the Mills,President Truman seizes the steel industry to prevent a wartime strike. The Supreme Court overturns the seizure and the men walk out.,Labor
+1952,Spring,Greater Pittsburgh Airport Opens,"A new airport opens in Moon Township, served by five airlines.",Infrastructure
+1952,Summer,"The 50,000-Ton Press","Mesta builds a 50,000-ton forging press for the Air Force, run by Alcoa to shape aircraft parts.",Industry
+1952,Autumn,Conemaugh Dam Completed,A flood-control dam near Saltsburg is finished to guard the Kiskiminetas and Allegheny valleys.,Infrastructure
+1953,Summer,Parkway and Squirrel Hill Tunnel,"The first section of the Parkway East opens through an $18 million tunnel, the costliest state road project yet.",Infrastructure
+1954,Spring,WQED on the Air,WQED becomes the nation's first community-sponsored television station.,Culture
+1954,Winter,Turnpike Reaches Ohio,The Turnpike's Western Extension is completed past Pittsburgh to the Ohio line.,Infrastructure
+1955,Spring,Salk Vaccine Works,"After trials with 1.8 million schoolchildren, Jonas Salk's Pitt polio vaccine is declared ""safe, effective, and potent.""",Health
+1955,Autumn,Long Westinghouse Strike,Electrical workers begin a five-month strike against Westinghouse.,Labor
+1956,Summer,Lower Hill Cleared,"Bulldozers clear the Lower Hill District for a civic arena, displacing 8,000 residents and hundreds of businesses.",Politics
+1956,Summer,Port Authority Created,The legislature creates the Port Authority of Allegheny County. It will later take over the region's transit.,Politics
+1956,Summer,Summer Steel Strike,Steelworkers strike nationwide for a month in July.,Labor
+1957,Winter,Shippingport Atomic Power,The first full-scale nuclear power plant in America begins sending power to Pittsburgh.,Industry
+1958,Spring,Regional Parks Planned,"The county plans a ring of new regional parks: Boyce, Round Hill, Settlers Cabin, Deer Lakes, Harrison Hills and White Oak.",Parks
+1958,Autumn,Lawrence for Governor,Mayor Lawrence is elected the state's first Catholic governor. His deputy Joseph Barr becomes mayor.,Politics
+1959,Spring,ALCOSAN Cleans the Rivers,"After a record $100 million loan, the county's new treatment plant ends the routine dumping of raw sewage into the rivers.",Health
+1959,Summer,116-Day Strike,The longest steel strike in history. Customers turn to imported steel and many never come back.,Labor
+1959,Summer,Fort Pitt Bridge Opens,A double-deck bridge carries the new freeway from the Point across the Monongahela.,Infrastructure
+1959,Autumn,Khrushchev Visits Mesta,Soviet leader Nikita Khrushchev tours the Mesta machine works at West Homestead.,Politics
+1960,Autumn,Mazeroski's Home Run,Bill Mazeroski's ninth-inning home run wins the World Series for the Pirates over the Yankees.,Culture
+1960,Autumn,Fort Pitt Tunnel Opens,The $16 million tunnel completes a direct freeway from the airport and the West into downtown.,Infrastructure
+1960,Autumn,Point Park College,A new college opens downtown.,Universities
+1961,Spring,County Labor Council,"Following the AFL–CIO merger, local unions form the Allegheny County Labor Council.",Labor
+1961,Autumn,Civic Arena Opens,The domed arena with its retractable stainless-steel roof opens in the cleared Lower Hill.,Culture
+1963,Summer,Dorothy Six Lit,"U.S. Steel fires a giant new blast furnace, ""Dorothy Six,"" at the Duquesne Works.",Industry
+1963,Autumn,La Roche and Pitt-Greensburg,La Roche College is founded and Pitt opens a Greensburg campus.,Universities
+1964,Spring,Port Authority Takes the Wheel,"The Port Authority buys out Pittsburgh Railways and 32 bus and incline companies, creating a single public transit system.",Infrastructure
+1964,Winter,Westinghouse Record Sales,Westinghouse posts record sales of $2.1 billion.,Economy
+1965,Summer,Pitt Chancellor Ousted,Chancellor Edward Litchfield leaves amid a financial crisis that threatens the university.,Universities
+1965,Autumn,Kinzua Dam Completed,"A 179-foot dam tames the upper Allegheny. Its reservoir floods Seneca Nation land, and the Seneca call it ""Lake Perfidy.""",Infrastructure
+1966,Summer,Pitt Becomes State-Related,"The Commonwealth rescues Pitt, bringing public money and lower tuition for Pennsylvanians.",Universities
+1966,Autumn,Community College Founded,The Community College of Allegheny County opens to train and retrain the region's workers.,Universities
+1966,Autumn,The Courier Closes,"The Pittsburgh Courier, once read by 357,000, prints its last issue. It is relaunched as the New Pittsburgh Courier.",Society
+1967,Summer,Carnegie Mellon University,Carnegie Tech merges with the Mellon Institute to form Carnegie Mellon University.,Universities
+1967,Summer,Mesta Unionized,"Long a union holdout, the Mesta works votes in a union.",Labor
+1967,Winter,Mister Rogers' Neighborhood,Fred Rogers's program debuts nationally from WQED.,Culture
+1968,Spring,The Hill Burns,"After the murder of Martin Luther King, Jr., unrest breaks out in the Hill District and Homewood.",Society
+1968,Spring,LTV Buys Jones & Laughlin,Dallas conglomerate Ling-Temco-Vought buys 63% of J&L for about $428 million. Control of a Pittsburgh giant moves to Texas.,Economy
+1968,Summer,Boyce Park Dedicated,"The first new regional park opens in Monroeville and Plum, with the county's only ski slope.",Parks
+1968,Summer,Air Brake Sold,American Standard buys Westinghouse Air Brake.,Economy
+1968,Autumn,Bidwell Training Center,A job-training center opens on the North Side.,Universities
+1968,Winter,PPG Industries,Pittsburgh Plate Glass renames itself PPG Industries.,Industry
+1969,Spring,Hartwood Acres Offered,Mary Flinn Lawrence offers her 629-acre estate and mansion to the county.,Parks
+1969,Summer,Black Monday Shutdowns,"Nate Smith's Black Construction Coalition shuts down public building sites, including Three Rivers Stadium, demanding jobs in the all-white trades.",Labor
+1969,Autumn,"""Nobody's Boy"" Elected","Councilman Pete Flaherty beats the Democratic machine's candidate and wins the mayoralty, promising to cut patronage.",Politics
+1970,Summer,Three Rivers Stadium,The Pirates and Steelers move to a new stadium on the North Side.,Culture
+1970,Autumn,Burn Unit at West Penn,West Penn's Mellon Pavilion opens with a burn care unit serving the mill district.,Health
+1971,Autumn,Pirates Win Again,Roberto Clemente leads the Pirates to a World Series title.,Culture
+1971,Autumn,Heinz Hall Opens,Heinz money turns the shuttered Loew's Penn into a $10 million home for the Pittsburgh Symphony.,Culture
+1972,Summer,Hurricane Agnes,"The wettest storm in Pennsylvania's history drives 100,000 from their homes. The Allegheny rises seven inches an hour.",Disaster
+1972,Summer,Slag Dumping Ends,Steel mills stop dumping slag in the Nine Mile Run valley.,Industry
+1972,Autumn,Clairton Consent Decree,"U.S. Steel and the county agree to clean Clairton's air within ten years. An EPA official calls the plant ""Dante's Inferno.""",Politics
+1972,Winter,The Immaculate Reception,Franco Harris's last-second catch gives the Steelers their first playoff win.,Culture
+1973,Spring,State Sues U.S. Steel,The state and county sue U.S. Steel over 241 air-pollution violations at Clairton.,Politics
+1973,Spring,The No-Strike Deal,"The steelworkers and ten steelmakers sign the Experimental Negotiating Agreement, trading national strikes for 3% yearly raises, cost-of-living pay and arbitration.",Labor
+1973,Autumn,Oil Crisis,"The Arab oil embargo sends energy prices soaring. Detroit's car sales, and its steel orders, fall.",Economy
+1974,Summer,Point State Park Fountain,"The fountain at the Point is turned on, completing the park where Fort Pitt stood.",Parks
+1974,Summer,Braddock Library Closes,"After 85 years, the Braddock Carnegie Library closes. The declining mill town cannot fix its roof.",Libraries
+1974,Autumn,"""A National Disgrace""",U.S. Steel announces a $100 million cleanup at Clairton. The state environment secretary calls the plant a national disgrace.,Politics
+1974,Winter,Super Bowl Champions,The Steelers win their first Super Bowl.,Culture
+1975,Spring,Gulf Payments Scandal,Gulf Oil's chairman and other executives are forced out over illegal political contributions.,Politics
+1975,Autumn,Clairton Air Crisis,"A regional air-pollution emergency centers on Clairton. The EPA links it to 14 deaths, and U.S. Steel warns it cannot make steel without the coke.",Health
+1975,Autumn,Westinghouse Uranium Crisis,Soaring uranium prices break Westinghouse's fixed-price fuel contracts. Lawsuits will cost it $950 million.,Economy
+1976,Spring,Volkswagen Picks New Stanton,"Volkswagen chooses New Stanton for its American plant with a $40 million state loan. It will employ over 6,000.",Economy
+1976,Autumn,Beaver Valley Nuclear Plant,Beaver Valley Unit 1 is commissioned at Shippingport.,Industry
+1976,Winter,Speaker Irvis,Hill District legislator K. Leroy Irvis becomes the first Black speaker of any state legislature since Reconstruction.,Politics
+1977,Spring,Caliguiri Steps In,Flaherty leaves for the Justice Department. Council president Richard Caliguiri becomes mayor and wins election as an independent.,Politics
+1977,Summer,South Busway Opens,One of the nation's first bus-only roads opens to the South Hills.,Infrastructure
+1977,Autumn,J&L Cuts Back in the City,"Jones & Laughlin announces closures at its Pittsburgh works, one of the first big shutdowns in the city.",Industry
+1978,Spring,Renaissance II,Mayor Caliguiri announces a second downtown building boom of new office towers.,Politics
+1978,Summer,Carrie Furnaces Go Cold,Rankin's last blast furnaces shut down after seventy years.,Industry
+1978,Autumn,J&L Takes Youngstown Sheet & Tube,LTV's Jones & Laughlin absorbs Youngstown Sheet & Tube.,Economy
+1979,Autumn,City of Champions,The Pirates win the World Series and the Steelers will win a fourth Super Bowl in January.,Culture
+1979,Autumn,Closures Announced,"U.S. Steel announces the shutdown of plants across the country. Imports, old open hearths and lost markets catch up with the valley.",Economy
+1980,Spring,"City Shrinks to 424,000","The census counts 423,938 people, down more than a third from the 1950 peak.",Society
+1981,Summer,The Bottom Falls Out,Steel demand collapses in a deep recession. Layoffs spread through every mill town.,Economy
+1982,Spring,National Tube Curtailed,"U.S. Steel shuts major operations at McKeesport's tube works, laying off 2,400 of 4,800.",Industry
+1982,Summer,Neville Island Yard Closes,Dravo closes its Neville Island shipyard.,Industry
+1982,Summer,Westinghouse Buys Robots,Westinghouse acquires robot maker Unimation.,Industry
+1982,Autumn,The Andrew Project,Carnegie Mellon begins building a campus-wide computer network. Its research budget has grown nearly tenfold.,Universities
+1982,Winter,Mon Valley Unemployment Peaks,Nearly one in five workers in the Monongahela Valley is out of work. Food banks open in union halls.,Economy
+1982,Winter,Mesta Goes Bankrupt,Mesta Machine files for bankruptcy. Most of the West Homestead works is sold by summer.,Industry
+1983,Spring,East Busway Opens,The 6.8-mile Martin Luther King Jr. East Busway opens to Wilkinsburg.,Infrastructure
+1983,Summer,American Bridge Leaves Ambridge,American Bridge ends operations in the town it built.,Industry
+1983,Autumn,Braddock Library Saved,Residents buy the doomed Braddock library for $1 and reopen a children's library.,Libraries
+1984,Spring,Duquesne Works Closes,U.S. Steel shuts the Duquesne Works. A campaign to save its giant 'Dorothy Six' blast furnace fails.,Industry
+1984,Spring,Chevron Buys Gulf,"Fending off raider T. Boone Pickens, Gulf accepts Chevron's $13.2 billion offer, the largest merger in history.",Economy
+1984,Spring,LTV Steel Formed,"Washington approves the merger of J&L and Republic. The new LTV Steel ranks second in the nation, and the J&L name disappears.",Economy
+1984,Spring,Light Rail Rolls,Modern light-rail cars begin running from South Hills Village through a new Mount Lebanon tunnel.,Infrastructure
+1984,Summer,Workers Buy Weirton,"Employees buy the Weirton steel works, creating the nation's largest employee-owned manufacturer, in exchange for a six-year wage freeze.",Labor
+1984,Winter,Skunk Oil at Christmas,Radical clergy and jobless steelworkers disrupt a church Christmas party with skunk-oil balloons to shame U.S. Steel's chairman.,Society
+1984,Winter,Pastor Roth Jailed,"Rev. D. Douglas Roth holds out in his Clairton church, is jailed, and is later defrocked.",Society
+1984,Winter,Benzene in the Mon,Frozen pipes at Clairton spill benzene into the Monongahela at 100 times the legal limit.,Disaster
+1985,Spring,Gulf Leaves Town,"Gulf ceases to exist. About 1,500 research and headquarters jobs, a $54 million payroll, leave Pittsburgh.",Economy
+1985,Spring,Clergy Protest at Shadyside,Clergy and union activists protest plant closings at Shadyside Presbyterian Church.,Society
+1985,Spring,Wheeling-Pitt Bankrupt,Wheeling-Pittsburgh Steel files for bankruptcy.,Economy
+1985,Spring,cmu.edu,Carnegie Mellon is among the first six universities to register an Internet domain.,Universities
+1985,Summer,The Mills Go Quiet,LTV Steel's old Jones & Laughlin works in Pittsburgh and most of the Homestead Works have closed. The steel era is ending; what the valley does next is up to those who remain.,Economy
+1985,Summer,Barricade at Nativity Lutheran,Rev. Daniel Solberg barricades himself in his church. Police force their way in and arrest him.,Society
+1985,Summer,Service at the Steel Tower,Clergy and unionists hold an open-air service on the plaza of the U.S. Steel Building.,Society
+1985,Summer,Subway Opens Downtown,The downtown light-rail subway opens. Streetcars leave downtown streets and the Smithfield Street Bridge for good.,Infrastructure
+1985,Autumn,Clairton Goes Broke,"Clairton furloughs 1,600 more workers. The city nearly goes bankrupt and lays off its police and firefighters.",Economy
+1985,Autumn,Steel Valley Authority,Seven Mon Valley towns form an authority to seize closing mills by eminent domain.,Politics
+1985,Autumn,Election Day Flood,Record rains flood the Monongahela basin in early November.,Disaster

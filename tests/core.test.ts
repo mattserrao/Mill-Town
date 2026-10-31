@@ -138,12 +138,19 @@ describe("hillsides", () => {
 
 describe("events", () => {
   it("parses the master CSV and fires events in their season", async () => {
-    const { EVENTS, EFFECTS } = await import("../src/core/events");
-    expect(EVENTS.length).toBeGreaterThan(80);
+    const { EVENTS, EFFECTS, CATEGORIES } = await import("../src/core/events");
+    expect(EVENTS.length).toBeGreaterThan(300);
     for (const e of EVENTS) {
       expect(["Spring", "Summer", "Autumn", "Winter"]).toContain(e.season);
       expect(e.year).toBeGreaterThanOrEqual(1850);
+      expect(e.year).toBeLessThanOrEqual(1985);
       expect(e.description.length).toBeGreaterThan(20);
+      expect(CATEGORIES).toContain(e.category);
+    }
+    const order = ["Spring", "Summer", "Autumn", "Winter"];
+    for (let i = 1; i < EVENTS.length; i++) {
+      const a = EVENTS[i - 1], b = EVENTS[i];
+      expect(a.year * 4 + order.indexOf(a.season)).toBeLessThanOrEqual(b.year * 4 + order.indexOf(b.season));
     }
     for (const name of Object.keys(EFFECTS)) expect(EVENTS.some((e) => e.name === name)).toBe(true);
     const g = newGame(map, 5);
