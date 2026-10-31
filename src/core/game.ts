@@ -7,7 +7,7 @@ import { RIVALS } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
-import { calendar, SEASON_EFFECTS, type Calendar } from "./time";
+import { calendar, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, growRegion, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, walkField, WALK_MIN_PER_COST, type World } from "./town";
 import { HILLSIDES, INCLINES, PARKS, tileLine } from "./features";
 import { EFFECTS, eventsFor, type HistEvent, type Mod, modMult } from "./events";
@@ -74,6 +74,18 @@ export interface GameState {
   headlines: HistEvent[];
   /** set by a flood event for this season */
   floodNow?: number;
+  /** true once the last season (Winter 1985) has been played */
+  over?: boolean;
+  stats: GameStats;
+}
+
+export interface GameStats {
+  peakPop: number; peakPopYear: number;
+  peakEmployees: number; peakEmployeesYear: number;
+  peakCash: number; peakCashYear: number;
+  totalProfit: number;
+  strikes: number;
+  foundedYear?: number;
 }
 
 export const STARTING_CASH = 100000;
@@ -86,7 +98,9 @@ export function newGame(map: GameMap, seed: number): GameState {
   resetMap(map);
   const world = generateTown(map, seed, 1850);
   if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
-  const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [] };
+  const g: GameState = { seed, map, world, fields: fieldsCache.fields, turn: 0, rivals: [], log: [{ turn: 0, text: `Spring 1850. Seed ${seed}.` }], inclinesBuilt: 0, mods: [], headlines: [],
+    stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 } };
+  g.stats.peakPop = totalPopulation(g);
   fireEvents(g);
   return g;
 }
@@ -140,6 +154,7 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
     library: false,
     civicDue: 0,
   };
+  g.stats.foundedYear = cal(g).year;
   log(g, `Founded ${g.company.name} (${ind.startsAs}) for $${rep.cost.toLocaleString()}.`);
   recomputeLandValue(g.map, g.world);
   updateAccess(g);
@@ -355,7 +370,9 @@ function techMods(c: Company) {
 }
 
 export function advanceTurn(g: GameState): void {
+  if (g.over) return;
   const c0 = cal(g);
+  const last = g.turn >= TOTAL_TURNS - 1;
   const rng = new Rng(g.seed).fork(`turn${g.turn}`);
   const fx = SEASON_EFFECTS[c0.season];
 
@@ -363,14 +380,25 @@ export function advanceTurn(g: GameState): void {
   spawnRivals(g, c0.year);
   decayPollution(g, mod(g, "pollution") < 0.9 ? 0.95 : 0.985);
   naturalGrowth(g, rng);
+  if (last) {
+    // Winter 1985 was the last season: the game ends here and the clock stays put
+    g.over = true;
+    g.headlines = [];
+    updateStats(g, c0.year);
+    log(g, "The end of the steel era. Your story in the valley is over.");
+    g.world.version++;
+    return;
+  }
 
   g.turn++;
   const c1 = cal(g);
-  if (c1.year !== c0.year) {
-    g.world.year = c1.year;
+  g.world.year = c1.year;
+  {
     const plants: [number, number][] = g.rivals.map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
     if (g.company) plants.push([g.company.x + g.company.footprint / 2, g.company.y + g.company.footprint / 2]);
-    if (c1.year < 1975) growRegion(g.map, g.world, plants, totalPopulation(g));
+    if (c1.year < 1975) growRegion(g.map, g.world, plants, totalPopulation(g), g.turn % 4);
+  }
+  if (c1.year !== c0.year) {
     activateStreets(g.map, g.world);
     activateFeatures(g.map, g.world);
     recomputeLandValue(g.map, g.world);
@@ -383,7 +411,18 @@ export function advanceTurn(g: GameState): void {
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
   fireEvents(g);
+  updateStats(g, c1.year);
   g.world.version++;
+}
+
+function updateStats(g: GameState, year: number) {
+  const st = g.stats, c = g.company;
+  const pop = totalPopulation(g);
+  if (pop > st.peakPop) { st.peakPop = pop; st.peakPopYear = year; }
+  if (!c) return;
+  if (c.employees > st.peakEmployees) { st.peakEmployees = c.employees; st.peakEmployeesYear = year; }
+  if (c.cash > st.peakCash) { st.peakCash = c.cash; st.peakCashYear = year; }
+  if (c.lastSeason) st.totalProfit += c.lastSeason.profit;
 }
 
 function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number) {
@@ -418,6 +457,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     notes.push("The men are out on strike. The works stand cold.");
   } else if (year0 >= 1877 && c.employees > 300 && rng.chance((0.02 + Math.min(0.04, c.employees / 60000)) * mod(g, "strike"))) {
     c.strikeTurns = rng.int(0, 2);
+    g.stats.strikes++;
     output = 0;
     c.status = "strike";
     notes.push("Strike! The men walked out over wages and hours.");

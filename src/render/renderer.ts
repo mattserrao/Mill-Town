@@ -4,6 +4,7 @@
 // tiles), followed by its sprites, all painted back-to-front into one pixel buffer.
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
+import { lineIndex, segDist, type Seg } from "../core/lines";
 import { techsForYear, type GameState } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
@@ -164,7 +165,9 @@ export class Renderer {
   /** Resolve every plant's layout (player + rivals) for this world state. */
   private updatePlants(g: GameState) {
     const c = g.company;
-    const key = `${g.world.version}|${c?.status}|${c?.techs.join(",")}|${c?.lastSeason?.produced ?? 0}|${g.rivals.length}|${g.world.year}`;
+    // only what the plant drawings depend on: layout, status, how full the yards are, and the year (soot, rival tech)
+    const fillOf = (co: NonNullable<typeof c>) => Math.min(2, Math.round(((co.lastSeason?.produced ?? 0) / INDUSTRIES[co.industry].baseCapacity) * 2));
+    const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.world.year}`;
     if (key === this.plantsKey) return;
     this.plantsKey = key;
     this.plants.clear();
@@ -213,7 +216,7 @@ export class Renderer {
 
     const s = Math.min(1, cam.zoom);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const version = `${this.plantsKey}|${view.overlayKey}|${view.grid}`;
+    const tail = `|${view.overlayKey}|${view.grid}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -235,6 +238,8 @@ export class Renderer {
     for (const c of [...vis].sort((a, b) => a.d - b.d)) {
       const key = `${s}:${c.cx},${c.cy}`;
       const have = this.chunks.get(key);
+      // each chunk re-renders only when what it shows has changed (dirty-chunk tracking by content signature)
+      const version = this.chunkSig(g, c.cx, c.cy) + tail;
       if (have && have.key === version) continue;
       if (performance.now() - t0 > FRAME_MS && have) { missing++; continue; }
       if (performance.now() - t0 > FRAME_MS * 2) { missing++; continue; }
@@ -263,6 +268,41 @@ export class Renderer {
 
   invalidateAll() {
     this.chunks.clear();
+    this.sigs.clear();
+  }
+
+  private sigs = new Map<number, { stamp: string; sig: string }>();
+
+  /**
+   * A signature of everything a chunk's pixels depend on: the tiles in it and one tile around it
+   * (streets and rows look at their neighbours), quantized the way the renderer quantizes them.
+   * Cached per world version, so it's computed once per chunk per turn.
+   */
+  private chunkSig(g: GameState, cx: number, cy: number): string {
+    const w = g.world, m = this.map, W = m.width;
+    const stamp = `${w.version}|${this.plantsKey}`;
+    const id = cy * this.ncx + cx;
+    const hit = this.sigs.get(id);
+    if (hit && hit.stamp === stamp) return hit.sig;
+    let h1 = 0x811c9dc5 | 0, h2 = 0x1b873593 | 0, plant = false, rails = 0;
+    const lix = lineIndex(m);
+    const mix = (v: number) => { h1 = Math.imul(h1 ^ v, 0x01000193); h2 = Math.imul(h2 ^ v, 0x5bd1e995) ^ (h2 >>> 15); };
+    const x0 = Math.max(0, cx * CS - 1), y0 = Math.max(0, cy * CS - 1);
+    const x1 = Math.min(W - 1, cx * CS + CS), y1 = Math.min(m.height - 1, cy * CS + CS);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = y * W + x;
+      const p = w.pollution[i];
+      mix(w.use[i] | (w.sub[i] << 5) | (w.street[i] << 10) | ((w.pop[i] > 0 ? 1 : 0) << 14) | (w.structure[i] << 15));
+      mix(w.built[i] | ((p < 0.15 ? 0 : p < 0.4 ? 1 : p < 0.5 ? 2 : p < 1.2 ? 3 : 4) << 12) | (Math.min(8, Math.floor(p * 6)) << 16) | (w.owner[i] << 20));
+      if (this.plants.has(i)) plant = true;
+      if (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year) rails++;
+      const vs = lix.get(i);
+      if (vs) for (const sg of vs) if (sg.kind === "rail" && (m.railLines[String(sg.line)]?.year ?? 9999) <= w.year) rails += 64;
+    }
+    // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
+    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}`;
+    this.sigs.set(id, { stamp, sig });
+    return sig;
   }
 
   private evict() {
@@ -438,6 +478,16 @@ export class Renderer {
       return mk;
     };
     const lineDist = (mk: number, u: number, v: number) => {
+      // a plain 90° turn is drawn as a chamfer from edge-midpoint to edge-midpoint, so tile-by-tile
+      // staircases (creeks, rails, streets running on the diagonal) read as straight 45° lines
+      const L = lCorner(mk, true);
+      if (L) {
+        const [a, b] = orient(L, u, v);
+        // segment (1, .5) → (.5, 1) in oriented coords
+        let tt = ((a - 1) * -0.5 + (b - 0.5) * 0.5) / 0.5;
+        tt = Math.max(0, Math.min(1, tt));
+        return [Math.hypot(a - (1 - 0.5 * tt), b - (0.5 + 0.5 * tt)), tt * Math.SQRT1_2];
+      }
       let best = Math.hypot(u - 0.5, v - 0.5);
       let along = 0;
       for (let k = 0; k < 8; k++) {
@@ -452,6 +502,20 @@ export class Renderer {
       }
       return [best, along];
     };
+
+    /**
+     * If the only orthogonal neighbours in `mk` are two perpendicular ones (an L), return their directions
+     * (sx: +1 east / -1 west, sy: +1 south / -1 north). `strict`: no other neighbours at all (lines);
+     * otherwise (shorelines) the two opposite sides must be clear.
+     */
+    function lCorner(mk: number, strict: boolean): [number, number] | null {
+      const orth = mk & 15;
+      if (strict && mk !== orth) return null;
+      const sx = orth & 1 ? 1 : orth & 2 ? -1 : 0, sy = orth & 4 ? 1 : orth & 8 ? -1 : 0;
+      if (!sx || !sy || (orth & 3) === 3 || (orth & 12) === 12) return null;
+      return [sx, sy];
+    }
+    const orient = ([sx, sy]: [number, number], u: number, v: number) => [sx > 0 ? u : 1 - u, sy > 0 ? v : 1 - v];
 
     /** distance (uv) from (u,v) to the nearest edge/corner shared with a neighbour in `mk` (no diagonal suppression) */
     const rawMask = (f: (j: number) => boolean) => {
@@ -475,13 +539,21 @@ export class Renderer {
 
     if (water) {
       const landMask = rawMask((j) => m.terrain[j] !== Terrain.Water);
-      const polluted = Math.min(0.4, w.pollution[i] * 0.3);
+      const shoreL = lCorner(landMask, false);
+      const polluted = Math.min(8, Math.floor(w.pollution[i] * 6)) * 0.05; // stepped, so chunk signatures stay stable
       return (u: number, v: number, _h: number, gx: number, gy: number) => {
         let c = pick(WATER, hash(gx >> 2, gy >> 1, 3));
         const r = hash(gx >> 2, gy, 4);
         if (r > 0.97 && (gx & 3) < 3) c = 0x6f9cc0; // ripple
         if (landMask) {
-          const dl = edgeDist(landMask, u, v);
+          let dl = edgeDist(landMask, u, v);
+          if (shoreL) {
+            // a water tile poking out between two land sides: cut its corner into a 45° bank
+            const [a, b] = orient(shoreL, u, v);
+            const dc = (1.5 - a - b) * Math.SQRT1_2;
+            if (dc < 0) return dc > -0.06 ? pick(PAL.wet, hash(gx, gy, 25)) : pick(PAL.sand, hash(gx, gy, 26));
+            dl = Math.min(dl, dc);
+          }
           if (dl < 0.05 && hash(gx, gy, 5) < 0.35) c = 0x9cc0d4;
           else if (dl < 0.14) c = 0x3f7598;
         }
@@ -546,11 +618,24 @@ export class Renderer {
         if (gx % 3 === 0 || gy % 2 === 0) return 0x5c5850;
         return hash(sx, gy >> 1, 18) < 0.5 ? 0x8e8a80 : 0x7a766e;
       }; break;
-      case Use.Rock: base = (_u, _v, h, gx, gy) => {
-        const band = Math.floor(h / 2.5);
-        const c = PAL.rock[(band + (hash(band, 0, 19) * 3 | 0)) % PAL.rock.length];
-        return hash(gx, gy, 20) < 0.08 ? 0x5a5446 : hash(gx >> 1, gy >> 1, 21) < 0.12 ? 0x5e7a3a : c;
-      }; break;
+      case Use.Rock: {
+        // bare bluff: soft, broken strata (not hard contour bands), with a ragged, chamfered edge into the
+        // woods or fields next to it so a chain of rock tiles doesn't read as a staircase
+        const soft = rawMask((j) => w.use[j] !== Use.Rock && m.terrain[j] !== Terrain.Water);
+        const corner = lCorner(soft, false);
+        base = (u, v, h, gx, gy) => {
+          if (soft) {
+            let d = edgeDist(soft, u, v);
+            if (corner) { const [a, b] = orient(corner, u, v); d = Math.min(d, (1.5 - a - b) * Math.SQRT1_2); }
+            const reach = 0.18 + hash(gx >> 2, gy >> 2, 47) * 0.22;
+            if (d < reach && hash(gx >> 1, gy >> 1, 48) < 1 - d / reach) return pick(PAL.woods, hash(gx >> 1, gy >> 1, 6));
+          }
+          const band = Math.floor(h / 4 + hash(gx >> 3, gy >> 2, 49) * 0.9);
+          const c = PAL.rock[(band + (hash(band, 0, 19) * 2 | 0)) % 3 + 0];
+          return hash(gx, gy, 20) < 0.08 ? 0x6e6658 : hash(gx >> 1, gy >> 1, 21) < 0.16 ? 0x5e7a3a : c;
+        };
+        break;
+      }
       default: {
         const pal = t === Terrain.Floodplain ? PAL.meadow : PAL.grass;
         base = (_u, _v, _h, gx, gy) => {
@@ -572,20 +657,39 @@ export class Renderer {
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
     const streetW = w.street[i] === Street.Pike ? 0.17 : dense ? 0.26 : 0.14;
-    const rail = railActive(i) ? mask((j) => railActive(j)) : -1;
-    const creekMask = m.creek[i] ? mask((j) => m.creek[j] > 0 || m.terrain[j] === Terrain.Water) : -1;
+    // creeks and rails come from the source vectors where the map has them (smooth on any angle);
+    // otherwise from the raster masks
+    const vec = m.lines.creek.length > 0 || m.lines.rail.length > 0;
+    const segs = vec ? lineIndex(m).get(i) ?? [] : [];
+    const creekSegs = segs.filter((sg) => sg.kind === "creek");
+    const railSegs = segs.filter((sg) => sg.kind === "rail" && (m.railLines[String(sg.line)]?.year ?? 9999) <= w.year);
+    const nearest = (list: Seg[], u: number, v: number): [number, number] => {
+      let bd = 9, ba = 0;
+      for (const sg of list) { const [d, a] = segDist(sg, x + u, y + v); if (d < bd) { bd = d; ba = a; } }
+      return [bd, ba];
+    };
+    const rail = vec ? (railSegs.length ? 0 : -1) : railActive(i) ? mask((j) => railActive(j)) : -1;
+    const creekMask = vec ? (creekSegs.length ? 0 : -1) : m.creek[i] ? mask((j) => m.creek[j] > 0 || m.terrain[j] === Terrain.Water) : -1;
     const waterMask = rawMask((j) => m.terrain[j] === Terrain.Water);
     const wharf = m.special[i] === Special.Wharf;
+    const waterL = !wharf && !w.street[i] && !w.owner[i] && use !== Use.Wharf ? lCorner(waterMask, false) : null;
 
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
       if (waterMask && !wharf) {
-        const dw = edgeDist(waterMask, u, v);
+        let dw = edgeDist(waterMask, u, v);
+        if (waterL) {
+          // a point of land between two water sides: the river takes the corner (45° bank)
+          const [a, b] = orient(waterL, u, v);
+          const dc = (1.5 - a - b) * Math.SQRT1_2;
+          if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
+          dw = Math.min(dw, dc);
+        }
         if (dw < 0.08) c = pick(PAL.wet, hash(gx, gy, 25));
         else if (dw < 0.24 + hash(gx >> 2, gy >> 2, 27) * 0.08) c = pick(PAL.sand, hash(gx, gy, 26));
       }
       if (creekMask >= 0) {
-        const [dc] = lineDist(creekMask, u, v);
+        const [dc] = vec ? nearest(creekSegs, u, v) : lineDist(creekMask, u, v);
         if (dc < 0.06) c = hash(gx, gy, 27) < 0.15 ? 0x8cb4d4 : 0x467aa0;
         else if (dc < 0.1) c = 0x5e6a44;
       }
@@ -613,7 +717,7 @@ export class Renderer {
         }
       }
       if (rail >= 0) {
-        const [dr, along] = lineDist(rail, u, v);
+        const [dr, along] = vec ? nearest(railSegs, u, v) : lineDist(rail, u, v);
         if (dr < 0.13) {
           c = hash(gx, gy, 30) < 0.5 ? 0x6a6258 : 0x5c544a; // ballast
           if (dr < 0.09 && (Math.floor(along / 0.07) & 1) === 0) c = 0x4a3626; // ties

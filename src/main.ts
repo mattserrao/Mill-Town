@@ -1,7 +1,7 @@
 import { advanceTurn, buildIncline, buildSteps, cal, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
-import { evaluateSite, footprintTiles } from "./core/site";
+import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { TERRAIN_NAMES } from "./core/terrain";
 import { STRUCTURES, SUB_NAMES, Use, USE_NAMES } from "./core/town";
 import { anchorAt, GROUPS } from "./core/ancestry";
@@ -34,7 +34,11 @@ const overlayCache: OverlayCache = {};
 let hover: { x: number; y: number } | null = null;
 let selected: { x: number; y: number } | null = null;
 let industry: IndustryId = "steel";
-let placing = false;
+let placing = true;
+let playTimer = 0;
+let seedEdited = false;
+let newsAt = 0;
+let siteTried: { x: number; y: number }[] = [];
 
 async function start() {
   $("zoom").textContent = "Loading map…";
@@ -52,8 +56,13 @@ async function start() {
 }
 
 function newTown(seed: number) {
+  stopPlay();
   game = newGame(map, seed);
   ($<HTMLInputElement>("seed")).value = String(seed);
+  seedEdited = false;
+  siteTried = [];
+  placing = true; ($<HTMLInputElement>("placing")).checked = true;
+  $("final").hidden = true;
   overlayCache.site = undefined;
   renderer.updateHeights();
   renderer.invalidateAll();
@@ -198,6 +207,7 @@ function showNews() {
   el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
     game.headlines.map((e) => `<h3>${e.name}</h3><p>${e.description}</p>`).join("");
   el.hidden = false;
+  newsAt = performance.now();
 }
 
 function refreshPanels() {
@@ -272,6 +282,7 @@ function inspect() {
 function companyPanel() {
   const c = game.company;
   $("companySection").hidden = !c;
+  $("foundSection").hidden = !!c;
   if (!c) return;
   const ind = INDUSTRIES[c.industry];
   const s = c.lastSeason;
@@ -349,9 +360,16 @@ function setupUI() {
   $("next").addEventListener("click", nextSeason);
   $("news").addEventListener("click", () => { $("news").hidden = true; });
   $("regen").addEventListener("click", () => {
+    // a typed seed replays that town; otherwise every press is a fresh one
     const v = ($<HTMLInputElement>("seed")).value.trim();
-    newTown(v && !isNaN(Number(v)) ? Number(v) : Math.floor(Math.random() * 1e6));
+    newTown(seedEdited && v && !isNaN(Number(v)) ? Number(v) : Math.floor(Math.random() * 1e6));
+    showNews();
+    afterChange();
   });
+  $("seed").addEventListener("input", () => { seedEdited = true; });
+  $("nextYear").addEventListener("click", nextYear);
+  $("play").addEventListener("click", () => (playTimer ? stopPlay() : startPlay()));
+  $("bestSite").addEventListener("click", showBestSite);
 
   // mouse: drag to pan, click to select
   let down: { x: number; y: number; cx: number; cy: number } | null = null;
@@ -412,7 +430,8 @@ function setupUI() {
     else if (k === "arrowdown" || k === "s") cam.y += step;
     else if (k === "+" || k === "=") return setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() + 1);
     else if (k === "-" || k === "_") return setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() - 1);
-    else if (k === " ") { e.preventDefault(); nextSeason(); return; }
+    else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
+    else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k === "escape") { placing = false; ($<HTMLInputElement>("placing")).checked = false; }
     else return;
     clampCam();
@@ -448,14 +467,104 @@ function industryNote() {
 }
 
 function nextSeason() {
+  if (game.over) return;
   advanceTurn(game);
+  afterTurn();
+}
+
+function nextYear() {
+  if (game.over) return;
+  // play out the rest of this year and stop at next Spring; show every headline on the way in the log
+  do advanceTurn(game); while (!game.over && cal(game).season !== "Spring");
+  afterTurn();
+}
+
+function afterTurn() {
   afterChange();
   showNews();
+  if (game.over) { stopPlay(); showFinal(); }
+}
+
+function startPlay() {
+  if (game.over || playTimer) return;
+  // hold a little longer on seasons with a headline so it can be read
+  playTimer = window.setInterval(() => {
+    if (renderer.pending > 40) return;
+    if (!$("news").hidden && performance.now() - newsAt < 4000) return;
+    nextSeason();
+  }, 1500);
+  $("play").classList.add("on"); $("play").textContent = "⏸ Pause";
+}
+
+function stopPlay() {
+  if (playTimer) clearInterval(playTimer);
+  playTimer = 0;
+  $("play").classList.remove("on"); $("play").textContent = "⏵ Play";
+}
+
+function updateTimeControls() {
+  const over = !!game.over;
+  for (const id of ["next", "nextYear", "play"]) ($<HTMLButtonElement>(id)).disabled = over;
+  $("next").textContent = over ? "The end — 1985" : "Next season ▶";
+}
+
+/** jump to the best affordable site for the chosen industry (press again for the next one) */
+function showBestSite() {
+  const pSat = popSAT(map, game.world);
+  const fp = footprintTiles(map, industry);
+  const cands: { x: number; y: number; score: number }[] = [];
+  for (let y = 4; y < map.height - fp - 4; y += 5) for (let x = 4; x < map.width - fp - 4; x += 5) {
+    const r = evaluateSite(map, game.world, game.fields, industry, x, y, pSat);
+    if (r.ok && r.cost <= 100000) cands.push({ x, y, score: r.score });
+  }
+  cands.sort((a, b) => b.score - a.score);
+  const pick = cands.find((c) => siteTried.every((t) => Math.hypot(t.x - c.x, t.y - c.y) > 30));
+  if (!pick) { siteTried = []; return; }
+  siteTried.push(pick);
+  selected = { x: pick.x, y: pick.y };
+  centerOn(pick.x + fp / 2, pick.y + fp / 2, 1);
+  inspect();
+  requestRender();
+}
+
+function showFinal() {
+  const g = game, st = g.stats, c = g.company;
+  const pop = totalPopulation(g);
+  const rows: [string, string][] = [
+    ["Valley population, peak", `${fmt(st.peakPop)} (${st.peakPopYear})`],
+    ["Valley population, 1985", fmt(pop)],
+  ];
+  let verdict: string;
+  if (c) {
+    rows.unshift(
+      [c.name, `founded ${st.foundedYear ?? "?"}, ${INDUSTRIES[c.industry].startsAs.toLowerCase()}`],
+      ["Seasons in operation", fmt(c.seasonsOperating)],
+      ["Lifetime output", fmt(c.produced)],
+      ["Most workers", `${fmt(st.peakEmployees)} (${st.peakEmployeesYear})`],
+      ["Cash, peak", `${money(st.peakCash)} (${st.peakCashYear})`],
+      ["Cash, 1985", money(c.cash)],
+      ["Strikes", fmt(st.strikes)],
+    );
+    verdict = c.cash > 0
+      ? `${c.name} is still standing when the valley's great mills go quiet. Whether the town around it survives is another question.`
+      : `${c.name} did not outlast the collapse. The works stand cold beside the river.`;
+  } else verdict = "You never founded a company. The valley's story went on without you.";
+  $("final").innerHTML = `<div class="paper">
+    <div class="mast"><span>Pittsburgh Post-Gazette</span><span>Winter 1985</span></div>
+    <h3>The Mills Go Quiet</h3>
+    <p>${verdict}</p>
+    <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
+    <div class="actions"><button id="finalLook">Look around</button><button id="finalNew" class="primary">New town</button></div>
+  </div>`;
+  $("final").hidden = false;
+  $("finalLook").addEventListener("click", () => { $("final").hidden = true; });
+  $("finalNew").addEventListener("click", () => { newTown(Math.floor(Math.random() * 1e6)); showNews(); afterChange(); });
 }
 
 function afterChange() {
   drawMinimapBase();
   refreshPanels();
+  updateTimeControls();
   requestRender();
 }
 
@@ -470,7 +579,7 @@ Object.assign(window, {
     select: (x: number, y: number) => { selected = { x, y }; inspect(); requestRender(); },
     overlay: (id: OverlayId) => { (document.querySelector(`input[value="${id}"]`) as HTMLInputElement)?.click(); },
     industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); inspect(); requestRender(); },
-    next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterChange(); },
+    next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterTurn(); },
     found: (x: number, y: number, id: IndustryId = industry) => { const r = foundCompany(game, id, x, y); renderer.updateHeights(); afterChange(); return r; },
     library: () => { const r = fundLibrary(game); afterChange(); return r; },
     steps: () => { const r = buildSteps(game); afterChange(); return r; },

@@ -152,3 +152,33 @@ describe("events", () => {
     expect(g.log.some((l) => l.text.startsWith("Panic of 1857"))).toBe(true);
   }, 60000);
 });
+
+describe("time", () => {
+  it("grows the town every season, not just in Spring", () => {
+    const g = newGame(map, 11);
+    const pops = [totalPopulation(g)];
+    for (let t = 0; t < 4; t++) { advanceTurn(g); pops.push(totalPopulation(g)); }
+    for (let t = 1; t < pops.length; t++) expect(pops[t]).toBeGreaterThan(pops[t - 1] + 500);
+  }, 60000);
+
+  it("ends after Winter 1985 and stays ended", () => {
+    const g = newGame(map, 12);
+    g.turn = TOTAL_TURNS - 2; // Autumn 1985
+    g.world.year = 1985;
+    advanceTurn(g);
+    expect(calendar(g.turn)).toMatchObject({ year: 1985, season: "Winter" });
+    expect(g.over).toBeFalsy();
+    advanceTurn(g);
+    expect(g.over).toBe(true);
+    const t = g.turn;
+    advanceTurn(g);
+    expect(g.turn).toBe(t);
+  }, 60000);
+
+  it("indexes vector creeks and rails for smooth drawing", async () => {
+    const { lineIndex } = await import("../src/core/lines");
+    const idx = lineIndex(map);
+    expect(map.lines.creek.length).toBeGreaterThan(100);
+    expect([...idx.values()].some((l) => l.some((s) => s.kind === "rail"))).toBe(true);
+  });
+});

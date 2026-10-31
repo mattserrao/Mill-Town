@@ -54,6 +54,11 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Sound: procedural music by era and by the community in view (parlor, Irish, polka, csárdás, tamburitza,
      tarantella, klezmer, ragtime, swing, bebop, doo-wop, soul, funk, synth-pop, mill-closing elegy); ambient beds and
      one-shots mixed by zoom and what's on screen (mill, river, trains, whistles, bells, crowds, birds)
+   - Time: Next season / Next year / Play (auto-advance, holds on headlines); the town grows every season; the game ends
+     after Winter 1985 with a final newspaper summary (company record, peak and final valley population)
+   - Start: "Found your company" steps at the top of the panel, footprint shown under the cursor, "Show me a good site"
+   - Smooth lines: creeks and rail lines drawn from the source vectors; tile staircases chamfered on streets and
+     shorelines; bluffs blend into the woods
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
@@ -63,7 +68,7 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
 
 ## Known gaps in the current build
-- A screen of new chunks takes ~0.5–1 s to draw after a big jump or a turn (progressive); dirty-chunk tracking would cut that
+- A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
 - Economy numbers are first-pass placeholders
 - Event effects are first-pass; dates for some events are approximate
 - Music is generated, not composed: melodies are stylistically right but simple

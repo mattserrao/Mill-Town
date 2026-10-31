@@ -527,10 +527,22 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
 }
 
 /** Yearly regional growth: the city and the mill towns grow toward the historical population, up the hillsides. */
-export function growRegion(m: GameMap, w: World, plants: [number, number][], currentPop: number) {
-  const target = regionTarget(w.year);
-  const room = Math.round((target - currentPop) * 0.4);
-  if (room <= 0) return;
+/**
+ * Grow toward the census curve. Called every season (`season` 0–3) so the town fills in steadily;
+ * the slower civic work (steps, downtown, succession, churches) runs once a year, in Spring.
+ */
+export function growRegion(m: GameMap, w: World, plants: [number, number][], currentPop: number, season = 0) {
+  const target = regionTarget(w.year + (season + 1) / 4);
+  const room = Math.round((target - currentPop) * 0.12);
+  if (room > 0) growShares(m, w, plants, room, season);
+  if (season !== 0) return;
+  addSteps(m, w);
+  rebuildDowntown(m, w);
+  turnover(m, w);
+  communityBuildings(m, w);
+}
+
+function growShares(m: GameMap, w: World, plants: [number, number][], room: number, season: number) {
   const shares: { x: number; y: number; reach: number; weight: number; steep: boolean }[] = [];
   for (const h of HILLSIDES) {
     if (w.year < h.year) continue;
@@ -543,12 +555,8 @@ export function growRegion(m: GameMap, w: World, plants: [number, number][], cur
   const total = shares.reduce((a, s) => a + s.weight, 0);
   for (const s of shares) {
     const n = Math.round((room * s.weight) / total);
-    growAround(m, w, s.x, s.y, s.reach, n, { steep: s.steep, seed: w.seed + w.year, plants });
+    growAround(m, w, s.x, s.y, s.reach, n, { steep: s.steep, seed: w.seed + w.year * 4 + season, plants });
   }
-  addSteps(m, w);
-  rebuildDowntown(m, w);
-  turnover(m, w);
-  communityBuildings(m, w);
 }
 
 /**

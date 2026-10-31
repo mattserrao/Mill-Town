@@ -27,6 +27,8 @@ export interface MapMeta {
   railLines: Record<string, { name: string; year: number }>;
   bridges: Record<string, { id: number; street: string; name: string; year: number }>;
   spans?: Span[];
+  /** vector creeks and rail lines in tile coordinates, for smooth drawing */
+  lines?: { creek: number[][]; rail: { line: number; pts: number[] }[] };
   landmarks: Landmark[];
   wharves: string[];
   sources: string[];
@@ -65,6 +67,7 @@ export interface GameMap {
   railLines: MapMeta["railLines"];
   bridges: MapMeta["bridges"];
   spans: Span[];
+  lines: { creek: number[][]; rail: { line: number; pts: number[] }[] };
   landmarks: Landmark[];
   sources: string[];
   minHeight: number;
@@ -110,6 +113,7 @@ export function parseMap(meta: MapMeta, bin: Uint8Array): GameMap {
     railLines: meta.railLines,
     bridges: meta.bridges,
     spans: meta.spans ?? [],
+    lines: meta.lines ?? { creek: [], rail: [] },
     landmarks: meta.landmarks,
     sources: meta.sources,
     minHeight: 0,

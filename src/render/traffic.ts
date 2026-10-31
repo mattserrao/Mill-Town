@@ -2,6 +2,7 @@
 // the open rail lines; steamboats and towboats on the rivers; plus smoke haze, river spills and slag
 // pours from the works. A pool of agents lives around the camera; nothing is simulated off screen.
 
+import { snapToRail } from "../core/lines";
 import type { GameState } from "../core/game";
 import type { GameMap, Span } from "../core/map";
 import { Rng } from "../core/rng";
@@ -355,7 +356,9 @@ export class Traffic {
     for (let k = cars; k >= 0; k--) {
       const [fx, fy] = pts[k];
       const i = Math.round(fy) * this.m.width + Math.round(fx);
-      const [sx, sy] = S(fx + 0.5, fy + 0.5, this.height(i));
+      // ride the drawn (vector) track rather than the tile centres
+      const [px, py] = (this.m.terrain[i] !== Terrain.Water && snapToRail(this.m, fx + 0.5, fy + 0.5, this.deckYear)) || [fx + 0.5, fy + 0.5];
+      const [sx, sy] = S(px, py, this.height(i));
       const loco = k === 0;
       const col = loco ? "#1e1e22" : a.col;
       const w = 9 * z, h = 6 * z;

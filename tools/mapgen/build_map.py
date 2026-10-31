@@ -395,6 +395,27 @@ def main():
                 spans.append({"id": rid, "kind": "rail", "name": f"{lname} bridge", "stages": [{"year": lyear, "type": "truss"}],
                               "a": to_tile(*a), "b": to_tile(*b), "_mid": mid})
                 rid += 1
+    # ---------------------------------------------------------------- vector lines (drawn smooth by the renderer)
+    def tile_lines(geom, tol=0.12):
+        g = _shape(geom).simplify(tol * mpt)
+        out = []
+        for ln in (g.geoms if hasattr(g, "geoms") else [g]):
+            if ln.geom_type != "LineString" or ln.length < mpt * 0.5:
+                continue
+            pts = []
+            for e, nn in ln.coords:
+                tx, ty = to_tile(e, nn)
+                pts += [round(tx, 2), round(ty, 2)]
+            out.append(pts)
+        return out
+    vec_lines = {"creek": [], "rail": []}
+    for geom, _ in creek_shapes:
+        vec_lines["creek"] += tile_lines(geom)
+    for lid, geoms in rail_shapes.items():
+        for geom in geoms:
+            for pts in tile_lines(geom, 0.08):
+                vec_lines["rail"].append({"line": lid, "pts": pts})
+
     for sp in spans:
         sp.pop("_mid", None)
         sp["a"] = [round(sp["a"][0], 2), round(sp["a"][1], 2)]
@@ -461,6 +482,7 @@ def main():
         "railLines": {str(lid): {"name": nm, "year": yr} for (nm, yr), lid in line_ids.items()},
         "bridges": {str(k): v for k, v in bridge_meta.items()},
         "spans": spans,
+        "lines": vec_lines,
         "landmarks": lms,
         "wharves": [w[0] for w in WHARVES],
         "coalModel": COAL,

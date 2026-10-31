@@ -12,6 +12,7 @@ npm test           # core model tests
 ```
 
 ## Controls
+- Time: Space = next season, Shift+Space = next year, P = play/pause; the game ends after Winter 1985
 
 - Drag / WASD / arrows: pan · scroll, +/- keys or the on-screen ± buttons: zoom (trackpad-friendly) · click: inspect a tile · Space: next season
 - Overlays (left panel): elevation, terrain class, coal seam, rail & roads by year, population, land value, pollution, site scores per industry, ancestry
