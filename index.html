@@ -23,6 +23,7 @@
     </header>
     <main>
       <aside id="left">
+        <div id="leftScroll">
         <section id="foundSection" class="callout">
           <h2>Found your company</h2>
           <ol class="steps">
@@ -55,12 +56,13 @@
           <label>Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
           <p class="hint" id="nowPlaying">Music follows the era, the neighbourhood in view and how close you are.</p>
         </section>
+        </div>
+        <div id="news" hidden></div>
       </aside>
       <div id="viewport">
         <canvas id="view"></canvas>
         <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
         <div id="zoom" class="badge"></div>
-        <div id="news" hidden></div>
         <div id="final" hidden></div>
         <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button><button id="queryBtn" title="Query tool (Q): click a tile to inspect its building, objects, land and neighbourhood">?</button></div>
         <div id="query" hidden></div>
