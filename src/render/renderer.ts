@@ -34,7 +34,7 @@ export interface Marks {
 }
 
 const CS = 16;              // chunk size in tiles
-const PAD_TOP = 200;        // room for tall sprites (stacks, smoke, spires), zoom-1 px
+const PAD_TOP = 330;        // room for tall sprites (stacks, smoke, spires), zoom-1 px
 const PAD_X = 48;
 const BUDGET_PX = 48e6;     // cached chunk pixels
 const FRAME_MS = 28;        // raster budget per frame
@@ -532,6 +532,11 @@ export class Renderer {
         } else base = (_u, _v, _h, gx, gy) => (flooded && hash(gx >> 3, gy >> 2, 41) < 0.45 ? 0x4a6a80 : pick(PAL.yard, hash(gx, gy, 16)));
         break;
       }
+      case Use.Park: base = (u, v, _h, gx, gy) => {
+        const path = ((x + y) % 4 === 0 && Math.abs(u - v) < 0.07) || ((x - y + 400) % 4 === 0 && Math.abs(u + v - 1) < 0.07);
+        if (path) return hash(gx, gy, 44) < 0.3 ? 0xb8a888 : 0xc8b898;
+        return hash(gx >> 1, gy >> 1, 45) < 0.5 ? 0x7cb04c : 0x86b854;
+      }; break;
       case Use.Mine: base = (_u, _v, _h, gx, gy) => (hash(gx, gy, 42) < 0.5 ? 0x3a3630 : pick(PAL.woods, hash(gx >> 1, gy >> 1, 6))); break;
       case Use.Commerce: base = (_u, _v, _h, gx, gy) => pick(PAL.paved, hash(gx >> 1, gy, 43) * 0.5 + 0.2); break;
       case Use.Landmark: base = (_u, _v, _h, gx, gy) => pick(PAL.paved, hash(gx >> 1, gy, 17)); break;
@@ -584,11 +589,8 @@ export class Renderer {
         else if (dc < 0.1) c = 0x5e6a44;
       }
       if (incline >= 0) {
-        const [di, along] = lineDist(incline || 0xff, u, v);
-        if (di < 0.16) {
-          c = (Math.floor(along / 0.06) & 1) ? 0x5a4632 : 0x6e5a40; // timber trestle deck
-          if (Math.abs(di - 0.08) < pxu * 1.1) c = 0xa8a8b0;
-        }
+        const [di] = lineDist(incline || 0xff, u, v);
+        if (di < 0.22) c = hash(gx, gy, 46) < 0.5 ? 0x6a5e48 : 0x5e5440; // cleared right-of-way
       }
       if (w.street[i] && stairs) {
         // Pittsburgh city steps: concrete or timber treads with landings and pipe handrails
@@ -710,12 +712,15 @@ export class Renderer {
       case Use.Mine:
         out.push({ key: `mine:${Math.floor(n(12) * 2)}`, u: 0.5, v: 0.5 });
         break;
+      case Use.Park:
+        if (n(22) < 0.55) out.push({ key: `tree:${n(23) < 0.6 ? "oak" : "maple"}${Math.floor(n(24) * 3)}`, u: 0.25 + n(25) * 0.5, v: 0.25 + n(26) * 0.5 });
+        if (n(27) < 0.08) out.push({ key: "park:bandstand", u: 0.5, v: 0.5 });
+        break;
       case Use.Incline: {
         // stations at either end, a car part-way up
         let nb = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if ((dx || dy) && nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.use[ny * W + nx] === Use.Incline && w.sub[ny * W + nx] === sub) nb++; }
         if (nb <= 1) out.push({ key: "incline:station", u: 0.5, v: 0.5 });
-        else if (nb === 2 && n(13) < 0.07) out.push({ key: "incline:car", u: 0.5, v: 0.5 });
         break;
       }
       case Use.Landmark: {
@@ -766,6 +771,61 @@ export class Renderer {
     }
     if (out.length > 1) out.sort((a, b) => a.u + a.v - (b.u + b.v));
     return out;
+  }
+
+  // ------------------------------------------------------------ inclines (drawn live, cars run)
+  /** Timber trestle on a straight grade from foot to head, with two counterbalanced cars. */
+  drawInclines(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number) {
+    const m = this.map, z = cam.zoom;
+    const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (const inc of g.world.inclines) {
+      const path = inc.path;
+      if (path.length < 2) continue;
+      const [x0, y0] = path[0], [x1, y1] = path[path.length - 1];
+      const h0 = m.elevation[y0 * m.width + x0] + 2, h1 = m.elevation[y1 * m.width + x1] + 2;
+      const A = S(x0 + 0.5, y0 + 0.5, h0), B = S(x1 + 0.5, y1 + 0.5, h1);
+      if (Math.max(A[0], B[0]) < -50 || Math.min(A[0], B[0]) > ctx.canvas.width + 50 || Math.max(A[1], B[1]) < -50 || Math.min(A[1], B[1]) > ctx.canvas.height + 50) continue;
+      const N = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) * 3));
+      const deck = (k: number): [number, number, number, number, number] => {
+        const f = k / N;
+        const fx = x0 + 0.5 + (x1 - x0) * f, fy = y0 + 0.5 + (y1 - y0) * f;
+        const ground = m.elevation[Math.min(m.height - 1, Math.floor(fy)) * m.width + Math.min(m.width - 1, Math.floor(fx))];
+        const h = h0 + (h1 - h0) * f; // a straight grade: cuts through high ground, trestles over low
+        return [fx, fy, h, ground, f];
+      };
+      // trestle bents
+      ctx.strokeStyle = "#3e2e1e";
+      ctx.lineWidth = Math.max(1, 1.2 * z);
+      for (let k = 1; k < N; k += 2) {
+        const [fx, fy, h, ground] = deck(k);
+        if (h - ground < 1.5) continue;
+        const a = S(fx, fy, h), b = S(fx, fy, ground);
+        ctx.beginPath(); ctx.moveTo(a[0] - 3 * z, a[1]); ctx.lineTo(b[0] - 5 * z, b[1]); ctx.moveTo(a[0] + 3 * z, a[1]); ctx.lineTo(b[0] + 5 * z, b[1]);
+        ctx.moveTo(a[0] - 3 * z, (a[1] + b[1]) / 2); ctx.lineTo(a[0] + 3 * z, (a[1] + b[1]) / 2); ctx.stroke();
+      }
+      // deck and rails
+      const pts: [number, number][] = [];
+      for (let k = 0; k <= N; k++) { const [fx, fy, h] = deck(k); pts.push(S(fx, fy, h)); }
+      const stroke = (col: string, w: number, dy = 0) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); pts.forEach(([px, py], k) => (k ? ctx.lineTo(px, py + dy) : ctx.moveTo(px, py + dy))); ctx.stroke(); };
+      stroke("#3a2a1c", Math.max(3, 11 * z));
+      stroke("#6e5638", Math.max(2, 8 * z), -1 * z);
+      stroke("#8a7050", Math.max(1, 2 * z), -3 * z);
+      stroke("#b8b8c0", Math.max(1, 0.8 * z), -2 * z);
+      // two cars, counterbalanced
+      const ph = (Math.sin(t * 0.25 + inc.id) + 1) / 2;
+      for (const f of [ph, 1 - ph]) {
+        const k = f * N, k0 = Math.floor(k), k1 = Math.min(N, k0 + 1), r = k - k0;
+        const p0 = pts[k0], p1 = pts[k1];
+        const cx = p0[0] + (p1[0] - p0[0]) * r, cy = p0[1] + (p1[1] - p0[1]) * r;
+        const w = 9 * z, hh = 9 * z;
+        ctx.fillStyle = "#a8302a"; ctx.fillRect(cx - w / 2, cy - hh - 2 * z, w, hh);
+        ctx.fillStyle = "#6a1e1a"; ctx.fillRect(cx - w / 2, cy - hh - 3 * z, w, 1.5 * z);
+        ctx.fillStyle = "#f0e0b0"; ctx.fillRect(cx - w / 2 + 1.5 * z, cy - hh + 0.5 * z, w - 3 * z, 2.5 * z);
+      }
+    }
+    ctx.restore();
   }
 
   // ------------------------------------------------------------ animation layer
@@ -908,6 +968,10 @@ export class Renderer {
       const min = lm.kind === "town" ? 0 : lm.kind === "hill" ? 0.1875 : 0.5;
       if (lm.kind === "historic_site" && g.world.year < 1870) continue;
       items.push({ name: lm.name, x: lm.x + 0.5, y: lm.y + 0.5, col, min });
+    }
+    for (const inc of g.world.inclines) {
+      const mid = inc.path[Math.floor(inc.path.length / 2)];
+      items.push({ name: inc.name, x: mid[0] + 1.5, y: mid[1] + 0.5, col: "#ffb0a0", min: 0.5 });
     }
     for (const b of Object.values(m.bridges)) {
       if (b.year > g.world.year) continue;

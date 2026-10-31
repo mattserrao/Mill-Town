@@ -3,7 +3,7 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
-import { DIAMOND, HILLSIDES, INCLINES, latLonToTile, regionTarget, tileLine } from "./features";
+import { DIAMOND, HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { type GameMap, idx, inBounds, sat, satSum, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
@@ -24,26 +24,27 @@ export const enum Use {
   Commerce = 12, // shops, taverns, hotels, banks, market (sub)
   Mine = 13,     // drift mine with tipple
   Incline = 14,  // inclined plane railway (sub = incline id)
+  Park = 15,     // public park
 }
 
 /** sub-types: houses / rowhouses */
 export const enum HouseSub { Normal = 0, Estate = 1, Company = 2, Shanty = 3, Boarding = 4 }
 /** sub-types: commerce */
-export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5 }
+export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5, Warehouse = 6, Block = 7, Office = 8 }
 /** sub-types: civic */
 export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4 }
 
 export const USE_NAMES: Record<number, string> = {
   0: "Open land", 1: "Woods", 2: "Farm", 3: "Cottages", 4: "Frame houses", 5: "Brick rowhouses",
   6: "Church", 7: "Your works", 8: "Rival works", 9: "Wharf", 10: "Landmark", 11: "Bare rock",
-  12: "Business", 13: "Coal mine", 14: "Incline",
+  12: "Business", 13: "Coal mine", 14: "Incline", 15: "Park",
 };
 export const SUB_NAMES: Record<number, Record<number, string>> = {
   3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
   4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties" },
   5: { 4: "Boarding houses" },
   6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library" },
-  12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house" },
+  12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building" },
 };
 
 export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4 }
@@ -68,6 +69,23 @@ export const SETTLEMENTS_1850: { landmark: string; pop: number; reachM: number }
 
 export const POP_CAP = { cottage: 8, houses: 24, rowhouses: 70 };
 
+/**
+ * How dense a lot may get. Brick rowhouse blocks belong to the city cores (Pittsburgh, Allegheny,
+ * Birmingham) and the main streets; elsewhere — the mill towns, the outskirts — frame houses.
+ */
+export function densityCap(m: GameMap, w: World, i: number): number {
+  const x = i % m.width, y = (i / m.width) | 0;
+  for (const s of w.settlements) {
+    const core = s.name.startsWith("The Point") ? 60 : s.name === "Allegheny City" ? 45 : s.name.startsWith("Birmingham") ? 28 : 0;
+    if (core && Math.hypot(s.x - x, s.y - y) < core) return POP_CAP.rowhouses;
+  }
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx = x + dx, ny = y + dy;
+    if (inBounds(m, nx, ny) && w.street[ny * m.width + nx] === Street.Pike) return 48;
+  }
+  return POP_CAP.houses;
+}
+
 /** Hillside lots hold frame houses, not brick blocks: hillside 24 people, steep 14. */
 export function terrainCap(t: number): number {
   return t === Terrain.Steep ? 14 : t === Terrain.Slope ? POP_CAP.houses : POP_CAP.rowhouses;
@@ -86,6 +104,8 @@ export interface World {
   sub: Uint8Array;         // building sub-type (HouseSub / ShopSub / CivicSub / incline id)
   built: Uint16Array;      // year the current building went up (drives its architectural style)
   settlements: { name: string; x: number; y: number; pop: number }[];
+  /** inclines in service: tile path from the foot to the head */
+  inclines: { id: number; name: string; year: number; path: [number, number][] }[];
   /** bumped whenever tiles change, so renderers can drop caches */
   version: number;
 }
@@ -145,6 +165,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     sub: new Uint8Array(n),
     built: new Uint16Array(n),
     settlements: [],
+    inclines: [],
     version: 1,
   };
 
@@ -248,6 +269,19 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     w.use[i] = Use.Commerce;
     w.sub[i] = k < 0.36 ? ShopSub.Tavern : k < 0.78 ? ShopSub.Store : k < 0.92 || !pgh ? ShopSub.Hotel : ShopSub.Bank;
   }
+  // downtown: warehouses along the wharves, commercial blocks on the streets
+  {
+    const mask = downtownMask(m);
+    for (let i = 0; i < n; i++) {
+      if (!mask[i] || (w.use[i] !== Use.Rowhouses && w.use[i] !== Use.Houses)) continue;
+      const x = i % m.width, y = (i / m.width) | 0;
+      let wharf = false;
+      for (let dy = -4; dy <= 4 && !wharf; dy++) for (let dx = -4; dx <= 4; dx++) if (inBounds(m, x + dx, y + dy) && m.special[(y + dy) * m.width + x + dx] === 1) { wharf = true; break; }
+      const r = tileNoise(seed, x, y, 303);
+      if (wharf && r < 0.65) { w.use[i] = Use.Commerce; w.sub[i] = ShopSub.Warehouse; w.pop[i] = 0; }
+      else if (r < 0.22) { w.use[i] = Use.Commerce; w.sub[i] = ShopSub.Block; w.pop[i] = 0; }
+    }
+  }
   // market house on the Diamond
   {
     const [dx, dy] = latLonToTile(m, DIAMOND[0], DIAMOND[1]);
@@ -344,10 +378,25 @@ function snapHeight(m: GameMap, x: number, y: number, r: number, dir: number): [
 
 /** Inclines open in their year: track tiles from the river-level station up the bluff. */
 export function activateFeatures(m: GameMap, w: World) {
+  for (const pk of PARKS) {
+    if (pk.year !== w.year) continue;
+    const [cx, cy] = latLonToTile(m, pk.lat, pk.lon);
+    const r = pk.radiusM / m.metersPerTile;
+    for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+      if (!inBounds(m, x, y) || Math.hypot(x - cx, y - cy) > r * (0.85 + tileNoise(7, x >> 2, y >> 2, 9) * 0.3)) continue;
+      const i = y * m.width + x;
+      const u = w.use[i];
+      if (m.terrain[i] === Terrain.Water || w.street[i] || u === Use.Landmark || u === Use.Civic || u === Use.Industry || u === Use.Rival || u === Use.Incline || u === Use.Commerce) continue;
+      w.use[i] = Use.Park; w.pop[i] = 0; w.sub[i] = 0;
+    }
+    w.version++;
+  }
   for (const inc of INCLINES) {
     if (inc.year > w.year) continue;
+    if (w.inclines.some((r) => r.id === inc.id)) continue;
     const [x0, y0] = snapHeight(m, ...latLonToTile(m, inc.lower[0], inc.lower[1]), 12, -1);
     const [x1, y1] = snapHeight(m, ...latLonToTile(m, inc.upper[0], inc.upper[1]), 10, 1);
+    w.inclines.push({ id: inc.id, name: inc.name, year: inc.year, path: tileLine(x0, y0, x1, y1) });
     for (const [x, y] of tileLine(x0, y0, x1, y1)) {
       if (!inBounds(m, x, y)) continue;
       const i = y * m.width + x;
@@ -402,7 +451,7 @@ function lotOk(m: GameMap, w: World, i: number, steepOk: boolean) {
   const t = m.terrain[i];
   if (w.owner[i] || w.street[i] || m.road[i] && !steepOk) return false;
   const u = w.use[i];
-  if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Mine || u === Use.Incline || u === Use.Industry || u === Use.Rival) return false;
+  if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Mine || u === Use.Incline || u === Use.Industry || u === Use.Rival || u === Use.Park) return false;
   if (m.road[i]) return false;
   return habitable(t) || (steepOk && t === Terrain.Steep);
 }
@@ -426,13 +475,14 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
   for (let y = Math.max(0, cy - R); y <= Math.min(m.height - 1, cy + R); y++) for (let x = Math.max(0, cx - R); x <= Math.min(m.width - 1, cx + R); x++) {
     const i = y * m.width + x;
     if (!isFinite(field[i]) || !lotOk(m, w, i, opts.steep)) continue;
-    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]));
+    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]), densityCap(m, w, i));
     if (w.pop[i] >= cap) continue;
     const onStreet = nearRoad(x, y);
     if (!onStreet && w.pop[i] === 0) continue; // houses front onto streets
     // hillsides keep wooded ravines and gaps between the terraces
     const t = m.terrain[i];
     if (w.pop[i] === 0 && (t === Terrain.Steep || t === Terrain.Slope) && valueNoise(opts.seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) continue;
+    if (w.pop[i] === 0 && tileNoise(w.seed, x, y, 613) < 0.1) continue; // gardens, vacant lots, alleys
     const steepPenalty = m.terrain[i] === Terrain.Steep ? 2 : m.terrain[i] === Terrain.Slope ? 0.8 : 0;
     cands.push({ i, s: field[i] + steepPenalty + tileNoise(opts.seed, x, y, 611) * 4 - (w.pop[i] > 0 ? 3 : 0) });
   }
@@ -440,7 +490,7 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
   let left = count;
   for (const { i } of cands) {
     if (left <= 0) break;
-    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]));
+    const cap = Math.min(opts.cap ?? POP_CAP.rowhouses, terrainCap(m.terrain[i]), densityCap(m, w, i));
     const fresh = w.pop[i] === 0;
     const add = Math.min(cap - w.pop[i], left, fresh ? 18 : 10);
     if (add <= 0) continue;
@@ -461,7 +511,7 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
 /** Yearly regional growth: the city and the mill towns grow toward the historical population, up the hillsides. */
 export function growRegion(m: GameMap, w: World, plants: [number, number][], currentPop: number) {
   const target = regionTarget(w.year);
-  const room = Math.round((target - currentPop) * 0.6);
+  const room = Math.round((target - currentPop) * 0.4);
   if (room <= 0) return;
   const shares: { x: number; y: number; reach: number; weight: number; steep: boolean }[] = [];
   for (const h of HILLSIDES) {
@@ -471,13 +521,79 @@ export function growRegion(m: GameMap, w: World, plants: [number, number][], cur
     shares.push({ x, y, reach: (h.radiusM / m.metersPerTile) * 1.8, weight: h.weight * ramp * 1.6, steep: true });
   }
   for (const s of w.settlements) shares.push({ x: s.x, y: s.y, reach: 70, weight: s.pop > 5000 ? 1.2 : 0.35, steep: false });
-  for (const [x, y] of plants) shares.push({ x: Math.round(x), y: Math.round(y), reach: 60, weight: 1.0, steep: w.year >= 1880 });
+  for (const [x, y] of plants) shares.push({ x: Math.round(x), y: Math.round(y), reach: 90, weight: 0.7, steep: w.year >= 1880 });
   const total = shares.reduce((a, s) => a + s.weight, 0);
   for (const s of shares) {
     const n = Math.round((room * s.weight) / total);
     growAround(m, w, s.x, s.y, s.reach, n, { steep: s.steep, seed: w.seed + w.year, plants });
   }
   addSteps(m, w);
+  rebuildDowntown(m, w);
+}
+
+// ---------------------------------------------------------------- downtown
+
+let downtownCache: { m: GameMap; mask: Uint8Array } | null = null;
+
+/** Flat land on the Point side of the rivers within ~1.6 km of the Point: the commercial core. */
+export function downtownMask(m: GameMap): Uint8Array {
+  if (downtownCache?.m === m) return downtownCache.mask;
+  const mask = new Uint8Array(m.width * m.height);
+  const p = m.landmarks.find((l) => l.name.startsWith("The Point"));
+  if (p) {
+    const q = [p.y * m.width + p.x];
+    mask[q[0]] = 1;
+    while (q.length) {
+      const i = q.pop()!;
+      const x = i % m.width, y = (i / m.width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(m, nx, ny) || Math.hypot(nx - p.x, ny - p.y) > 55) continue;
+        const j = ny * m.width + nx;
+        const t = m.terrain[j];
+        if (mask[j] || !(t === Terrain.Flat || t === Terrain.Floodplain)) continue;
+        mask[j] = 1;
+        q.push(j);
+      }
+    }
+  }
+  downtownCache = { m, mask };
+  return mask;
+}
+
+/** Downtown turns over: rowhouses give way to commercial blocks, then office buildings that grow taller by era. */
+export function rebuildDowntown(m: GameMap, w: World) {
+  if (w.year < 1855) return;
+  const mask = downtownMask(m);
+  const p = m.landmarks.find((l) => l.name.startsWith("The Point"))!;
+  const rng = new Rng(`${w.seed}:dt:${w.year}`);
+  let changed = 0;
+  // the skyline grows slowly: ~1 office building per 2 years from 1880, then faster after 1945
+  let offices = 0;
+  for (let i = 0; i < mask.length; i++) if (mask[i] && w.use[i] === Use.Commerce && w.sub[i] === ShopSub.Office) offices++;
+  const officeCap = w.year < 1880 ? 0 : Math.round((Math.min(w.year, 1945) - 1880) * 0.5 + Math.max(0, w.year - 1945) * 0.8);
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    const u = w.use[i];
+    if (u !== Use.Rowhouses && u !== Use.Commerce) continue;
+    if (u === Use.Commerce && (w.sub[i] === ShopSub.Market || w.sub[i] === ShopSub.Bank)) continue;
+    const x = i % m.width, y = (i / m.width) | 0;
+    const near = 1 - Math.hypot(x - p.x, y - p.y) / 55;
+    if (tileNoise(w.seed, x, y, 801) > 0.25 + near * 0.5) continue; // some blocks stay residential
+    let street = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) street = true;
+    if (!street) continue;
+    const age = w.year - (w.built[i] || 1850);
+    const office = w.year >= 1880 && near > 0.4 && offices < officeCap;
+    const want = office ? ShopSub.Office : ShopSub.Block;
+    if (u === Use.Commerce && w.sub[i] === want && age < 35) continue;
+    if (u === Use.Commerce && w.sub[i] === ShopSub.Office && age < 45) continue;
+    if (!rng.chance(office ? 0.01 + near * 0.02 : 0.02)) continue;
+    if (want === ShopSub.Office && !(u === Use.Commerce && w.sub[i] === ShopSub.Office)) offices++;
+    w.use[i] = Use.Commerce; w.sub[i] = want; w.pop[i] = 0; w.built[i] = w.year;
+    changed++;
+  }
+  if (changed) w.version++;
 }
 
 /**

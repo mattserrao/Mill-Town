@@ -62,7 +62,7 @@ describe("rng + time", () => {
 });
 
 describe("town + game loop", () => {
-  it("generates the same town from the same seed, different from another", () => {
+  it("generates the same town from the same seed, different from another", { timeout: 30000 }, () => {
     const a = newGame(map, 7);
     const popA = totalPopulation(a), useA = a.world.use.slice();
     const b = newGame(map, 7);

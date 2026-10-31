@@ -331,7 +331,7 @@ function detachedHouse(p: Painter, s: HouseSpec, a0: number, a1: number, z0: num
 }
 
 function houseSprite(s0: HouseSpec): Sprite {
-  const p = new Painter(1, 190);
+  const p = new Painter(1, s0.kind === "shop" && s0.sub === 8 ? 340 : 190);
   if (s0.kind === "row") return rowSprite(s0, p);
   const s = prepareLot(p, s0);
   const f = frame(s);
@@ -449,8 +449,11 @@ function logCabin(p: Painter, s: HouseSpec, z0: number, fnd: number) {
 function rowSprite(s: HouseSpec, p: Painter): Sprite {
   const f = frame(s);
   const st = s.style;
-  const n = st >= 2 ? 4 : 5;
-  const depth = 0.44;
+  // 3-5 units; some blocks end short with a side alley or garden
+  const n = 3 + Math.floor(rnd(s, 1) * 3);
+  const span = !s.corner && rnd(s, 2) < 0.3 ? 0.78 : 1;
+  const blockBrick = BRICK[Math.floor(rnd(s, 3) * BRICK.length)];
+  const depth = 0.36 + rnd(s, 4) * 0.12;
   const back = f.backFace !== null;
   const relief = Math.max(...s.g) - Math.min(...s.g);
   const steep = relief >= TERRACE_PX;
@@ -474,12 +477,12 @@ function rowSprite(s: HouseSpec, p: Painter): Sprite {
   // the yard is behind the row when the street is in front, in front of it when the street is behind
   if (!back) drawYard();
   for (let k = 0; k < n; k++) {
-    const a0 = k / n, a1 = (k + 1) / n;
+    const a0 = (k / n) * span, a1 = ((k + 1) / n) * span;
     const { fl, lo, r } = unitFloor(a0, a1);
     if (steep) terrace(p, s, f.rect(a0, a1, -0.01, depth + 0.03), fl, "#7a7064");
     const stories = Math.min(4, (st === 0 ? 2 : st === 1 ? 3 : st === 2 ? 3 : 2) + (rnd(s, 40 + k) < 0.2 ? 1 : 0) - (rnd(s, 50 + k) < 0.15 ? 1 : 0));
     const h = stories * 9 + 2;
-    const brick = BRICK[Math.floor(rnd(s, 60 + k) * BRICK.length)];
+    const brick = rnd(s, 60 + k) < 0.75 ? blockBrick : BRICK[Math.floor(rnd(s, 61 + k) * BRICK.length)];
     const wall = st === 2 && rnd(s, 70 + k) < 0.3 ? CLAP_BY_STYLE[2][(s.v + k) % 6] : brick;
     const b = box(p, r[0], r[1], r[2], r[3], h, { wall, z0: fl, foundation: Math.max(2, fl - lo + 2), fnd: "#8a8070" });
     const roof = ROOF[(s.v + k) % ROOF.length];
@@ -504,6 +507,12 @@ function rowSprite(s: HouseSpec, p: Painter): Sprite {
       shedRoof(p, ell, 2, "#3e3a38");
     }
     if (k === n - 1 || steep || rnd(s, 95 + k) < 0.3) facade(p, b, f.sideFace, { n: 1, stories, storyH: 9, style: st, boarded: s.boarded });
+    // painted advertisement on the end wall
+    if (k === n - 1 && span < 1 && stories >= 3 && rnd(s, 99) < 0.5) {
+      const a = f.sideFace === "left" ? b.D(fl + 14) : b.C(fl + 14), c = f.sideFace === "left" ? b.C(fl + 14) : b.B(fl + 14);
+      p.poly([a, c, [c[0], c[1] - 8], [a[0], a[1] - 8]], ["#d8c890", "#c8d0d8", "#e0b8a0"][s.v % 3]);
+      p.line([a[0] + 1, a[1] - 5], [c[0] - 1, c[1] - 5], "#5a2a24");
+    }
   }
   if (back) drawYard();
   if (f.streetFace && st <= 2) { const q = f.pt(p, 0.02, -0.02, gz(s, 0.02, 0.98)); p.px(q[0], q[1] - 9, "#2a2a2a", 1, 9); p.px(q[0] - 1, q[1] - 11, "#e8d080", 3, 2); }
@@ -564,6 +573,86 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
         p.line([a[0], a[1] - 26], [c[0], c[1] - 26], "#b8b098");
       }
       facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: 11, style: 1, tall: true, boarded: s.boarded });
+      break;
+    }
+    case 6: { // riverfront warehouse: tall plain brick, loading doors stacked, hoist beam, painted name
+      const [u0, v0, u1, v1] = f.rect(0.02, 0.98, 0.02, 0.8);
+      const stories = 4 + (s.v % 2);
+      const H = stories * 9 + 2;
+      const brick = BRICK[(s.v + 4) % 6];
+      const b = box(p, u0, v0, u1, v1, H, { wall: brick, z0, foundation: s.fnd, fnd: "#7a7064" });
+      gable(p, b, f.across, 6, "#3e3a38");
+      for (const fc of [face, f.sideFace]) facade(p, b, fc, { n: 5, stories, storyH: 9, style: 0, boarded: s.boarded, dark: "#3a2a22" });
+      const a = face === "left" ? b.D(z0) : b.C(z0), c = face === "left" ? b.C(z0) : b.B(z0);
+      const [x, y] = lerp(a, c, 0.5);
+      for (let k = 0; k < stories; k++) p.px(x - 2, y - 7 - k * 9, s.boarded ? "#5a4028" : "#5a3a24", 4, 6);
+      p.px(x - 1, y - H - 3, "#3a2a1a", 2, 3); p.line([x, y - H], [x, y - H + 10], "#2a2a2a");
+      const [sx, sy] = lerp(a, c, 0.25); p.px(sx - 6, sy - H + 4, "#e8e0c8", 12, 3);
+      for (let k = 0; k < 3; k++) box(p, ...f.rect(0.1 + k * 0.12, 0.18 + k * 0.12, -0.08, -0.01), 4, { wall: "#9a7a4a", top: "#b8965e", z0 });
+      break;
+    }
+    case 7: { // commercial block: cast-iron storefronts, 3-4 storeys, bracketed cornice
+      const [u0, v0, u1, v1] = f.rect(0.0, 1.0, 0.02, 0.6);
+      const stories = 3 + (s.v % 2) + (st >= 2 ? 1 : 0);
+      const H = stories * 9 + 3;
+      const wall = st >= 2 ? ["#c8b898", "#b8a888", "#d0c4a8"][s.v % 3] : BRICK[(s.v + 2) % 6];
+      const b = box(p, u0, v0, u1, v1, H, { wall, z0, foundation: s.fnd, top: "#3a3432" });
+      cornice(p, b, face, st >= 2 ? "#a89878" : "#4a3a32");
+      cornice(p, b, f.sideFace, st >= 2 ? "#a89878" : "#4a3a32");
+      facade(p, b, face, { n: 6, stories, storyH: 9, style: Math.max(1, st), boarded: s.boarded, shop: AWNING[s.v % 4], tall: true });
+      facade(p, b, f.sideFace, { n: 3, stories, storyH: 9, style: Math.max(1, st), boarded: s.boarded, tall: true });
+      const a = face === "left" ? b.D(z0) : b.C(z0), c = face === "left" ? b.C(z0) : b.B(z0);
+      for (let k = 0; k <= 6; k++) { const [x, y] = lerp(a, c, k / 6); p.px(x, y - 9, "#2e3a3e", 1, 9); } // iron pilasters
+      for (const t of [0.2, 0.75]) { const [x, y] = lerp(a, c, t); p.px(x - 3, y - 12, "#3d5a6a", 7, 5); }
+      break;
+    }
+    case 8: { // office building: height and style by era
+      const tier = st <= 1 ? 0 : st === 2 ? 1 : st === 3 ? 2 : 3;
+      const stories = [8, 14, 24, 20][tier] + (s.v % 3) * [1, 2, 3, 2][tier];
+      const H = stories * 8;
+      const fl = s.fnd;
+      if (tier === 0) { // Romanesque: rough stone base, brick shaft, hip roof with turret
+        const [u0, v0, u1, v1] = f.rect(0.04, 0.96, 0.04, 0.9);
+        const base = box(p, u0, v0, u1, v1, 16, { wall: "#9a7a62", z0, foundation: fl });
+        void base;
+        const b = box(p, u0, v0, u1, v1, H - 16, { wall: BRICK[s.v % 6], z0: z0 + 16 });
+        hip(p, b, 12, "#4a4a50");
+        for (const fc of [face, f.sideFace]) facade(p, { ...b, z0: z0 + 16 }, fc, { n: 6, stories: stories - 2, storyH: 8, style: 1, tall: true });
+        for (const fc of [face, f.sideFace]) facade(p, { ...b, z0 }, fc, { n: 3, stories: 1, storyH: 8, style: 1, tall: true, door: 1 });
+      } else if (tier === 1) { // early skyscraper: stone base, buff brick shaft, heavy cornice
+        const [u0, v0, u1, v1] = f.rect(0.04, 0.96, 0.04, 0.96);
+        const b = box(p, u0, v0, u1, v1, H, { wall: ["#d8c8a0", "#c8b088", "#e0d8c0"][s.v % 3], z0, foundation: fl, top: "#4a4440" });
+        box(p, u0, v0, u1, v1, 18, { wall: "#b8a888", z0 });
+        for (const fc of [face, f.sideFace]) facade(p, b, fc, { n: 8, stories, storyH: 8, style: 2, tall: true });
+        cornice(p, b, face, "#8a7a5a"); cornice(p, b, f.sideFace, "#8a7a5a");
+        const tb = box(p, u0 + 0.06, v0 + 0.06, u1 - 0.06, v1 - 0.06, 6, { wall: "#c8b898", z0: z0 + H, top: "#5a5450" });
+        void tb;
+      } else if (tier === 2) { // Art Deco: setbacks, vertical piers, lantern top
+        let z = z0, w0 = 0.04, k = 0;
+        const parts = [0.55, 0.3, 0.15];
+        const col = ["#d8d0b8", "#c8c0a8", "#e0d8c8"][s.v % 3];
+        for (const share of parts) {
+          const h = Math.round(H * share);
+          const [u0, v0, u1, v1] = f.rect(w0, 1 - w0, w0, 1 - w0);
+          const b = box(p, u0, v0, u1, v1, h, { wall: col, z0: z, foundation: k === 0 ? fl : 0, top: "#9a9488" });
+          const a = b.D(z), c = b.C(z), c2 = b.B(z);
+          const piers = 8 - k * 2;
+          for (let j = 0; j <= piers; j++) { const [x1, y1] = lerp(a, c, j / piers); p.px(x1, y1 - h, shade(col, 0.75), 1, h); const [x2, y2] = lerp(c, c2, j / piers); p.px(x2, y2 - h, shade(col, 0.6), 1, h); }
+          for (const fc of ["left", "right"] as const) facade(p, b, fc, { n: piers, stories: Math.floor(h / 8), storyH: 8, style: 3, tall: true, dark: "#3a4a5a" });
+          z += h; w0 += 0.12; k++;
+        }
+        const [tx, ty] = p.P(0.5, 0.5, z); p.px(tx - 1, ty - 14, "#c9b26a", 3, 14);
+      } else { // postwar: stainless and glass slab
+        const [u0, v0, u1, v1] = f.rect(0.08, 0.92, 0.2, 0.8);
+        const b = box(p, u0, v0, u1, v1, H, { wall: "#7a9aaa", wallR: "#5a7a8a", z0, foundation: fl, top: "#8a9098" });
+        for (const [a, c] of [[b.D(z0), b.C(z0)], [b.C(z0), b.B(z0)]] as [Pt, Pt][]) {
+          for (let z = 4; z < H; z += 4) p.line([a[0], a[1] - z], [c[0], c[1] - z], "#c8d4dc");
+          for (let j = 0; j <= 10; j++) { const [x, y] = lerp(a, c, j / 10); p.px(x, y - H, "#b8c0c8", 1, H); }
+        }
+        // plaza
+        const pl = f.rect(0.0, 1.0, 0.0, 0.18);
+        p.poly([p.P(pl[0], pl[1], z0), p.P(pl[2], pl[1], z0), p.P(pl[2], pl[3], z0), p.P(pl[0], pl[3], z0)], "#c8c4bc");
+      }
       break;
     }
     case 5: { // market house: long open hall on columns, stalls under

@@ -477,6 +477,16 @@ function inclineCar(): Sprite {
   return p.sprite();
 }
 
+function bandstand(): Sprite {
+  const p = new Painter(1, 90);
+  cylinder(p, 0.5, 0.5, 0.3, 0, 3, "#d8d0bc", "#c8c0a8");
+  for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2; if (Math.sin(a) + Math.cos(a) > -0.6) { const [x, y] = p.P(0.5 + Math.cos(a) * 0.26, 0.5 + Math.sin(a) * 0.26, 3); p.px(x, y - 12, "#efe9da", 1, 12); } }
+  const top = p.P(0.5, 0.5, 26);
+  for (let k = 0; k < 12; k++) { const r = 0.32 * (1 - k / 12); cylinder(p, 0.5, 0.5, r, 15 + k, 1, k % 2 ? "#3e6a4a" : "#4e7a5a", "#5a8a6a"); }
+  p.px(top[0], top[1] - 3, "#c9b26a", 1, 3);
+  return p.sprite();
+}
+
 function lamp(kind: "gas" | "elec"): Sprite {
   const p = new Painter(1, 70);
   const [x, y] = p.P(0.12, 0.12);
@@ -512,6 +522,7 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   for (let v = 0; v < 2; v++) s.set(`mine:${v}`, mine(v));
   s.set("incline:station", inclineStation());
   s.set("incline:car", inclineCar());
+  s.set("park:bandstand", bandstand());
   s.set("lamp:gas", lamp("gas"));
   s.set("lamp:elec", lamp("elec"));
   return s;

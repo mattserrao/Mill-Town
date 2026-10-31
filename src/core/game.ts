@@ -8,8 +8,8 @@ import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { calendar, SEASON_EFFECTS, type Calendar } from "./time";
-import { activateFeatures, activateStreets, addSteps, CivicSub, terrainCap, generateTown, growRegion, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, walkField, WALK_MIN_PER_COST, type World } from "./town";
-import { HILLSIDES, INCLINES, tileLine } from "./features";
+import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, growRegion, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, walkField, WALK_MIN_PER_COST, type World } from "./town";
+import { HILLSIDES, INCLINES, PARKS, tileLine } from "./features";
 
 export type RiverSide = "N" | "S" | "E" | "W";
 export type PlantStatus = "running" | "idle" | "strike" | "flooded";
@@ -163,38 +163,45 @@ export function buildIncline(g: GameState): { ok: boolean; reason?: string } {
   const { map: m, world: w } = g;
   if (!g.access) updateAccess(g);
   const cx = c.x + (c.footprint >> 1), cy = c.y + (c.footprint >> 1);
-  // foot: a street close to the works; head: hillside houses up to ~450 m away that are a long walk now
+  // foot: a street close to the works; head: hillside houses up to ~1 km away that are a long walk now
   let bottom = -1, top = -1, best = -Infinity, bd = 0;
+  const MAXL = 22; // ~650 m: as long as Pittsburgh's longest inclines
   for (let y = cy - 45; y <= cy + 45; y += 2) for (let x = cx - 45; x <= cx + 45; x += 2) {
     if (!inBounds(m, x, y)) continue;
     const b = y * m.width + x;
     if (!w.street[b] || w.street[b] === Street.Steps || w.street[b] === Street.Bridge || walkMinutes(g, b) > 15) continue;
-    for (let ty = y - 15; ty <= y + 15; ty++) for (let tx = x - 15; tx <= x + 15; tx++) {
+    for (let ty = y - MAXL; ty <= y + MAXL; ty += 2) for (let tx = x - MAXL; tx <= x + MAXL; tx += 2) {
       if (!inBounds(m, tx, ty)) continue;
       const t = ty * m.width + tx;
       const len = Math.hypot(tx - x, ty - y);
-      if (!w.pop[t] || len < 4 || len > 15 || w.use[t] === Use.Incline) continue;
+      if (!w.pop[t] || len < 5 || len > MAXL || w.use[t] === Use.Incline) continue;
       const rise = m.elevation[t] - m.elevation[b];
-      if (rise < 30) continue;
-      const saving = Math.min(90, walkMinutes(g, t)) - (walkMinutes(g, b) + len * 0.6);
-      const score = saving + rise * 0.1 - len;
-      if (score <= best) continue;
+      if (rise < 35) continue;
+      // houses served: populated tiles within 6 tiles of the head
+      let served = 0;
+      for (let dy = -6; dy <= 6; dy += 2) for (let dx = -6; dx <= 6; dx += 2) if (inBounds(m, tx + dx, ty + dy)) served += w.pop[(ty + dy) * m.width + tx + dx];
+      const saving = Math.min(90, walkMinutes(g, t)) - (walkMinutes(g, b) + len * 0.15);
+      const score = saving * Math.sqrt(served + 1) * 0.2 + rise * 0.1 - len * 0.3;
+      if (score <= best || saving < 8) continue;
       const line = tileLine(x, y, tx, ty);
-      if (line.some(([lx, ly]) => { const j = ly * m.width + lx; const u = w.use[j]; return m.terrain[j] === Terrain.Water || u === Use.Industry || u === Use.Rival || u === Use.Civic || u === Use.Landmark || u === Use.Incline; })) continue;
+      if (line.some(([lx, ly]) => { const j = ly * m.width + lx; const u = w.use[j]; return m.terrain[j] === Terrain.Water || u === Use.Industry || u === Use.Rival || u === Use.Civic || u === Use.Landmark || u === Use.Incline || u === Use.Commerce; })) continue;
       best = score; bottom = b; top = t; bd = len;
     }
   }
-  if (top < 0 || best < 5) return { ok: false, reason: "No hillside houses above the works that an incline would bring closer" };
+  if (top < 0) return { ok: false, reason: "No hillside houses above the works that an incline would bring closer" };
   const tx = top % m.width, ty = (top / m.width) | 0;
   const id = 100 + g.inclinesBuilt++;
-  for (const [x, y] of tileLine(bottom % m.width, (bottom / m.width) | 0, tx, ty)) {
+  const path = tileLine(bottom % m.width, (bottom / m.width) | 0, tx, ty);
+  const name = `${c.name.replace(/ Co\.$/, "")} Incline${g.inclinesBuilt > 1 ? ` No. ${g.inclinesBuilt}` : ""}`;
+  w.inclines.push({ id, name, year: cal(g).year, path });
+  for (const [x, y] of path) {
     const i = y * m.width + x;
     w.use[i] = Use.Incline; w.sub[i] = id; w.pop[i] = 0; w.street[i] = 0; w.built[i] = cal(g).year;
   }
   w.version++;
   c.cash -= INCLINE_COST;
   updateAccess(g);
-  log(g, `${c.name} opens an incline up the hill, ${(bd * m.metersPerTile).toFixed(0)} m long.`);
+  log(g, `${c.name} opens the ${name}, ${(bd * m.metersPerTile).toFixed(0)} m up the hill.`);
   return { ok: true };
 }
 
@@ -323,6 +330,7 @@ export function advanceTurn(g: GameState): void {
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
+    for (const pk of PARKS) if (pk.year === c1.year) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     updateAccess(g);
   }
@@ -445,7 +453,7 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
     const i = y * m.width + x;
     if (w.owner[i] || w.street[i] || !habitable(m.terrain[i])) continue;
     const u = w.use[i];
-    if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf) continue;
+    if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Park || u === Use.Incline || u === Use.Mine) continue;
     // prefer lots on today's street grid (where the real town grew)
     const streetBonus = m.road[i] ? 6 : nearStreet(g, x, y) ? -3 : 4;
     cands.push({ i, d: Math.hypot(x - cx, y - cy) + (m.terrain[i] === Terrain.Slope ? 4 : 0) + streetBonus });
@@ -454,7 +462,7 @@ function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: 
   let left = count;
   for (const { i } of cands) {
     if (left <= 0) break;
-    const room = Math.min(capFor(w.sub[i]), terrainCap(m.terrain[i])) - w.pop[i];
+    const room = Math.min(capFor(w.sub[i]), terrainCap(m.terrain[i]), densityCap(m, w, i)) - w.pop[i];
     if (room <= 0) continue;
     const add = Math.min(room, left, 12);
     const fresh = w.pop[i] === 0;
@@ -507,7 +515,7 @@ function naturalGrowth(g: GameState, rng: Rng) {
   }
   for (let k = 0; k < 3000; k++) {
     const i = rng.int(0, n - 1);
-    const cap = Math.min(capFor(w.sub[i]), terrainCap(g.map.terrain[i]));
+    const cap = Math.min(capFor(w.sub[i]), terrainCap(g.map.terrain[i]), densityCap(g.map, w, i));
     if (w.pop[i] > 0 && w.pop[i] < cap && (w.use[i] >= Use.Cottage && w.use[i] <= Use.Rowhouses)) {
       w.pop[i] = Math.min(cap, Math.ceil(w.pop[i] * 1.05));
       w.use[i] = useForPop(w.pop[i]);

@@ -118,6 +118,7 @@ function requestRender() {
       { hover, selected, footprint: fp, labels: $<HTMLInputElement>("labels").checked });
     const t = (now - t0) / 1000;
     const night = nightLevel(t);
+    if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, ($<HTMLInputElement>("animate")).checked ? t : 0);
     if (($<HTMLInputElement>("animate")).checked || night > 0) renderer.drawAnimated(ctx, cam, game, ($<HTMLInputElement>("animate")).checked ? t : 0, night);
     drawMinimapView();
     $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;

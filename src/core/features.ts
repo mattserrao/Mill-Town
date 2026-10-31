@@ -15,6 +15,13 @@ export const INCLINES: Incline[] = [
   { id: 7, name: "Knoxville Incline", year: 1890, lower: [40.4245, -79.9915], upper: [40.4195, -79.9905] },
 ];
 
+/** Public parks, laid out in their year (approximate centre and extent). */
+export const PARKS: { name: string; lat: number; lon: number; radiusM: number; year: number }[] = [
+  { name: "Allegheny Commons", lat: 40.4528, lon: -80.0072, radiusM: 330, year: 1867 },
+  { name: "Schenley Park", lat: 40.4345, lon: -79.9455, radiusM: 850, year: 1889 },
+  { name: "Frick Park", lat: 40.4330, lon: -79.9060, radiusM: 650, year: 1927 },
+];
+
 /** The Diamond (Market Square), site of the market house */
 export const DIAMOND: [number, number] = [40.4407, -80.0024];
 

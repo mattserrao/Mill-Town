@@ -37,6 +37,10 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      Greenfield, the mill-town hilltops) fill in on their historical timing as the region grows; rowhouses step
      down the slope, lots are cut into terraces with stone retaining walls, public steps link streets, seven real
      inclines open on their dates; labor is weighted by walking time; players can build steps and inclines
+   - Town texture: brick rowhouse blocks only in the city cores and along main streets, frame houses elsewhere;
+     gardens and vacant lots; varied rows (3–5 units, side alleys, painted ads); downtown warehouses and commercial
+     blocks, with a skyline that grows by era (Romanesque → early skyscrapers → Art Deco → postwar glass);
+     parks (Allegheny Commons 1867, Schenley 1889, Frick 1927); inclines drawn as trestles with moving cars
    - Animation: smoke and steam, furnace glow and flame, day/night with lit windows and lamps; strikes, floods, idle
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
