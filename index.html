@@ -27,7 +27,7 @@
           <h2>View</h2>
           <label><input type="checkbox" id="labels" checked /> Place names</label>
           <label><input type="checkbox" id="grid" /> Grid</label>
-          <p class="hint">Drag or WASD/arrows to pan · wheel or +/- to zoom · click a tile to inspect</p>
+          <p class="hint">Drag or WASD/arrows to pan · scroll, +/- or the ± buttons to zoom · click a tile to inspect</p>
         </section>
         <section>
           <h2>Found a company</h2>
@@ -40,6 +40,7 @@
         <canvas id="view"></canvas>
         <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
         <div id="zoom" class="badge"></div>
+        <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button></div>
       </div>
       <aside id="right">
         <section>

@@ -1,50 +1,47 @@
 # Map builder
 
-Builds `public/maps/mon-valley.json` from real USGS data.
+Builds `public/maps/mon-valley.json` + `mon-valley.bin` from real USGS data.
 
 ## Data (public domain, USGS)
 
-Put these in one folder (e.g. `../geodata`):
-
 ```
 B=https://prd-tnm.s3.amazonaws.com/StagedProducts
-curl -O $B/Elevation/1/TIFF/current/n41w080/USGS_1_n41w080.tif
-curl -O $B/Elevation/1/TIFF/current/n41w081/USGS_1_n41w081.tif
+curl -O $B/Elevation/13/TIFF/current/n41w080/USGS_13_n41w080.tif     # 1/3 arc-second (~10 m)
+curl -O $B/Elevation/13/TIFF/current/n41w081/USGS_13_n41w081.tif
 for h in 0501 0502 0503; do
   curl -o NHD_$h.zip $B/Hydrography/NHD/HU4/Shape/NHD_H_${h}_HU4_Shape.zip
   mkdir -p nhd_$h && unzip -oq NHD_$h.zip -d nhd_$h
 done
+curl -o TRAN_PA_GDB.zip $B/Tran/GDB/TRAN_Pennsylvania_State_GDB.zip && mkdir -p tran && unzip -oq TRAN_PA_GDB.zip -d tran
 ```
-
-- 3DEP 1 arc-second DEM (~30 m) — elevation
-- NHD HU4 0501 (Allegheny), 0502 (Monongahela), 0503 (Upper Ohio) — rivers, lakes, creeks
 
 ## Run
 
 ```
 pip install rasterio pyogrio shapely pyproj scipy numpy pillow
-python3 tools/mapgen/build_map.py --data ../geodata --out public/maps/mon-valley.json --preview preview.png
+python3 tools/mapgen/build_map.py --data ../geodata --out public/maps/mon-valley --preview preview.png
 ```
 
-## Output format (`milltown-map/1`)
+## Format (`milltown-map/2`)
 
-- Grid 256 x 256 tiles, 85 m per tile, local azimuthal-equidistant projection centred on 40.380 N, 79.955 W.
-  Covers the Point (downtown Pittsburgh) south-east to Clairton.
-- `x` = east, `y` = south, tile (0,0) = north-west corner.
-- Layers are base64 little-endian typed arrays, row-major (`index = y * width + x`):
+- 720 x 720 tiles, 30 m each, local azimuthal-equidistant projection centred on 40.380 N, 79.955 W
+  (the Point to Clairton). `x` = east, `y` = south, tile (0,0) = north-west corner.
+- `mon-valley.json` holds metadata, names, rail lines (with opening years), bridges, landmarks and
+  the byte offset of each layer in `mon-valley.bin` (gzip'd, little-endian, row-major).
 
-| layer | type | meaning |
-|---|---|---|
-| elevation | int16 | mean elevation, metres ASL |
-| level | uint8 | iso height step (10 m each) above river pool |
-| terrain | uint8 | 0 water, 1 floodplain, 2 flat, 3 slope, 4 steep, 5 upland |
-| slope | uint8 | degrees |
-| water | uint8 | water body id → `waterNames` |
-| waterFraction | uint8 | 0–255 share of tile covered by water |
-| creek | uint8 | creek id → `creekNames` |
-| coal | uint8 | 0 none, 1 seam underground, 2 seam outcrops in this tile |
+| layer | type | size | meaning |
+|---|---|---|---|
+| vert | int16 dm | 721 x 721 | terrain height at tile corners (smooth terrain) |
+| waterLevel | int16 dm | 720 x 720 | river pool surface nearest each tile |
+| terrain | uint8 | | 0 water, 1 floodplain, 2 flat, 3 hillside, 4 steep, 5 upland, 6 bluff |
+| slope | uint8 | | degrees |
+| water | uint8 | | water body id → `waterNames` |
+| creek | uint8 | | creek id → `creekNames` |
+| coal | uint8 | | 0 none, 1 seam underground, 2 seam outcrop |
+| road | uint8 | | today's street network: 1 local, 2 arterial (where 1850+ streets can appear) |
+| bridge | uint8 | | bridge id → `bridges` (historic river crossings, with first-bridge year) |
+| rail | uint8 | | rail line id → `railLines` (main lines only, with approximate opening year) |
+| special | uint8 | | 1 = wharf |
 
-Coal uses a simplified linear model of the Pittsburgh coal seam (see `COAL` in the script); it is
-approximate and meant for gameplay.
-
-Modern hydrography is used for rivers (today's lock-and-dam pool levels).
+Approximate / hand-assigned: rail opening years, bridge years, 1850 structures, wharf extents, the coal seam model.
+Rivers use today's lock-and-dam pool levels.

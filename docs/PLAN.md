@@ -5,7 +5,7 @@
 |---|---|
 | Platform | Browser game (TypeScript + Vite + Canvas 2D), desktop only |
 | View | 2:1 isometric pixel art, SimCity 2000 style |
-| Map | Highly accurate: USGS elevation + hydrography → 256×256 tiles at 85 m (the Point to Clairton) |
+| Map | Highly accurate: USGS 10 m elevation, hydrography and transportation → 720×720 tiles at 30 m (the Point to Clairton) |
 | Art | Generated in code (procedural pixel sprites) |
 | Turns | Turn-based, 1 turn = 1 season |
 | Eras | Three: I Iron, Coal & Steam (1850–89) · II The Age of Steel (1890–1944) · III Peak & Collapse (1945–85) |
@@ -23,10 +23,10 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 
 ## Milestones
 1. **Map + core model + inspector** ← *current build*
-   - Real terrain/rivers/creeks/coal seam pipeline
-   - Seeded 1850 town (settlements, farms, woods, roads)
-   - Iso renderer, overlays, tile inspector, site scoring, minimap
-   - Minimal season loop: found company, production, wages, pollution, migration, rival entry
+   - Real terrain/rivers/creeks/coal seam pipeline; real street network, rail lines with opening years, historic bridges, wharves, 1850 landmarks
+   - Seeded 1850 town grown along real street alignments (rowhouse blocks, frame houses, farms in fields, woods)
+   - Smooth-terrain iso renderer (corner heights, lighting), detailed procedural sprites, overlays, tile inspector, site scoring, minimap
+   - Minimal season loop: found company (grades its site flat), production, wages, pollution, migration, rival entry, rail/bridge openings
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
@@ -36,9 +36,9 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
 
 ## Known gaps in the current build
-- Terrain renders as 10 m terraces; smooth SimCity-style slope tiles come in the art pass
-- Zoom 0.5× redraws every tile (sluggish panning); needs chunk caching
+- A screen of new chunks takes ~0.5–1 s to draw after a big jump or a turn (progressive); dirty-chunk tracking would cut that
 - Economy numbers are first-pass placeholders
+- Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal
 - Modern river pools (post lock-and-dam); 1850 shorelines were a little different
 - 1850 populations and landmark coordinates are approximate

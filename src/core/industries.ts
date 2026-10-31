@@ -4,15 +4,18 @@
 export type IndustryId = "steel" | "power" | "glass" | "metalworks";
 export type Good = "coal" | "ore" | "coke" | "sand" | "limestone" | "iron" | "steel" | "electricity" | "glass" | "machinery" | "vessels";
 
+/** Site needs in metres (converted to tiles with the map's scale). */
 export interface SiteNeeds {
-  /** footprint in tiles (square) */
-  footprint: number;
-  /** max distance (tiles) to navigable river for barge access; 0 = not needed */
-  riverWithin: number;
-  /** preferred max distance (tiles) to a coal outcrop */
-  coalWithin: number;
-  /** labor catchment radius (tiles) */
-  laborRadius: number;
+  /** square footprint edge */
+  footprintM: number;
+  /** max distance to a navigable river for barge access; 0 = not needed */
+  riverWithinM: number;
+  /** preferred max distance to a coal outcrop */
+  coalWithinM: number;
+  /** labor catchment radius */
+  laborRadiusM: number;
+  /** max ground relief across the footprint that can be graded flat */
+  maxReliefM: number;
 }
 
 export interface Tech {
@@ -58,7 +61,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
     basePrice: 45,
     startCost: 60000,
     pollutionPerUnit: 0.02,
-    site: { footprint: 4, riverWithin: 2, coalWithin: 25, laborRadius: 20 },
+    site: { footprintM: 240, riverWithinM: 60, coalWithinM: 2000, laborRadiusM: 1600, maxReliefM: 8 },
     tech: [
       { id: "puddling", name: "Puddling furnaces", era: "I", year: 1850, cost: 0, seasons: 0, requires: [], effects: {}, note: "Starting tech." },
       { id: "hot_blast", name: "Hot-blast stoves", era: "I", year: 1855, cost: 15000, seasons: 4, requires: ["puddling"], effects: { efficiency: 0.15 } },
@@ -82,7 +85,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
     basePrice: 30,
     startCost: 40000,
     pollutionPerUnit: 0.015,
-    site: { footprint: 3, riverWithin: 2, coalWithin: 30, laborRadius: 15 },
+    site: { footprintM: 150, riverWithinM: 60, coalWithinM: 2500, laborRadiusM: 1200, maxReliefM: 8 },
     tech: [
       { id: "gas_works", name: "Coal-gas works", era: "I", year: 1850, cost: 0, seasons: 0, requires: [], effects: {}, note: "Starting tech." },
       { id: "gas_mains", name: "Iron gas mains", era: "I", year: 1855, cost: 20000, seasons: 4, requires: ["gas_works"], effects: { capacity: 0.4 } },
@@ -104,7 +107,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
     basePrice: 55,
     startCost: 30000,
     pollutionPerUnit: 0.01,
-    site: { footprint: 3, riverWithin: 3, coalWithin: 20, laborRadius: 15 },
+    site: { footprintM: 150, riverWithinM: 90, coalWithinM: 2000, laborRadiusM: 1200, maxReliefM: 10 },
     tech: [
       { id: "hand_blown", name: "Hand-blown glass", era: "I", year: 1850, cost: 0, seasons: 0, requires: [], effects: {}, note: "Starting tech." },
       { id: "pressed_glass", name: "Pressed glass", era: "I", year: 1855, cost: 12000, seasons: 4, requires: ["hand_blown"], effects: { capacity: 0.5 } },
@@ -125,7 +128,7 @@ export const INDUSTRIES: Record<IndustryId, Industry> = {
     basePrice: 160,
     startCost: 45000,
     pollutionPerUnit: 0.008,
-    site: { footprint: 3, riverWithin: 1, coalWithin: 30, laborRadius: 20 },
+    site: { footprintM: 180, riverWithinM: 30, coalWithinM: 2500, laborRadiusM: 1600, maxReliefM: 6 },
     tech: [
       { id: "steamboats", name: "Wooden steamboats", era: "I", year: 1850, cost: 0, seasons: 0, requires: [], effects: {}, note: "Starting tech." },
       { id: "iron_hulls", name: "Iron-hulled boats", era: "I", year: 1860, cost: 25000, seasons: 6, requires: ["steamboats"], effects: { quality: 1, capacity: 0.3 } },
