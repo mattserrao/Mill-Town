@@ -26,10 +26,15 @@ export interface MapMeta {
   creekNames: Record<string, string>;
   railLines: Record<string, { name: string; year: number }>;
   bridges: Record<string, { id: number; street: string; name: string; year: number }>;
+  spans?: Span[];
   landmarks: Landmark[];
   wharves: string[];
   sources: string[];
 }
+
+export type BridgeType = "covered" | "suspension" | "lenticular" | "truss" | "arch";
+/** A whole bridge as one straight span between abutments (tile coordinates), with its rebuilds over time. */
+export interface Span { id: number; kind: "road" | "rail"; name: string; stages: { year: number; type: BridgeType }[]; a: [number, number]; b: [number, number] }
 
 export interface GameMap {
   id: string;
@@ -59,6 +64,7 @@ export interface GameMap {
   creekNames: Record<string, string>;
   railLines: MapMeta["railLines"];
   bridges: MapMeta["bridges"];
+  spans: Span[];
   landmarks: Landmark[];
   sources: string[];
   minHeight: number;
@@ -103,6 +109,7 @@ export function parseMap(meta: MapMeta, bin: Uint8Array): GameMap {
     creekNames: meta.creekNames,
     railLines: meta.railLines,
     bridges: meta.bridges,
+    spans: meta.spans ?? [],
     landmarks: meta.landmarks,
     sources: meta.sources,
     minHeight: 0,

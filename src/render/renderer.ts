@@ -747,11 +747,8 @@ export class Renderer {
       out.push({ key: w.year >= 1910 ? "lamp:elec" : "lamp:gas", u: 0.5, v: 0.5 });
 
     if (t === Terrain.Water) {
-      if (w.street[i] === Street.Bridge) out.push({ key: `bridge:road:${this.bridgeAxis.get(m.bridge[i]) ?? "a"}`, u: 0.5, v: 0.5 });
-      else if (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year) {
-        const ax = (m.rail[i - 1] || m.rail[i + 1]) ? "a" : "b";
-        out.push({ key: `bridge:rail:${ax}`, u: 0.5, v: 0.5 });
-      } else {
+      // bridges are drawn whole as smooth spans (drawBridges), not per tile
+      if (!(w.street[i] === Street.Bridge || (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year))) {
         // barges moored at plant docks; steamboats at the wharves; coal barges on the Mon
         let dock = false, nearWharf = false;
         for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
@@ -771,6 +768,150 @@ export class Renderer {
     }
     if (out.length > 1) out.sort((a, b) => a.u + a.v - (b.u + b.v));
     return out;
+  }
+
+  // ------------------------------------------------------------ bridges (whole spans, drawn live)
+  /**
+   * Each bridge is one straight span from abutment to abutment with a smooth vertical profile
+   * (bank height at the ends, navigation clearance over the channel), piers in the river, and a
+   * superstructure by type: covered timber, wire suspension, lenticular truss, through truss, arch.
+   */
+  drawBridges(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const m = this.map, z = cam.zoom, year = g.world.year;
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    const elevAt = (x: number, y: number) => m.elevation[Math.max(0, Math.min(m.height - 1, Math.floor(y))) * m.width + Math.max(0, Math.min(m.width - 1, Math.floor(x)))];
+    const live = m.spans.map((sp) => ({ sp, st: stageOf(sp, year) })).filter((o) => o.st)
+      .sort((p, q) => (p.sp.a[0] + p.sp.a[1] + p.sp.b[0] + p.sp.b[1]) - (q.sp.a[0] + q.sp.a[1] + q.sp.b[0] + q.sp.b[1]));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.lineJoin = "round";
+    for (const { sp, st } of live) {
+      const type = st!.type, built = st!.year;
+      const [ax, ay] = sp.a, [bx, by] = sp.b;
+      const A = S(ax, ay, 260), B = S(bx, by, 260);
+      if (Math.max(A[0], B[0]) < -200 || Math.min(A[0], B[0]) > cw + 200 || Math.max(A[1], B[1]) < -300 || Math.min(A[1], B[1]) > ch + 300) continue;
+      const len = Math.hypot(bx - ax, by - ay);
+      const ux = (bx - ax) / len, uy = (by - ay) / len;
+      const rail = sp.kind === "rail";
+      const halfW = (rail ? 0.16 : type === "arch" && built >= 1940 ? 0.32 : 0.22);
+      // which side faces the viewer (larger x + y)
+      let px = -uy * halfW, py = ux * halfW;
+      if (px + py < 0) { px = -px; py = -py; }
+      const gA = elevAt(ax, ay), gB = elevAt(bx, by);
+      const wl = m.waterLevel[Math.floor((ay + by) / 2) * m.width + Math.floor((ax + bx) / 2)] || Math.min(gA, gB) - 8;
+      const clear = rail ? 17 : type === "covered" ? 9 : built >= 1920 ? 22 : 14;
+      const lift = Math.max(0, wl + clear - Math.min(gA, gB));
+      const N = Math.max(8, Math.round(len * 4));
+      const hAt = (t: number) => gA + (gB - gA) * t + lift * Math.pow(Math.sin(Math.PI * t), 0.45);
+      const at = (t: number, side: number, dz = 0): [number, number] => S(ax + (bx - ax) * t + px * side, ay + (by - ay) * t + py * side, hAt(t) + dz);
+      const ts: number[] = []; for (let k = 0; k <= N; k++) ts.push(k / N);
+      const steel = rail ? (built < 1890 ? "#3e3e46" : "#4e525c") : built >= 1955 ? "#c8a23a" : built >= 1890 ? "#5a6470" : "#3e3e46";
+      const lw = (w: number) => Math.max(1, w * z);
+      const line = (pts: [number, number][], col: string, w: number) => { ctx.strokeStyle = col; ctx.lineWidth = lw(w); ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); };
+      const seg = (p: [number, number], q: [number, number], col: string, w: number) => line([p, q], col, w);
+      const poly = (pts: [number, number][], col: string) => { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); };
+
+      // piers (only where the ground under the span is river)
+      const nP = Math.max(1, Math.round(len / 3.6));
+      const piers: number[] = [];
+      for (let k = 1; k < nP; k++) piers.push(k / nP);
+      if (type === "suspension" && !rail) { piers.length = 0; piers.push(0.2, 0.8); }
+      const pierCol = built < 1900 ? "#8a8272" : "#9a968c";
+      for (const t of piers) {
+        const fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t;
+        const base = Math.min(hAt(t), elevAt(fx, fy) < wl + 1 ? wl - 1 : elevAt(fx, fy));
+        const top = hAt(t) - 1.5;
+        const f0 = S(fx - px * 1.1, fy - py * 1.1, top), f1 = S(fx + px * 1.1, fy + py * 1.1, top);
+        const b0 = S(fx - px * 1.1, fy - py * 1.1, base), b1 = S(fx + px * 1.1, fy + py * 1.1, base);
+        poly([f0, f1, b1, b0], pierCol);
+        const thick = 3 * z;
+        poly([f1, [f1[0] + thick, f1[1] - thick / 2], [b1[0] + thick, b1[1] - thick / 2], b1], shade6(pierCol, 0.7));
+      }
+
+      // superstructure drawing for one side (-1 far, +1 near)
+      const side = (s: number) => {
+        if (type === "covered") {
+          const H = 5.5;
+          const bottom = ts.map((t) => at(t, s)), topPts = ts.map((t) => at(t, s, H));
+          poly([...bottom, ...topPts.reverse()], s > 0 ? "#8a3e2a" : "#6a2e20");
+          for (let k = 2; k < N; k += 3) { const q = at(k / N, s, 2.5); ctx.fillStyle = "#2a1a14"; ctx.fillRect(q[0] - lw(1), q[1] - lw(1), lw(2), lw(1.5)); }
+        } else if (type === "truss") {
+          const H = rail ? 9 : 8;
+          const top = ts.map((t) => at(t, s, H));
+          line(top, steel, 1.6);
+          line(ts.map((t) => at(t, s, 0.3)), steel, 1.4);
+          const panels = Math.max(4, Math.round(len * 1.6));
+          for (let k = 0; k <= panels; k++) {
+            const t = k / panels;
+            seg(at(t, s, 0.3), at(t, s, H), steel, 1);
+            if (k < panels) seg(at(k % 2 ? t : (k + 1) / panels, s, 0.3), at(k % 2 ? (k + 1) / panels : t, s, H), steel, 0.8);
+          }
+        } else if (type === "lenticular") {
+          // Smithfield Street: lens-shaped trusses over each span
+          const spans = [0, ...piers, 1];
+          for (let k = 0; k + 1 < spans.length; k++) {
+            const t0 = spans[k], t1 = spans[k + 1];
+            const up: [number, number][] = [], dn: [number, number][] = [];
+            for (let j = 0; j <= 16; j++) { const t = t0 + ((t1 - t0) * j) / 16, f = Math.sin((Math.PI * j) / 16); up.push(at(t, s, 1 + f * 9)); dn.push(at(t, s, 1 - f * 4)); }
+            line(up, steel, 1.8); line(dn, steel, 1.4);
+            for (let j = 1; j < 16; j += 2) seg(up[j], dn[j], steel, 0.7);
+            const portal = at(t0, s, 0), portal2 = at(t0, s, 10);
+            seg(portal, portal2, "#7a6a5a", 2.2);
+          }
+        } else if (type === "suspension") {
+          const towers = [0.2, 0.8], TH = rail ? 20 : 18;
+          for (const t of towers) seg(at(t, s, -1), at(t, s, TH), built >= 1920 ? steel : "#8a8272", built >= 1920 ? 2.4 : 3.2);
+          const cable: [number, number][] = [];
+          for (const t of ts) {
+            let zc: number;
+            if (t < 0.2) zc = TH * (t / 0.2) ** 1.4;
+            else if (t > 0.8) zc = TH * ((1 - t) / 0.2) ** 1.4;
+            else { const u = (t - 0.5) / 0.3; zc = 2 + (TH - 2) * u * u; }
+            cable.push(at(t, s, zc));
+          }
+          line(cable, "#2a2a2e", 1.3);
+          for (let k = 1; k < N; k++) { const t = k / N; if (k % 2) continue; seg(at(t, s, 0.5), cable[k], "#4a4a50", 0.6); }
+          ctx.fillStyle = "#2a2a2e";
+          line(ts.map((t) => at(t, s, 1.2)), "#3a3a40", 0.8);
+        } else if (type === "arch") {
+          if (built >= 1940) {
+            // tied arch above the deck
+            const arch: [number, number][] = ts.map((t) => at(t, s, 2 + Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.1) / 0.8))) * 16 * (t > 0.1 && t < 0.9 ? 1 : 0)));
+            line(arch, steel, 2.4);
+            for (let k = 2; k < N - 1; k += 2) { const t = k / N; if (t > 0.12 && t < 0.88) seg(at(t, s, 0.5), arch[k], steel, 0.7); }
+          } else {
+            // deck arch springing from the piers, spandrel columns up to the deck
+            const t0 = 0.12, t1 = 0.88;
+            const arch: [number, number][] = [];
+            for (let j = 0; j <= 24; j++) { const t = t0 + ((t1 - t0) * j) / 24; const f = Math.sin((Math.PI * j) / 24); const zz = (wl + 2 - hAt(t)) * (1 - f) - 0.8 * f; arch.push(at(t, s, zz)); }
+            line(arch, s > 0 ? "#8a96a4" : steel, 3);
+            for (let j = 2; j < 24; j += 2) { const t = t0 + ((t1 - t0) * j) / 24; seg(arch[j], at(t, s, 0), steel, 1); }
+          }
+          line(ts.map((t) => at(t, s, 1)), "#c8c4b8", 0.8); // railing
+        }
+      };
+
+      // far side, deck, fascia, near side, covered roof
+      side(-1);
+      const far = ts.map((t) => at(t, -1)), near = ts.map((t) => at(t, 1));
+      const deckCol = rail ? "#3e3a36" : type === "covered" ? "#7a5a3a" : built >= 1920 ? "#6a6a6a" : "#8a7656";
+      poly([...far, ...[...near].reverse()], deckCol);
+      if (!rail && z >= 0.375) line(ts.map((t) => at(t, 0, 0.05)), built >= 1920 ? "#c8c040" : "#6e5c44", 0.5);
+      if (rail && z >= 0.375) { line(ts.map((t) => at(t, -0.3, 0.1)), "#a8a8b0", 0.6); line(ts.map((t) => at(t, 0.3, 0.1)), "#a8a8b0", 0.6); }
+      const fasc = ts.map((t) => at(t, 1, -1.8));
+      poly([...near, ...[...fasc].reverse()], type === "covered" ? "#5a2a1c" : "#4a4440");
+      side(1);
+      if (type === "covered") {
+        const rf = ts.map((t) => at(t, -1, 5.5)), rn = ts.map((t) => at(t, 1, 5.5)), ridge = ts.map((t) => at(t, 0, 8));
+        poly([...rf, ...[...ridge].reverse()], "#4a4038");
+        poly([...ridge, ...[...rn].reverse()], "#5e5248");
+      }
+      if (type === "truss" && z >= 0.375) {
+        for (let k = 0; k <= N; k += 3) seg(at(k / N, -1, rail ? 9 : 8), at(k / N, 1, rail ? 9 : 8), steel, 0.7);
+      }
+    }
+    ctx.restore();
   }
 
   // ------------------------------------------------------------ inclines (drawn live, cars run)
@@ -973,11 +1114,11 @@ export class Renderer {
       const mid = inc.path[Math.floor(inc.path.length / 2)];
       items.push({ name: inc.name, x: mid[0] + 1.5, y: mid[1] + 0.5, col: "#ffb0a0", min: 0.5 });
     }
-    for (const b of Object.values(m.bridges)) {
-      if (b.year > g.world.year) continue;
-      let sx = 0, sy = 0, c = 0;
-      for (let i = 0; i < m.bridge.length; i++) if (m.bridge[i] === b.id && m.terrain[i] === Terrain.Water) { sx += i % m.width; sy += (i / m.width) | 0; c++; }
-      if (c) items.push({ name: b.name, x: sx / c + 0.5, y: sy / c + 0.5, col: "#d8c8a8", min: 0.75 });
+    const seen = new Set<string>();
+    for (const sp of m.spans) {
+      if (sp.kind !== "road" || seen.has(sp.name) || !stageOf(sp, g.world.year)) continue;
+      seen.add(sp.name);
+      items.push({ name: sp.name, x: (sp.a[0] + sp.b[0]) / 2, y: (sp.a[1] + sp.b[1]) / 2, col: "#d8c8a8", min: 0.75 });
     }
     for (const it of items) {
       if (cam.zoom < it.min) continue;
@@ -1002,4 +1143,16 @@ function riverAxis(m: GameMap, x: number, y: number): "a" | "b" {
     if (y + k >= 0 && y + k < m.height && m.terrain[(y + k) * m.width + x] === Terrain.Water) ay++;
   }
   return ax >= ay ? "a" : "b";
+}
+
+export function stageOf(sp: { stages: { year: number; type: import("../core/map").BridgeType }[] }, year: number) {
+  let st: { year: number; type: import("../core/map").BridgeType } | null = null;
+  for (const s of sp.stages) if (s.year <= year) st = s;
+  return st;
+}
+
+function shade6(col: string, k: number): string {
+  const n = parseInt(col.slice(1), 16);
+  const c = (v: number) => Math.min(255, Math.round(v * k));
+  return `rgb(${c((n >> 16) & 255)},${c((n >> 8) & 255)},${c(n & 255)})`;
 }

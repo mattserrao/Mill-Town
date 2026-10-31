@@ -98,13 +98,36 @@ RAIL_LINES = [
     (("WE", None), ("Wabash Pittsburgh Terminal", 1904)),
 ]
 
-# Road bridges by the street name that crosses the river today. Year = first bridge on that site.
+# Road bridges by the street name that crosses the river today: (name, [(year, type), ...]).
+# Each stage replaces the previous bridge on the same site. Types: covered, suspension, lenticular,
+# truss, arch. Years and types approximate.
 BRIDGES = {
-    "6th Street Brg": ("St. Clair Street Bridge", 1819),
-    "9th Street Brg": ("Hand Street Bridge", 1840),
-    "16th Street Brg": ("Mechanic Street Bridge", 1836),
-    "Smithfield Street Brg": ("Smithfield Street Bridge", 1846),
-    "7th Street Brg": ("Seventh Street Bridge", 1884),
+    "6th Street Brg": ("Sixth Street Bridge", [(1819, "covered"), (1859, "suspension"), (1892, "truss"), (1928, "suspension")]),
+    "9th Street Brg": ("Ninth Street Bridge", [(1840, "covered"), (1890, "truss"), (1928, "suspension")]),
+    "16th Street Brg": ("Sixteenth Street Bridge", [(1836, "covered"), (1865, "suspension"), (1923, "arch")]),
+    "Smithfield Street Brg": ("Smithfield Street Bridge", [(1846, "suspension"), (1883, "lenticular")]),
+    "7th Street Brg": ("Seventh Street Bridge", [(1884, "suspension"), (1928, "suspension")]),
+    "Hot Metal St Brg": ("Hot Metal Bridge", [(1887, "truss")]),
+    "Mc Keesport Duquesne Brg": ("McKeesport-Duquesne Bridge", [(1891, "truss")]),
+    "15th Street Brg": ("Fifteenth Street Bridge (McKeesport)", [(1890, "truss")]),
+    "Glenwood Brg": ("Glenwood Bridge", [(1895, "truss")]),
+    "5th Ave Brg": ("Fifth Avenue Bridge (McKeesport)", [(1908, "truss")]),
+    "40th St": ("Fortieth Street Bridge", [(1924, "arch")]),
+    "Glassport Brg": ("Clairton-Glassport Bridge", [(1927, "truss")]),
+    "Liberty Brg": ("Liberty Bridge", [(1928, "truss")]),
+    "31st Street Brg": ("Thirty-First Street Bridge", [(1928, "arch")]),
+    "Mc Kees Rocks Brg": ("McKees Rocks Bridge", [(1931, "arch")]),
+    "Boston Brg": ("Boston Bridge", [(1931, "truss")]),
+    "W End Brg": ("West End Bridge", [(1932, "arch")]),
+    "Westend Brg": ("West End Bridge", [(1932, "arch")]),
+    "S 10th St": ("South Tenth Street Bridge", [(1933, "suspension")]),
+    "Homestead Brg": ("Homestead High Level Bridge", [(1937, "truss")]),
+    "Pgh Homestead Brg": ("Homestead High Level Bridge", [(1937, "truss")]),
+    "Mansfield Brg": ("Mansfield Bridge", [(1951, "truss")]),
+    "Fort Pitt Brg": ("Fort Pitt Bridge", [(1959, "arch")]),
+    "Fort Duquesne Brg": ("Fort Duquesne Bridge", [(1969, "arch")]),
+    "Ft Duquesne Brg": ("Fort Duquesne Bridge", [(1969, "arch")]),
+    "Birmingham Brg": ("Birmingham Bridge", [(1976, "truss")]),
 }
 
 COAL = {"refLat": 40.432, "refLon": -80.008, "refElev": 305.0,
@@ -255,16 +278,22 @@ def main():
     tran = D("tran", "TRAN_Pennsylvania_State_GDB.gdb")
     geoms, f = read_layer(tran, "Trans_RoadSegment", bbox, ["mtfcc_code", "name"])
     local_s, art_s, bridge_s = [], [], []
-    bridge_meta = {}
+    bridge_meta, bridge_ids, bridge_geoms = {}, {}, {}
     for g, code, nm in zip(geoms, f["mtfcc_code"], f["name"]):
-        if g is None or code not in ("S1200", "S1400"):
+        if g is None or code not in ("S1100", "S1200", "S1400"):
+            continue
+        if code == "S1100" and nm not in BRIDGES:
             continue
         geom = to_local(force_2d(wkb.loads(bytes(g))).__geo_interface__)
-        (art_s if code == "S1200" else local_s).append((geom, 2 if code == "S1200" else 1))
+        if code != "S1100":
+            (art_s if code == "S1200" else local_s).append((geom, 2 if code == "S1200" else 1))
         if nm in BRIDGES:
-            bid = list(BRIDGES).index(nm) + 1
+            bname = BRIDGES[nm][0]
+            bid = bridge_ids.setdefault(bname, len(bridge_ids) + 1)
             bridge_s.append((geom, bid))
-            bridge_meta[bid] = {"id": bid, "street": nm, "name": BRIDGES[nm][0], "year": BRIDGES[nm][1]}
+            bridge_geoms.setdefault(bid, []).append(geom)
+            bridge_meta[bid] = {"id": bid, "street": nm, "name": bname, "year": BRIDGES[nm][1][0][0],
+                                "stages": [{"year": y, "type": t} for y, t in BRIDGES[nm][1]]}
     road = rasterize(local_s, out_shape=(n, n), transform=tile_tf, fill=0, dtype="uint8")
     art = rasterize(art_s, out_shape=(n, n), transform=tile_tf, fill=0, dtype="uint8")
     road = np.maximum(road, art)
@@ -298,6 +327,75 @@ def main():
                       dtype="uint8", all_touched=False)
         rail[r > 0] = lid
     rail_bridge = (rail > 0) & water
+
+    # ---------------------------------------------------------------- bridge spans (smooth, straight)
+    from shapely.geometry import shape as _shape, LineString, MultiLineString
+    from shapely.ops import unary_union
+    water_geom = unary_union([_shape(g) for g, _ in shapes]).buffer(0)
+    to_tile = lambda e, nn: ((e + half) / mpt, (half - nn) / mpt)
+
+    def span_from_points(pts):
+        best, pair = -1, None
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                d = (pts[i][0] - pts[j][0]) ** 2 + (pts[i][1] - pts[j][1]) ** 2
+                if d > best:
+                    best, pair = d, (pts[i], pts[j])
+        return pair
+
+    spans = []
+    near_water = water_geom.buffer(40)
+    for bid, geoms in bridge_geoms.items():
+        pts = []
+        for g in geoms:
+            line = _shape(g)
+            lines = line.geoms if hasattr(line, "geoms") else [line]
+            for ln in lines:
+                for c in ln.coords:
+                    from shapely.geometry import Point
+                    if near_water.contains(Point(c[0], c[1])):
+                        pts.append((c[0], c[1]))
+        if len(pts) < 2:
+            continue
+        a, b = span_from_points(pts)
+        meta = bridge_meta[bid]
+        spans.append({"id": bid, "kind": "road", "name": meta["name"], "stages": meta["stages"],
+                      "a": to_tile(*a), "b": to_tile(*b)})
+
+    # rail: where each main line crosses a river, extended to the banks
+    rid = 1000
+    for (lname, lyear), lid in line_ids.items():
+        for g in rail_shapes[lid]:
+            ln = _shape(g)
+            cross = ln.intersection(water_geom)
+            pieces = [cross] if cross.geom_type == "LineString" else list(getattr(cross, "geoms", []))
+            for pc in pieces:
+                if pc.geom_type != "LineString" or pc.length < 160:  # real river crossings, not bank clips
+                    continue
+                (x0, y0), (x1, y1) = pc.coords[0], pc.coords[-1]
+                L = math.hypot(x1 - x0, y1 - y0)
+                if L < 60:
+                    continue
+                ux, uy = (x1 - x0) / L, (y1 - y0) / L
+                # a true crossing has river upstream and downstream of its midpoint (perpendicular);
+                # a line running along the bank has land on one side
+                from shapely.geometry import Point as _P
+                mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+                if not (water_geom.contains(_P(mx - uy * 120, my + ux * 120)) and water_geom.contains(_P(mx + uy * 120, my - ux * 120))):
+                    continue
+                a = (x0 - ux * 45, y0 - uy * 45); b = (x1 + ux * 45, y1 + uy * 45)
+                mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                if any(sp["kind"] == "rail" and math.hypot(sp["_mid"][0] - mid[0], sp["_mid"][1] - mid[1]) < 60 for sp in spans):
+                    continue
+                if any(sp["kind"] == "road" and math.hypot((sp["a"][0] + sp["b"][0]) / 2 * mpt - half - mid[0], half - (sp["a"][1] + sp["b"][1]) / 2 * mpt - mid[1]) < 40 for sp in spans):
+                    continue
+                spans.append({"id": rid, "kind": "rail", "name": f"{lname} bridge", "stages": [{"year": lyear, "type": "truss"}],
+                              "a": to_tile(*a), "b": to_tile(*b), "_mid": mid})
+                rid += 1
+    for sp in spans:
+        sp.pop("_mid", None)
+        sp["a"] = [round(sp["a"][0], 2), round(sp["a"][1], 2)]
+        sp["b"] = [round(sp["b"][0], 2), round(sp["b"][1], 2)]
 
     # ---------------------------------------------------------------- landmarks, wharves
     lms = []
@@ -359,6 +457,7 @@ def main():
         "creekNames": {str(v): k for k, v in creek_names.items()},
         "railLines": {str(lid): {"name": nm, "year": yr} for (nm, yr), lid in line_ids.items()},
         "bridges": {str(k): v for k, v in bridge_meta.items()},
+        "spans": spans,
         "landmarks": lms,
         "wharves": [w[0] for w in WHARVES],
         "coalModel": COAL,
@@ -377,7 +476,7 @@ def main():
         fh.write(bytes(blob))
     print(f"wrote {args.out}.json/.bin: {n}x{n} @ {mpt} m; water {int(water.sum())}, "
           f"road {int((road > 0).sum())}, rail {int((rail > 0).sum())} ({len(line_ids)} lines), "
-          f"bridges {sorted(bridge_meta)}, wharf {int((special == 1).sum())}, rail bridges {int(rail_bridge.sum())}, "
+          f"bridges {len(bridge_meta)}, spans {len(spans)} ({sum(1 for x in spans if x['kind'] == 'rail')} rail), wharf {int((special == 1).sum())}, rail bridges {int(rail_bridge.sum())}, "
           f"bin {os.path.getsize(args.out + '.bin') / 1e6:.1f} MB")
 
     if args.preview:
