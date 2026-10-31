@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mill Town</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand">MILL TOWN</div>
+      <div id="calendar" class="stat"></div>
+      <div id="population" class="stat"></div>
+      <div id="cash" class="stat"></div>
+      <div class="spacer"></div>
+      <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
+      <button id="regen" title="Generate a new town from this seed">New town</button>
+      <button id="next" class="primary" title="Advance one season (Space)">Next season ▶</button>
+    </header>
+    <main>
+      <aside id="left">
+        <section>
+          <h2>Overlay</h2>
+          <div id="overlays"></div>
+          <p id="legend" class="hint"></p>
+        </section>
+        <section>
+          <h2>View</h2>
+          <label><input type="checkbox" id="labels" checked /> Place names</label>
+          <label><input type="checkbox" id="grid" /> Grid</label>
+          <p class="hint">Drag or WASD/arrows to pan · wheel or +/- to zoom · click a tile to inspect</p>
+        </section>
+        <section>
+          <h2>Found a company</h2>
+          <select id="industry"></select>
+          <p class="hint" id="industryNote"></p>
+          <label><input type="checkbox" id="placing" /> Place works (click map)</label>
+        </section>
+      </aside>
+      <div id="viewport">
+        <canvas id="view"></canvas>
+        <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
+        <div id="zoom" class="badge"></div>
+      </div>
+      <aside id="right">
+        <section>
+          <h2>Tile</h2>
+          <div id="inspector" class="kv"><p class="hint">Click a tile.</p></div>
+        </section>
+        <section id="siteSection" hidden>
+          <h2>Site report</h2>
+          <div id="site" class="kv"></div>
+          <button id="found" class="primary" disabled>Found company here</button>
+        </section>
+        <section id="companySection" hidden>
+          <h2>Company</h2>
+          <div id="company" class="kv"></div>
+        </section>
+        <section>
+          <h2>Log</h2>
+          <ol id="log"></ol>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
