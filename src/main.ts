@@ -217,12 +217,12 @@ function requestRender() {
     const anim = ($<HTMLInputElement>("animate")).checked;
     const ovOn = overlay !== "none" && !isVectorOverlay(overlay);
     if (anim && !ovOn && cam.zoom >= 0.1875) drawSpills(ctx, game, cam, t, night);
-    if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now); traffic.drawBoats(ctx, cam, t); }
+    if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now, night); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
     if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
-    if (anim && !ovOn) traffic.draw(ctx, cam, game, t);
+    if (anim && !ovOn) traffic.draw(ctx, cam, game, t, night);
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
-    if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height);
+    if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
     if (overlay === "supply") {

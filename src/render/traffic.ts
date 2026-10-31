@@ -128,7 +128,7 @@ export class Traffic {
   }
 
   // ------------------------------------------------------------ simulation
-  update(g: GameState, cam: Camera, cw: number, ch: number, now: number) {
+  update(g: GameState, cam: Camera, cw: number, ch: number, now: number, _night = 0) {
     const dt = Math.min(0.1, this.last ? (now - this.last) / 1000 : 0);
     this.last = now;
     const year = g.world.year;
@@ -318,7 +318,7 @@ export class Traffic {
     ctx.restore();
   }
 
-  draw(ctx: CanvasRenderingContext2D, cam: Camera, _g: GameState, time: number) {
+  draw(ctx: CanvasRenderingContext2D, cam: Camera, _g: GameState, time: number, _night = 0) {
     const z = cam.zoom;
     const S = (fx: number, fy: number, h: number): [number, number] => { const [wx, wy] = project(fx, fy, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
     ctx.save();

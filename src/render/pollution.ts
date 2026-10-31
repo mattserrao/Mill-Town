@@ -23,7 +23,7 @@ function viewTiles(m: GameState["map"], cam: Camera, cw: number, ch: number) {
 }
 
 /** Smoky air: heavy in the coal era, thinner in the gas boom, clearing after smoke control. */
-export function drawHaze(ctx: CanvasRenderingContext2D, g: GameState, cam: Camera, cw: number, ch: number) {
+export function drawHaze(ctx: CanvasRenderingContext2D, g: GameState, cam: Camera, cw: number, ch: number, _time = 0) {
   const y = g.world.year;
   let era = y < 1884 ? 0.16 : y < 1891 ? 0.07 : y < 1947 ? 0.2 : Math.max(0.02, 0.2 - (y - 1947) * 0.03);
   const v = viewTiles(g.map, cam, cw, ch);
