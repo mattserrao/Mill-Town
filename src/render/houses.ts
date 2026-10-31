@@ -23,6 +23,7 @@ export interface HouseSpec {
   fnd: number;       // derived: foundation below the floor
   soot: number;      // 0..3
   boarded: number;   // 1 = abandoned
+  kit?: number;      // community whose style the house is built in (ancestry group id; 0/undefined = none)
 }
 
 export function styleForYear(y: number): number {
@@ -30,13 +31,13 @@ export function styleForYear(y: number): number {
 }
 
 export function houseKey(s: HouseSpec): string {
-  return `H|${s.kind}|${s.sub}|${s.style}|${s.o}|${s.front}|${s.corner}|${s.v}|${s.g.join(",")}|${s.soot}|${s.boarded}`;
+  return `H|${s.kind}|${s.sub}|${s.style}|${s.o}|${s.front}|${s.corner}|${s.v}|${s.g.join(",")}|${s.soot}|${s.boarded}|${s.kit ?? 0}`;
 }
 
 export function parseHouseKey(k: string): HouseSpec {
-  const [, kind, sub, style, o, front, corner, v, g, soot, boarded] = k.split("|");
+  const [, kind, sub, style, o, front, corner, v, g, soot, boarded, kit] = k.split("|");
   const gg = g.split(",").map(Number) as [number, number, number, number];
-  return { kind: kind as HouseKind, sub: +sub, style: +style, o: o as "a" | "b", front: front as "+" | "-", corner: +corner, v: +v, g: gg, lift: 0, fnd: 0, soot: +soot, boarded: +boarded };
+  return { kind: kind as HouseKind, sub: +sub, style: +style, o: o as "a" | "b", front: front as "+" | "-", corner: +corner, v: +v, g: gg, lift: 0, fnd: 0, soot: +soot, boarded: +boarded, kit: +(kit ?? 0) };
 }
 
 // ---------------------------------------------------------------- palettes
@@ -48,6 +49,30 @@ const CLAP_BY_STYLE = [
   ["#c0a888", "#a89a80", "#d0c8b0", "#8a7a64"],          // interwar
   ["#bcd0d8", "#e0d8b8", "#c8d8b8", "#e8c8b0", "#d8d8d8"], // postwar pastels
 ];
+/**
+ * Community style kits: the paint a community favoured on its frame houses and what it kept in the yard.
+ * (Slovak and Rusyn pastels with white trim; Italian ochre and terracotta stucco; Irish whitewash...)
+ */
+const KIT_WALLS: Record<number, string[]> = {
+  2: ["#ece8dc", "#e0dccc", "#d8dcc8"],
+  3: ["#d0b080", "#c4a070", "#e2d2a8", "#b88a5a"],
+  4: ["#c8b898", "#b8a888", "#d0c4a8", "#a8b0a0"],
+  5: ["#a8c8dc", "#ecdca0", "#b8d4a8", "#ecc8c8", "#f0f0e0"],
+  6: ["#dcccaa", "#a8bcd0", "#e4e2d0", "#c8d4b0"],
+  7: ["#ecdca8", "#c8dcb0", "#e8c8a0"],
+  8: ["#b0d0dc", "#e4d4a0", "#c0dcb4", "#f0e8d8"],
+  9: ["#e4cca0", "#b8cce0", "#dcdcc8"],
+  10: ["#d89a6a", "#e2b282", "#c88a5a", "#ecca98", "#d8a888"],
+  11: ["#c8c0b0", "#b4aa98", "#d4ccbc"],
+  12: ["#c8dcb8", "#dcccaa", "#b8c8d8"],
+};
+const KIT_TRIM: Record<number, string> = { 5: "#ffffff", 8: "#ffffff", 2: "#2e5a3a", 10: "#7a3a2a" };
+/** gardens and grapes: the Slavic and Italian yards were food */
+const KIT_GARDEN = new Set([5, 6, 7, 8, 9, 10, 12]);
+const KIT_GRAPES = new Set([5, 7, 9, 10]);
+const KIT_CHICKENS = new Set([5, 6, 8, 9, 10]);
+const KIT_FLOWERS = new Set([2, 4]);
+
 const ROOF = ["#5b4636", "#4b4a4f", "#6a3d30", "#57524a", "#3e4248"];
 const AWNING: [string, string][] = [["#b03a2e", "#e8e0d0"], ["#2e5a3a", "#e8e0d0"], ["#2e3e6a", "#e8d8a0"], ["#8a5a1a", "#f0e0b0"]];
 
@@ -270,6 +295,35 @@ function yard(p0: Painter, s: HouseSpec, f: ReturnType<typeof frame>, a0: number
     shedRoof(p, box(p, u0, v0, u1, v1, 5, { wall: "#5a4a3c" }), 2, "#3a3430");
   }
   if (r(7) < 0.3) { const t = tree(r(8) < 0.5 ? "maple" : "oak", s.v); p.ctx.drawImage(t.canvas, ...offsetAt(p, t, f.rect(a0 + 0.25, a0 + 0.25, d1 - 0.15, d1 - 0.15))); }
+  const kit = s.kit ?? 0;
+  if (!kit) return;
+  // a big kitchen garden: cabbages, potatoes, peppers in long rows
+  if (KIT_GARDEN.has(kit) && r(20) < 0.75) {
+    for (let k = 0; k < 7; k++) {
+      const q0 = f.pt(p, a0 + 0.08 + k * 0.05, d0 + 0.04, 0), q1 = f.pt(p, a0 + 0.08 + k * 0.05, d1 - 0.06, 0);
+      p.line(q0, q1, k % 2 ? "#3e6a26" : "#5a3e28");
+    }
+  }
+  // a grape arbour: posts and a green canopy
+  if (KIT_GRAPES.has(kit) && r(21) < 0.6) {
+    const [u0, v0, u1, v1] = f.rect(a1 - 0.36, a1 - 0.14, d0 + 0.06, d0 + 0.22);
+    for (const [u, v] of [[u0, v0], [u1, v0], [u0, v1], [u1, v1]] as [number, number][]) { const q = p.P(u, v, 0); p.px(q[0], q[1] - 7, "#5a4632", 1, 7); }
+    p.poly([p.P(u0, v0, 8), p.P(u1, v0, 8), p.P(u1, v1, 8), p.P(u0, v1, 8)], "#4e7a2e");
+    for (let k = 0; k < 6; k++) { const q = p.P(u0 + (u1 - u0) * rnd(s, 120 + k), v0 + (v1 - v0) * rnd(s, 130 + k), 8); p.px(q[0], q[1], k % 2 ? "#5a2a5a" : "#3a6a22", 1, 1); }
+  }
+  // a chicken coop with a wire run
+  if (KIT_CHICKENS.has(kit) && r(22) < 0.45) {
+    const [u0, v0, u1, v1] = f.rect(a0 + 0.14, a0 + 0.26, d1 - 0.16, d1 - 0.06);
+    shedRoof(p, box(p, u0, v0, u1, v1, 4, { wall: "#8a6a48" }), 2, "#4a3a2e");
+    const q = f.pt(p, a0 + 0.3, d1 - 0.1, 0); p.px(q[0], q[1] - 1, "#f0ece0", 1, 1); p.px(q[0] + 2, q[1], "#c8a060", 1, 1);
+  }
+  // flower beds along the front
+  if (KIT_FLOWERS.has(kit) && r(23) < 0.7) {
+    for (let k = 0; k < 8; k++) { const q = f.pt(p, a0 + 0.08 + k * 0.1, d0 + 0.02, 0); p.px(q[0], q[1] - 1, ["#d84a6a", "#e8c840", "#f0f0f0", "#c86ad0"][k % 4], 1, 1); }
+  }
+  // painted trim on the fence
+  const trim = KIT_TRIM[kit];
+  if (trim && r(24) < 0.6) { const q0 = f.pt(p, a0, d1, 2), q1 = f.pt(p, a1, d1, 2); p.line(q0, q1, trim); }
 }
 
 /** A view of the painter with every point raised by z (yard items on a terrace). */
@@ -287,6 +341,8 @@ function offsetAt(p: Painter, t: Sprite, r: Rect): [number, number] {
 // ---------------------------------------------------------------- building types
 
 function wallFor(s: HouseSpec, k = 0): string {
+  const kitPal = s.kit ? KIT_WALLS[s.kit] : undefined;
+  if (kitPal && s.style >= 1 && rnd(s, 90 + k) < 0.7) return kitPal[(s.v + k) % kitPal.length];
   const pal = CLAP_BY_STYLE[s.style];
   return pal[(s.v + k) % pal.length];
 }
@@ -540,6 +596,29 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
       const q = f.pt(p, 0.92, -0.02, 0);
       p.px(q[0], q[1] - 16, "#3a2a1a", 1, 16); p.px(q[0] - 4, q[1] - 16, "#c9a24a", 5, 4); // hanging sign
       for (let k = 0; k < 3; k++) { const r = f.rect(0.15 + k * 0.08, 0.15 + k * 0.08, -0.04, -0.04); cylinder(p, r[0], r[1], 0.035, 0, 5, "#7a5a3a", "#5a4028"); }
+      break;
+    }
+    case 9: case 10: case 11: case 13: { // community shops: bakery, butcher, kosher butcher, barber
+      const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.04, 0.5);
+      const wall = s.sub === 10 || s.sub === 11 ? BRICK[(s.v + 2) % 6] : st === 0 ? CLAP_BY_STYLE[0][s.v % 4] : BRICK[(s.v + 1) % 6];
+      const b = box(p, u0, v0, u1, v1, 20, { wall, z0, foundation: s.fnd });
+      gable(p, b, f.ridge, 6, ROOF[(s.v + 1) % 5]);
+      const awn: [string, string] = s.sub === 9 ? ["#c8a060", "#f4ecd8"] : s.sub === 10 ? ["#b0302a", "#f4f0e8"] : s.sub === 11 ? ["#2e4a8a", "#f4f0e8"] : ["#b0302a", "#f4f0e8"];
+      facade(p, b, face, { n: 3, stories: 2, storyH: 9, style: st, boarded: s.boarded, shop: awn });
+      // the sign over the door
+      const q = f.pt(p, 0.5, -0.02, 0);
+      p.px(q[0] - 5, q[1] - 21, s.sub === 9 ? "#e8d0a0" : s.sub === 10 ? "#d8d0c0" : s.sub === 11 ? "#e8e8f0" : "#f0f0f0", 10, 3);
+      p.px(q[0] - 3, q[1] - 20, s.sub === 9 ? "#8a5a2a" : s.sub === 11 ? "#2e4a8a" : "#a02a24", 6, 1);
+      if (s.sub === 13) { const pole = f.pt(p, 0.3, -0.04, 0); for (let k = 0; k < 8; k++) p.px(pole[0], pole[1] - 10 - k, k % 3 === 0 ? "#c8302a" : k % 3 === 1 ? "#f0f0f0" : "#2e4a8a", 1, 1); }
+      break;
+    }
+    case 12: { // saloon: the corner saloon with its painted brewery sign
+      const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.04, 0.52);
+      const b = box(p, u0, v0, u1, v1, 21, { wall: BRICK[(s.v + 4) % 6], z0, foundation: s.fnd });
+      gable(p, b, f.ridge, 6, ROOF[s.v % 5]);
+      facade(p, b, face, { n: 4, stories: 2, storyH: 9, style: Math.max(1, st), door: 1, boarded: s.boarded, shop: ["#3a2a1a", "#c9a24a"] });
+      const q = f.pt(p, 0.92, -0.02, 0);
+      p.px(q[0], q[1] - 18, "#3a2a1a", 1, 18); p.px(q[0] - 5, q[1] - 18, "#e8c060", 6, 4); p.px(q[0] - 4, q[1] - 17, "#8a2a1a", 4, 2);
       break;
     }
     case 2: { // store

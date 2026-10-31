@@ -61,6 +61,11 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    - Query tool (? / Q): click a tile for its building, everything on it, the land, and its neighbourhood —
      composition, which communities seeded it and when, and a growth chart by community (5-yearly history)
    - Zoomed out (< 0.375×) only trains, river craft and smoke animate; version shown in the top bar, console and terminal
+   - Valley systems (v0.8, see `docs/MECHANICS.md` §5): smoke from every works, home and locomotive in block
+     fields with valley inversions; river water and health; unrest drives strikes; desirability-driven settling
+     (newcomers on cheap smoky lots, the settled move uphill); commute model with streetcars and cars whose trips
+     drive the street animation; freight by river and rail with seasonal capacities shared with the rivals (rail
+     siding action); community style kits, shops and institutions with succession
    - Smooth lines: creeks and rail lines drawn from the source vectors; tile staircases chamfered on streets and
      shorelines; bluffs blend into the woods
    - Economic connections (`src/core/economy.ts`, `src/render/flows.ts`):
@@ -80,6 +85,7 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      (hypsometric elevation, viridis population, navy→gold land value, soot pollution, stepped walk-time bands,
      red→green site scores) shown in steps with a legend bar; the ground under an overlay is washed to grey
 2. Logistics: barges/rail/roads as real transport capacity; input sourcing (ore, coke, sand) from off-map ports
+2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); next: finished-goods shipping out, player-built docks, and one gateway/route model shared by the supply-chain map (`economy.ts`) and the freight simulation (`freight.ts`)
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
 5. Rival AI behaviour (bid for land, price wars, buyouts, labor policy)
@@ -92,9 +98,11 @@ See `docs/MECHANICS.md` — comparison with SimCity (Micropolis) and the recomme
 routing, environment, growth and neighbourhood style.
 
 ## Known gaps in the current build
+- Economy balance: profits pile up; input prices and the freight premium need tuning against wages and prices
+- Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
-- Economy numbers are first-pass placeholders; supply-chain routes are a display model (no capacities or
-  congestion yet: that's milestone 2) and rival outputs are estimates from the techs of their year
+- Economy numbers are first-pass placeholders. The supply-chain map (`economy.ts`) is still a display model;
+  capacities and congestion now live in the freight simulation (`freight.ts`, v0.8), and the two should share one route model
 - Event effects are first-pass; dates for some events are approximate
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow

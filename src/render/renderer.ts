@@ -292,7 +292,8 @@ export class Renderer {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * W + x;
       const p = w.pollution[i];
-      mix(w.use[i] | (w.sub[i] << 5) | (w.street[i] << 10) | ((w.pop[i] > 0 ? 1 : 0) << 14) | (w.structure[i] << 15));
+      mix(w.use[i] | (w.sub[i] << 5) | (w.street[i] << 10) | ((w.pop[i] > 0 ? 1 : 0) << 14) | (w.structure[i] << 15) | (w.eth[i] << 24));
+      if (((x | y) & 7) === 0) mix(w.kit[(y >> 3) * Math.ceil(W / 8) + (x >> 3)] + 7919);
       mix(w.built[i] | ((p < 0.15 ? 0 : p < 0.4 ? 1 : p < 0.5 ? 2 : p < 1.2 ? 3 : 4) << 12) | (Math.min(8, Math.floor(p * 6)) << 16) | (w.owner[i] << 20));
       if (this.plants.has(i)) plant = true;
       if (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year) rails++;
@@ -762,7 +763,10 @@ export class Renderer {
     const soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
     const housing = kind !== "civic" && kind !== "shop";
     const boarded = housing && w.pop[i] === 0 && kind !== "mansion" ? 1 : 0;
-    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded });
+    // the community's style: houses whose families belong to the community that holds this part of town
+    const kc = w.kit[((y / 8) | 0) * Math.ceil(W / 8) + ((x / 8) | 0)];
+    const kit = housing && kc && w.eth[i] === kc ? kc : 0;
+    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit });
   }
 
   private denseStreet(g: GameState, x: number, y: number) {
@@ -812,7 +816,7 @@ export class Renderer {
         break;
       }
       case Use.Houses: {
-        const kind: HouseKind = sub === HouseSub.Estate ? (w.pollution[i] < 0.4 ? "mansion" : "house") : sub === HouseSub.Company ? "company" : sub === HouseSub.Shanty ? "shanty" : "house";
+        const kind: HouseKind = sub === HouseSub.Estate ? (w.pollution[i] < 0.4 ? "mansion" : "house") : sub === HouseSub.Company ? "company" : sub === HouseSub.Shanty ? "shanty" : sub === HouseSub.Boarding ? "boarding" : "house";
         out.push({ key: this.houseSpecFor(g, x, y, i, kind, sub), u: 0.5, v: 0.5 });
         break;
       }
@@ -1032,6 +1036,31 @@ export class Renderer {
 
   // ------------------------------------------------------------ inclines (drawn live, cars run)
   /** Timber trestle on a straight grade from foot to head, with two counterbalanced cars. */
+  /** the player's rail siding: ballast, ties and rails from the works to the main line */
+  drawSpur(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const c = g.company;
+    if (!c?.spur) return;
+    const m = this.map, z = cam.zoom;
+    const S = (x: number, y: number): [number, number] => { const xi = Math.max(0, Math.min(m.width - 1, Math.floor(x))), yi = Math.max(0, Math.min(m.height - 1, Math.floor(y))); const [wx, wy] = project(x, y, m.elevation[yi * m.width + xi] + 0.4); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    const [tx, ty] = c.spur;
+    const ex = Math.max(c.x, Math.min(c.x + c.footprint, tx + 0.5)), ey = Math.max(c.y, Math.min(c.y + c.footprint, ty + 0.5));
+    const len = Math.hypot(tx + 0.5 - ex, ty + 0.5 - ey);
+    const n = Math.max(2, Math.ceil(len * 4));
+    const ux = (tx + 0.5 - ex) / (len || 1), uy = (ty + 0.5 - ey) / (len || 1), vx = -uy * 0.09, vy = ux * 0.09;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.lineCap = "round";
+    const line = (off: number, col: string, wpx: number) => {
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, wpx * z); ctx.beginPath();
+      for (let k = 0; k <= n; k++) { const f = k / n; const [sx, sy] = S(ex + (tx + 0.5 - ex) * f + vx * off, ey + (ty + 0.5 - ey) * f + vy * off); if (k) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy); }
+      ctx.stroke();
+    };
+    line(0, "#5c544a", 9);
+    ctx.strokeStyle = "#4a3626"; ctx.lineWidth = Math.max(1, 1.5 * z);
+    for (let k = 0; k <= n * 2; k++) { const f = k / (n * 2); const px = ex + (tx + 0.5 - ex) * f, py = ey + (ty + 0.5 - ey) * f; const a = S(px + vx * 1.6, py + vy * 1.6), b = S(px - vx * 1.6, py - vy * 1.6); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    line(1, "#a8a8b0", 1.2); line(-1, "#a8a8b0", 1.2);
+    ctx.restore();
+  }
+
   drawInclines(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number) {
     const m = this.map, z = cam.zoom;
     const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };

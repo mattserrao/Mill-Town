@@ -3,6 +3,7 @@
 // pours from the works. A pool of agents lives around the camera; nothing is simulated off screen.
 
 import { snapToRail } from "../core/lines";
+import { blockGrid, blockOf } from "../core/blocks";
 import type { GameState } from "../core/game";
 import type { GameMap, Span } from "../core/map";
 import { Rng } from "../core/rng";
@@ -168,6 +169,32 @@ export class Traffic {
     void year;
   }
 
+  // ------------------------------------------------------------ what the simulation says is moving
+  private freightBlock?: Float32Array;
+  private freightTurn = -1;
+  /** commuter traffic at a tile, 0..~1.5 (1 = the busiest 5% of the valley) */
+  private busy(g: GameState, x: number, y: number): number {
+    const bg = blockGrid(this.m);
+    return Math.min(1.5, g.env.traffic[blockOf(bg, x, y)] / (g.env.trafficNorm || 1));
+  }
+  /** freight moving through a tile's block, 0..~1.5 (block max, so a route a tile wide still counts) */
+  private cargo(g: GameState, x: number, y: number): number {
+    const bg = blockGrid(this.m);
+    if (this.freightTurn !== g.turn || !this.freightBlock) {
+      const f = new Float32Array(bg.n), m = this.m;
+      for (let i = 0; i < g.env.freight.length; i++) { const v = g.env.freight[i]; if (v > 0) { const b = blockOf(bg, i % m.width, (i / m.width) | 0); if (v > f[b]) f[b] = v; } }
+      // spread a block either side so boats on the far side of a wide river still see the traffic
+      const out = new Float32Array(bg.n);
+      for (let by = 0; by < bg.bh; by++) for (let bx = 0; bx < bg.bw; bx++) {
+        let mx = 0;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const xx = bx + dx, yy = by + dy; if (xx >= 0 && yy >= 0 && xx < bg.bw && yy < bg.bh) mx = Math.max(mx, f[yy * bg.bw + xx]); }
+        out[by * bg.bw + bx] = mx;
+      }
+      this.freightBlock = out; this.freightTurn = g.turn;
+    }
+    return Math.min(1.5, this.freightBlock[blockOf(bg, x, y)] / (g.env.freightNorm || 1));
+  }
+
   /** a random tile under a random point of the screen */
   private randomTile(_v?: unknown): [number, number] {
     const m = this.m, c = this.cam;
@@ -187,6 +214,8 @@ export class Traffic {
     const [x, yy] = this.randomTile(v);
     const i = yy * m.width + x;
     if (!this.streetOk(w, i)) return false;
+    // people and vehicles appear where the commute model sends them (a little everywhere, a lot on the busy routes)
+    if (this.rng.next() > 0.12 + 0.88 * Math.min(1, this.busy(g, x, yy))) return false;
     const r = this.rng.next();
     const busy = w.street[i] === Street.Pike;
     let kind: Kind;
@@ -213,6 +242,7 @@ export class Traffic {
     const [x, y] = this.randomTile(v);
     const i = y * m.width + x;
     if (!this.railOpen(g, i)) return false;
+    if (this.rng.next() > 0.25 + 0.75 * Math.min(1, this.cargo(g, x, y))) return false; // trains run where the freight goes
     const freight = this.rng.chance(0.7);
     this.agents.push({ kind: "train", x, y, px: x, py: y, nx: x, ny: y, t: 1, speed: freight ? 1.6 : 2.6, col: freight ? "#5a3a2a" : "#2e4a3a", trail: [], len: freight ? 10 + this.rng.int(0, 10) : 5 });
     return true;
@@ -224,7 +254,9 @@ export class Traffic {
     const i = y * m.width + x;
     if (m.terrain[i] !== Terrain.Water || this.shore[i] < 3 || this.down[i] < 0) return false;
     const year = g.world.year;
-    const kind: Kind = year < 1870 || (year < 1930 && this.rng.chance(0.4)) ? "steamboat" : "tow";
+    const cargo = this.cargo(g, x, y);
+    if (this.rng.next() > 0.2 + 0.8 * Math.min(1, cargo)) return false; // tows work the freight lanes
+    const kind: Kind = year < 1870 || (year < 1930 && this.rng.chance(cargo > 0.3 ? 0.2 : 0.5)) ? "steamboat" : "tow";
     const ang = this.rng.next() * Math.PI * 2;
     this.agents.push({ kind, x, y, px: x, py: y, nx: x, ny: y, t: 1, speed: kind === "tow" ? 0.35 : 0.6, col: kind === "steamboat" ? "#ece7da" : year < 1940 ? "#3a3a3e" : "#c8402a", hx: Math.cos(ang), hy: Math.sin(ang), trail: [], len: kind === "tow" ? 3 + this.rng.int(0, 6) : 0 });
     return true;
@@ -275,7 +307,8 @@ export class Traffic {
         if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
         const s = this.streetOk(w, y * m.width + x);
         if (!s || (s === Street.Steps && a.kind !== "walker")) continue;
-        opts.push([x, y, back(x, y) ? 0.05 : (x - a.x === a.x - a.px && y - a.y === a.y - a.py ? 3 : 1)]);
+        const busy = 0.35 + this.busy(g, x, y); // follow the commuters' routes
+        opts.push([x, y, (back(x, y) ? 0.05 : (x - a.x === a.x - a.px && y - a.y === a.y - a.py ? 3 : 1)) * busy]);
       }
     }
     if (!opts.length) return [a.x, a.y];

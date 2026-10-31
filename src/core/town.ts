@@ -3,8 +3,9 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
-import { DIAMOND, HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
-import { type GameMap, idx, inBounds, sat, satSum, tilesFor } from "./map";
+import { blockGrid, blockOf, upsample } from "./blocks";
+import { DIAMOND, INCLINES, latLonToTile, PARKS, tileLine } from "./features";
+import { type GameMap, idx, inBounds, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { anchorAt, G, GROUPS, pickGroup, SETTLED_1850 } from "./ancestry";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
@@ -31,7 +32,7 @@ export const enum Use {
 /** sub-types: houses / rowhouses */
 export const enum HouseSub { Normal = 0, Estate = 1, Company = 2, Shanty = 3, Boarding = 4 }
 /** sub-types: commerce */
-export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5, Warehouse = 6, Block = 7, Office = 8 }
+export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5, Warehouse = 6, Block = 7, Office = 8, Bakery = 9, Butcher = 10, Kosher = 11, Saloon = 12, Barber = 13 }
 /** sub-types: civic */
 export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4, TwinChurch = 5, Synagogue = 6, BlackChurch = 7, Hall = 8 }
 
@@ -42,10 +43,10 @@ export const USE_NAMES: Record<number, string> = {
 };
 export const SUB_NAMES: Record<number, Record<number, string>> = {
   3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
-  4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties" },
+  4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties", 4: "Boarding house" },
   5: { 4: "Boarding houses" },
   6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library", 5: "Church (twin towers)", 6: "Synagogue", 7: "Church (AME)", 8: "Social hall" },
-  12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building" },
+  12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building", 9: "Bakery", 10: "Butcher shop", 11: "Kosher butcher", 12: "Saloon", 13: "Barbershop" },
 };
 
 export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4 }
@@ -105,6 +106,10 @@ export interface World {
   eth: Uint8Array;         // community (ancestry group id) of the lot's residents or congregation
   sub: Uint8Array;         // building sub-type (HouseSub / ShopSub / CivicSub / incline id)
   built: Uint16Array;      // year the current building went up (drives its architectural style)
+  /** the community that built a church / hall / school / shop (eth may change later, or go to 0 = closed) */
+  was: Uint8Array;
+  /** per 8×8-tile cell: the community that holds it (≥ 45% of ≥ 150 people), whose style its new houses take; 0 = mixed */
+  kit: Uint8Array;
   settlements: { name: string; x: number; y: number; pop: number }[];
   /** inclines in service: tile path from the foot to the head */
   inclines: { id: number; name: string; year: number; path: [number, number][] }[];
@@ -115,6 +120,23 @@ export interface World {
 export function useForPop(p: number): Use {
   // (company and shanty lots are capped below the rowhouse threshold by the game)
   return p > POP_CAP.houses ? Use.Rowhouses : p > POP_CAP.cottage ? Use.Houses : Use.Cottage;
+}
+
+/**
+ * Minutes to cross 120 m: on foot, by horsecar (1859–90) or electric streetcar (1890–1955) on the main roads,
+ * or by car as it spreads from the 1920s (a blend: the share of commuters who drive).
+ */
+export function modeCost(year: number, street: boolean, pike: boolean): number {
+  let walk = street ? 1.5 : 3.6;
+  if (pike) {
+    if (year >= 1890 && year < 1955) walk = 0.55;
+    else if (year >= 1859 && year < 1890) walk = 0.9;
+  }
+  if (street && year >= 1920) {
+    const car = Math.min(1, (year - 1920) / 40);
+    walk = Math.min(walk, 1.5 * (1 - car) + 0.3 * car);
+  }
+  return walk;
 }
 
 const DX = [1, -1, 0, 0, 1, 1, -1, -1];
@@ -167,6 +189,8 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     sub: new Uint8Array(n),
     eth: new Uint8Array(n),
     built: new Uint16Array(n),
+    was: new Uint8Array(n),
+    kit: new Uint8Array(Math.ceil(m.width / 8) * Math.ceil(m.height / 8)),
     settlements: [],
     inclines: [],
     version: 1,
@@ -375,6 +399,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   }
 
   recomputeLandValue(m, w);
+  updateKits(m, w);
   return w;
 }
 
@@ -451,7 +476,7 @@ export function walkField(m: GameMap, w: World, sx: number, sy: number, maxCost:
       if (t === Terrain.Water) c = w.street[j] === Street.Bridge ? 1 : 30;
       else if (w.use[j] === Use.Incline && w.use[i] === Use.Incline) c = 0.4;
       else if (w.street[j] === Street.Steps) c = 1.3 + dh * 0.12;
-      else if (w.street[j]) c = 1 + dh * 0.22;
+      else if (w.street[j]) { const f = modeCost(w.year, true, w.street[j] === Street.Pike) / 1.5; c = f * (1 + dh * 0.22); } // streetcars and cars shrink the walk
       else c = TRAVEL_COST[t] * 1.6 + dh * 0.35;
       const nd = d + c * (k >= 4 ? 1.414 : 1);
       if (nd < dist[j]) { dist[j] = nd; heap.push(j, nd); }
@@ -526,47 +551,48 @@ export function growAround(m: GameMap, w: World, cx: number, cy: number, reach: 
   return count - left;
 }
 
-/** Yearly regional growth: the city and the mill towns grow toward the historical population, up the hillsides. */
 /**
- * Grow toward the census curve. Called every season (`season` 0–3) so the town fills in steadily;
- * the slower civic work (steps, downtown, succession, churches) runs once a year, in Spring.
+ * The town's slower civic work, spread over the year (Micropolis-style phases): succession runs on a quarter of
+ * the map each season; steps, downtown rebuilding and churches/halls once a year, in Spring.
+ * (Where newcomers settle is decided by the growth model in growth.ts.)
  */
-export function growRegion(m: GameMap, w: World, plants: [number, number][], currentPop: number, season = 0) {
-  const target = regionTarget(w.year + (season + 1) / 4);
-  const room = Math.round((target - currentPop) * 0.12);
-  if (room > 0) growShares(m, w, plants, room, season);
+export function civicSeason(m: GameMap, w: World, season: number) {
+  turnover(m, w, season);
   if (season !== 0) return;
   addSteps(m, w);
   rebuildDowntown(m, w);
-  turnover(m, w);
+  updateKits(m, w);
   communityBuildings(m, w);
 }
 
-function growShares(m: GameMap, w: World, plants: [number, number][], room: number, season: number) {
-  const shares: { x: number; y: number; reach: number; weight: number; steep: boolean }[] = [];
-  for (const h of HILLSIDES) {
-    if (w.year < h.year) continue;
-    const ramp = w.year <= h.peak ? 1 : Math.max(0.15, 1 - (w.year - h.peak) / 30);
-    const [x, y] = latLonToTile(m, h.lat, h.lon);
-    shares.push({ x, y, reach: (h.radiusM / m.metersPerTile) * 1.8, weight: h.weight * ramp * 1.6, steep: true });
+/** Which community holds each 8×8 cell (≥ 45% of at least 150 people): new houses there are built in its style. */
+export function updateKits(m: GameMap, w: World) {
+  const C = 8, cw = Math.ceil(m.width / C), ch = Math.ceil(m.height / C), NGr = GROUPS.length;
+  const pop = new Float32Array(cw * ch * NGr), tot = new Float32Array(cw * ch);
+  for (let y = 0; y < m.height; y++) {
+    const crow = ((y / C) | 0) * cw, row = y * m.width;
+    for (let x = 0; x < m.width; x++) { const i = row + x; if (w.pop[i]) { const c = crow + ((x / C) | 0); pop[c * NGr + w.eth[i]] += w.pop[i]; tot[c] += w.pop[i]; } }
   }
-  for (const s of w.settlements) shares.push({ x: s.x, y: s.y, reach: 70, weight: s.pop > 5000 ? 1.2 : 0.35, steep: false });
-  for (const [x, y] of plants) shares.push({ x: Math.round(x), y: Math.round(y), reach: 90, weight: 0.7, steep: w.year >= 1880 });
-  const total = shares.reduce((a, s) => a + s.weight, 0);
-  for (const s of shares) {
-    const n = Math.round((room * s.weight) / total);
-    growAround(m, w, s.x, s.y, s.reach, n, { steep: s.steep, seed: w.seed + w.year * 4 + season, plants });
+  let changed = false;
+  for (let c = 0; c < cw * ch; c++) {
+    let best = 0, bp = 0;
+    for (let gI = 1; gI < NGr; gI++) if (pop[c * NGr + gI] > bp) { bp = pop[c * NGr + gI]; best = gI; }
+    const k = tot[c] >= 150 && bp / tot[c] >= 0.45 ? best : 0;
+    if (w.kit[c] !== k) { w.kit[c] = k; changed = true; }
   }
+  if (changed) w.version++;
 }
 
 /**
  * Succession: each year some households move up and out, and newcomers take their homes —
  * faster in the neighbourhoods each new community was drawn to (the Hill, the South Side, the mill towns).
  */
-export function turnover(m: GameMap, w: World) {
-  const rng = new Rng(`${w.seed}:turn:${w.year}`);
+export function turnover(m: GameMap, w: World, season = -1) {
+  const rng = new Rng(`${w.seed}:turn:${w.year}:${season}`);
   let changed = 0;
   for (let i = 0; i < w.pop.length; i++) {
+    // phased: each season handles the rows of one quarter of the 8-row bands (every tile once a year)
+    if (season >= 0 && ((((i / m.width) | 0) >> 3) & 3) !== season) continue;
     if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
     const x = i % m.width, y = (i / m.width) | 0;
     const a = anchorAt(m, x, y);
@@ -585,46 +611,114 @@ export function turnover(m: GameMap, w: World) {
  * Slovak and Polish twin-tower churches, Rusyn and Serbian onion domes, synagogues, AME churches,
  * Sokol halls, Turnvereins, Hibernian halls.
  */
-export function communityBuildings(m: GameMap, w: World, maxNew = 8) {
-  const C = 16, cw = Math.ceil(m.width / C), chh = Math.ceil(m.height / C);
-  const pop = new Float64Array(cw * chh * GROUPS.length);
-  const has = new Uint8Array(cw * chh * GROUPS.length * 2); // [church, hall]
-  for (let i = 0; i < w.pop.length; i++) {
-    const x = i % m.width, y = (i / m.width) | 0;
-    const c = (Math.floor(y / C) * cw + Math.floor(x / C)) * GROUPS.length;
-    if (w.pop[i] && w.eth[i]) pop[c + w.eth[i]] += w.pop[i];
-    if (w.use[i] === Use.Civic && w.eth[i]) {
-      const kind = w.sub[i] === CivicSub.Hall ? 1 : w.sub[i] === CivicSub.School || w.sub[i] === CivicSub.Firehouse || w.sub[i] === CivicSub.Library ? -1 : 0;
+/**
+ * Each community builds its own institutions as it grows, in the order they came historically:
+ *   boarding houses for the single men who came first (≥ 120 people in a 480 m cell),
+ *   its own shops (≥ 300): bakery, butcher, kosher butcher, saloon, barber — by community,
+ *   a church (≥ 700): Slovak and Polish twin towers, Rusyn and Serbian onion domes, synagogues, AME churches,
+ *   a parish school once the church stands (≥ 1,200, Catholic parishes),
+ *   a social hall once the church stands (≥ 450, from 1870): Sokol, Turnverein, Hibernians, Sons of Italy…
+ * When the neighbourhood changes hands, the buildings stay: a church the newcomers can use becomes their parish,
+ * otherwise it closes; shops change hands or close.
+ */
+const PARISH_SCHOOL = new Set<number>([2, 3, 5, 6, 7, 8, 9, 10, 12]); // groups with parish schools (Catholic, Orthodox-Catholic, Lutheran)
+const GROUP_SHOPS: Record<number, ShopSub[]> = {
+  2: [ShopSub.Saloon], 3: [ShopSub.Bakery, ShopSub.Saloon], 4: [ShopSub.Barber], 5: [ShopSub.Butcher, ShopSub.Saloon],
+  6: [ShopSub.Butcher, ShopSub.Saloon], 7: [ShopSub.Butcher, ShopSub.Bakery], 8: [ShopSub.Butcher], 9: [ShopSub.Saloon, ShopSub.Butcher],
+  10: [ShopSub.Bakery, ShopSub.Barber], 11: [ShopSub.Kosher, ShopSub.Bakery], 12: [ShopSub.Butcher],
+};
+const CHURCHES = new Set<number>([CivicSub.Church, CivicSub.OnionChurch, CivicSub.TwinChurch, CivicSub.Synagogue, CivicSub.BlackChurch]);
+
+export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
+  const C = 16, cw = Math.ceil(m.width / C), chh = Math.ceil(m.height / C), NGr = GROUPS.length;
+  const pop = new Float64Array(cw * chh * NGr), tot = new Float64Array(cw * chh);
+  // what each community already has in each cell (and the cells next to it): church, hall, school, shops, boarding
+  const has = new Uint8Array(cw * chh * NGr * 4); // [church, hall, school, boarding]
+  const shops = new Map<number, Set<number>>();   // cell*NG+group -> shop subs
+  const civic: number[] = [];
+  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
+    const i = y * m.width + x, cx = (x / C) | 0, cy = (y / C) | 0, c = cy * cw + cx;
+    if (w.pop[i]) { pop[c * NGr + w.eth[i]] += w.pop[i]; tot[c] += w.pop[i]; }
+    const g = w.eth[i];
+    if (w.use[i] === Use.Civic) {
+      civic.push(i);
+      if (!g) continue;
+      const kind = CHURCHES.has(w.sub[i]) ? 0 : w.sub[i] === CivicSub.Hall ? 1 : w.sub[i] === CivicSub.School ? 2 : -1;
       if (kind >= 0) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const cx = Math.floor(x / C) + dx, cy = Math.floor(y / C) + dy;
-        if (cx >= 0 && cy >= 0 && cx < cw && cy < chh) has[((cy * cw + cx) * GROUPS.length + w.eth[i]) * 2 + kind] = 1;
+        const xx = cx + dx, yy = cy + dy;
+        if (xx >= 0 && yy >= 0 && xx < cw && yy < chh) has[((yy * cw + xx) * NGr + g) * 4 + kind] = 1;
+      }
+    } else if (w.use[i] === Use.Commerce && g && w.sub[i] >= ShopSub.Bakery) {
+      const k = c * NGr + g; if (!shops.has(k)) shops.set(k, new Set()); shops.get(k)!.add(w.sub[i]);
+    } else if ((w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) && w.sub[i] === HouseSub.Boarding && g) has[(c * NGr + g) * 4 + 3]++;
+  }
+  // the best lot in a cell for a new building of community g: one of its homes on a street (a corner for a shop)
+  const lotFor = (cell: number, g: number, corner: boolean) => {
+    const x0 = (cell % cw) * C, y0 = Math.floor(cell / cw) * C;
+    let best = -1, bp = -1;
+    for (let y = y0; y < Math.min(m.height, y0 + C); y++) for (let x = x0; x < Math.min(m.width, x0 + C); x++) {
+      const i = y * m.width + x;
+      if (w.eth[i] !== g || !(w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) || w.owner[i] || w.sub[i] === HouseSub.Boarding) continue;
+      let st = 0, ax = false, ay = false;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) { st++; if (dx) ax = true; else ay = true; }
+      if (!st || (corner && !(ax && ay) && st < 2)) continue;
+      if (w.pop[i] > bp) { bp = w.pop[i]; best = i; }
+    }
+    return best;
+  };
+  const build = (i: number, use: Use, sub: number, g: number) => {
+    w.use[i] = use; w.sub[i] = sub; w.eth[i] = g; w.was[i] = g; w.pop[i] = 0; w.built[i] = w.year;
+  };
+  let made = 0;
+  for (let cell = 0; cell < cw * chh && made < maxNew; cell++) {
+    if (tot[cell] < 120) continue;
+    for (let gid = 1; gid < NGr && made < maxNew; gid++) {
+      const p = pop[cell * NGr + gid];
+      if (p < 120) continue;
+      const k = (cell * NGr + gid) * 4;
+      // 1. boarding houses while the community is young here (no church yet)
+      if (!has[k] && has[k + 3] < 2 && w.year >= 1860 && gid !== 1) {
+        const i = lotFor(cell, gid, false);
+        if (i >= 0) { w.sub[i] = HouseSub.Boarding; w.use[i] = w.use[i] === Use.Houses ? Use.Houses : Use.Rowhouses; has[k + 3]++; made++; }
+      }
+      // 2. its own shops
+      if (p >= 300) for (const sub of GROUP_SHOPS[gid] ?? []) {
+        if (made >= maxNew || shops.get(cell * NGr + gid)?.has(sub)) continue;
+        if (sub === ShopSub.Saloon && w.year >= 1920 && w.year < 1933) continue; // Prohibition
+        const i = lotFor(cell, gid, true);
+        if (i < 0) break;
+        build(i, Use.Commerce, sub, gid);
+        if (!shops.has(cell * NGr + gid)) shops.set(cell * NGr + gid, new Set());
+        shops.get(cell * NGr + gid)!.add(sub);
+        made++;
+      }
+      // 3. a church
+      if (p >= 700 && !has[k]) {
+        const i = lotFor(cell, gid, false);
+        if (i >= 0) { build(i, Use.Civic, GROUPS[gid].church, gid); has[k] = 1; made++; }
+      }
+      // 4. a parish school, then 5. a social hall — both once the church stands
+      if (has[k] && p >= 1200 && !has[k + 2] && w.year >= 1865 && PARISH_SCHOOL.has(gid)) {
+        const i = lotFor(cell, gid, false);
+        if (i >= 0) { build(i, Use.Civic, CivicSub.School, gid); has[k + 2] = 1; made++; }
+      }
+      if (has[k] && p >= 450 && !has[k + 1] && w.year >= 1870) {
+        const i = lotFor(cell, gid, false);
+        if (i >= 0) { build(i, Use.Civic, CivicSub.Hall, gid); has[k + 1] = 1; made++; }
       }
     }
   }
-  let made = 0;
-  for (let cell = 0; cell < cw * chh && made < maxNew; cell++) {
-    for (let gid = 1; gid < GROUPS.length && made < maxNew; gid++) {
-      const p = pop[cell * GROUPS.length + gid];
-      for (const kind of [0, 1]) {
-        if (kind === 1 && w.year < 1870) continue;
-        if (p < (kind === 0 ? 700 : 450) || has[(cell * GROUPS.length + gid) * 2 + kind]) continue;
-        // best lot in the cell: a home of this community on a street
-        const x0 = (cell % cw) * C, y0 = Math.floor(cell / cw) * C;
-        let best = -1, bp = -1;
-        for (let y = y0; y < Math.min(m.height, y0 + C); y++) for (let x = x0; x < Math.min(m.width, x0 + C); x++) {
-          const i = y * m.width + x;
-          if (w.eth[i] !== gid || !(w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) || w.owner[i]) continue;
-          let st = false;
-          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) st = true;
-          if (st && w.pop[i] > bp) { bp = w.pop[i]; best = i; }
-        }
-        if (best < 0) continue;
-        w.use[best] = Use.Civic; w.pop[best] = 0; w.built[best] = w.year;
-        w.sub[best] = kind === 0 ? GROUPS[gid].church : CivicSub.Hall;
-        has[(cell * GROUPS.length + gid) * 2 + kind] = 1;
-        made++;
-      }
-    }
+  // succession: a community's buildings in a cell it has left
+  for (const i of civic) {
+    const g = w.eth[i];
+    if (!g || !(CHURCHES.has(w.sub[i]) || w.sub[i] === CivicSub.Hall)) continue;
+    const x = i % m.width, y = (i / m.width) | 0, c = ((y / C) | 0) * cw + ((x / C) | 0);
+    if (tot[c] < 200 || pop[c * NGr + g] / tot[c] > 0.12) continue;
+    let top = 0, tp = 0;
+    for (let gI = 1; gI < NGr; gI++) if (pop[c * NGr + gI] > tp) { tp = pop[c * NGr + gI]; top = gI; }
+    if (CHURCHES.has(w.sub[i]) && top && GROUPS[top].church === w.sub[i] && !has[(c * NGr + top) * 4]) { w.eth[i] = top; has[(c * NGr + top) * 4] = 1; } // becomes their parish
+    else w.eth[i] = 0; // closed (the building stands)
+    made++;
   }
   if (made) w.version++;
   return made;
@@ -817,55 +911,78 @@ export function carveRoad(m: GameMap, w: World, x0: number, y0: number, x1: numb
   w.version++;
 }
 
+/**
+ * Land value. The neighbourhood part (how built-up the area is) is a 4×4-tile block field, smoothed over ~250 m;
+ * the lot's own terrain, frontage and people are added per tile, and long-term smoke takes its share.
+ * Run every other season.
+ */
 export function recomputeLandValue(m: GameMap, w: World) {
-  const n = m.width * m.height;
-  const s = sat(m, w.pop);
-  const R = 8;
-  for (let i = 0; i < n; i++) {
-    const t = m.terrain[i];
-    if (t === Terrain.Water) { w.landValue[i] = 0; continue; }
-    const x = i % m.width, y = (i / m.width) | 0;
-    const base = t === Terrain.Floodplain ? 60 : t === Terrain.Flat ? 50 : t === Terrain.Upland ? 40 : t === Terrain.Slope ? 22 : 8;
-    const nb = satSum(m, s, x - R, y - R, x + R, y + R);
-    const urban = Math.sqrt(nb) * 2.2;
-    const dirty = 1 - Math.min(0.6, w.pollution[i] * 0.5);
-    w.landValue[i] = Math.round((base + urban + w.pop[i] * 3 + (w.street[i] ? 20 : 0)) * dirty);
+  const g = blockGrid(m);
+  const bp = new Float32Array(g.n);
+  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) bp[blockOf(g, x, y)] += w.pop[y * m.width + x];
+  // people within ~2 blocks (the old 8-tile radius)
+  const urban = new Float32Array(g.n);
+  for (let by = 0; by < g.bh; by++) for (let bx = 0; bx < g.bw; bx++) {
+    let s = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = bx + dx, yy = by + dy;
+      if (xx >= 0 && yy >= 0 && xx < g.bw && yy < g.bh) s += bp[yy * g.bw + xx];
+    }
+    urban[by * g.bw + bx] = Math.sqrt(s) * 2.2;
   }
+  const BASE = [0, 0, 0, 0, 0, 0, 0, 0];
+  BASE[Terrain.Floodplain] = 60; BASE[Terrain.Flat] = 50; BASE[Terrain.Upland] = 40; BASE[Terrain.Slope] = 22; BASE[Terrain.Steep] = 8;
+  upsample(m, urban, (i, u) => {
+    const t = m.terrain[i];
+    if (t === Terrain.Water) { w.landValue[i] = 0; return; }
+    const dirty = 1 - Math.min(0.6, w.pollution[i] * 0.5);
+    w.landValue[i] = Math.round(((BASE[t] || 8) + u + w.pop[i] * 3 + (w.street[i] ? 20 : 0)) * dirty);
+  });
 }
 
 // ---------------------------------------------------------------- binary heap
 export class MinHeap {
-  private ids: number[] = [];
-  private keys: number[] = [];
-  get size() { return this.ids.length; }
+  private ids = new Int32Array(1024);
+  private keys = new Float64Array(1024);
+  private n = 0;
+  get size() { return this.n; }
   push(id: number, key: number) {
+    if (this.n === this.ids.length) {
+      const ids = new Int32Array(this.n * 2); ids.set(this.ids); this.ids = ids;
+      const keys = new Float64Array(this.n * 2); keys.set(this.keys); this.keys = keys;
+    }
     const a = this.ids, k = this.keys;
-    a.push(id); k.push(key);
-    let i = a.length - 1;
+    let i = this.n++;
     while (i > 0) {
       const p = (i - 1) >> 1;
-      if (k[p] <= k[i]) break;
-      [a[p], a[i]] = [a[i], a[p]]; [k[p], k[i]] = [k[i], k[p]];
+      if (k[p] <= key) break;
+      a[i] = a[p]; k[i] = k[p];
       i = p;
     }
+    a[i] = id; k[i] = key;
   }
-  pop(): [number, number] {
+  /** pops the smallest; read it from `top` / `topKey` */
+  popMin(): number {
     const a = this.ids, k = this.keys;
-    const top: [number, number] = [a[0], k[0]];
-    const lastId = a.pop()!, lastK = k.pop()!;
-    if (a.length) {
-      a[0] = lastId; k[0] = lastK;
+    const id = a[0];
+    this.topKey = k[0];
+    const n = --this.n;
+    if (n > 0) {
+      const lid = a[n], lk = k[n];
       let i = 0;
       for (;;) {
-        const l = i * 2 + 1, r = l + 1;
-        let mm = i;
-        if (l < a.length && k[l] < k[mm]) mm = l;
-        if (r < a.length && k[r] < k[mm]) mm = r;
-        if (mm === i) break;
-        [a[mm], a[i]] = [a[i], a[mm]]; [k[mm], k[i]] = [k[i], k[mm]];
-        i = mm;
+        const l = i * 2 + 1;
+        if (l >= n) break;
+        const r = l + 1;
+        const c = r < n && k[r] < k[l] ? r : l;
+        if (k[c] >= lk) break;
+        a[i] = a[c]; k[i] = k[c];
+        i = c;
       }
+      a[i] = lid; k[i] = lk;
     }
-    return top;
+    return id;
   }
+  topKey = 0;
+  pop(): [number, number] { const id = this.popMin(); return [id, this.topKey]; }
 }

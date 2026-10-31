@@ -1,5 +1,8 @@
 # Mill Town vs. SimCity (Micropolis) — simulation mechanics
 
+> **Status (v0.8):** the seven recommendations in section 4 are implemented — see section 5 for what was built
+> and where it lives. Sections 1–3 are the original review.
+
 Micropolis is the open-source release of the original SimCity (1989). Everything below about it is read
 from its engine source (`MicropolisCore/src/MicropolisEngine/src`: `simulate.cpp`, `scan.cpp`, `traffic.cpp`,
 `zone.cpp`, `micropolis.h`). Mill Town references are to this repo.
@@ -218,3 +221,24 @@ Everything is one loop: pollution lowers land value, which lowers growth and rai
 5. Freight routing on river and rail with capacities.
 6. Health (air, water, crowding) and unrest.
 7. Group style kits and institutions.
+
+## 5. What was built (v0.8)
+
+| # | Recommendation | Built | Code |
+|---|---|---|---|
+| 1 | Rivals and homes pollute; block air; inversions | Smoke from every works (yours and the rivals', by the technology of their day), home coal fires (seasonal, the 1884–91 gas boom, smoke control from 1946), shop and church boilers, steam locomotives and motor traffic, emitted into 4×4-tile blocks. Smoke drifts east and clears each season, slower on valley floors in autumn and winter. Long-term soot per tile is a running average of the air. | `core/environment.ts`, `core/blocks.ts` |
+| 2 | Desirability-driven siting | The census curve sets how many people arrive each season. Each lot's score sets where they go: jobs in reach, an existing home, main roads, hillsides on their dates, steepness, chain migration, the community's church nearby, the historic pull of named neighbourhoods, and land value and smoke. New arrivals take the cheap, smoky lots; established communities pay for clean air. | `core/growth.ts` |
+| 3 | Phased scans, block fields | Land value is a block field updated every other season. Turnover runs on a quarter of the map each season. Steps, downtown, churches and community styles update once a year. Air, health, unrest and traffic are held per block. A turn takes about 150–220 ms through to 1985 (it was 160 ms with far less simulated). | `core/town.ts` (`civicSeason`, `recomputeLandValue`) |
+| 4 | Commute trips, streetcars, traffic drives animation | Travel times on the block grid by mode and year: walking, horsecars on the main roads (1859–90), electric streetcars (1890–1955), cars blending in from 1920. Rivers can only be crossed at bridges; inclines are fast. A travel-time field from each job centre (every works, downtown, the busiest town centres) gives "jobs in reach" for growth. Each season 600 sampled households travel to work along the fastest path; the resulting traffic sets where walkers and vehicles appear and which streets they follow. Labour access to your works uses the same model. | `core/commute.ts`, `render/traffic.ts` |
+| 5 | Freight on river and rail with capacities | Inputs come in from the Upper Mon (coal, coke), the Allegheny (limestone, sand, early ore) and the Ohio (Lake Erie ore from 1880), or by any railroad that reaches the edge of the map. Wagons cover the gap to a works with no dock or siding. River capacity grows with the locks and dams; ice halves it in winter and low water cuts it in summer. All works share each lane: an over-full lane delivers the same fraction to every shipper and charges a congestion premium. Your output is limited by the scarcest input. New action: **Build a rail siding**. | `core/freight.ts` |
+| 6 | Health and unrest | River water: outfalls and sewage carried downstream; riverside towns drink it until filtration (1908). Health (yearly, per block) comes from soot, drinking water and crowding. Unrest comes from poor health, crowding and the era's grievances (the twelve-hour day, the Depression, the post-1979 layoffs). Effects: deaths and slower family growth where health is poor; your workforce's health scales output; its unrest raises the strike chance. | `core/environment.ts`, `core/game.ts` |
+| 7 | Community styles and institutions | Each 8×8-tile cell held by a community (≥ 45% of ≥ 150 people) builds its new houses in that community's style: paint palettes, kitchen gardens, grape arbours, chicken coops, flower beds, painted trim. Institutions arrive in historical order: boarding houses, then community shops (bakery, butcher, kosher butcher, saloon, barber; no saloons during Prohibition), then a church, then a parish school and a social hall once the church stands. When a community leaves, its church becomes the newcomers' parish if they can use it, otherwise it closes; the building stays. | `core/town.ts` (`communityBuildings`, `updateKits`), `render/houses.ts` |
+
+**New overlays:** smoke this season, river water, health, unrest, commuter traffic, freight. The travel-time
+overlay now reflects the mode of the era.
+
+**Query card:** the tile's smoke (this season and long-term), health, unrest and street traffic. The
+neighbourhood gets a one-line **character**, e.g. "Italian since 1895, first generation; Slovak arriving
+since 1902". Churches show who built them and whether they've changed hands or closed.
+
+**Company panel:** workforce health and unrest, plus shipping by good: tons, lane, cost per ton and how full the lane is.

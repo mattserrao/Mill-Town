@@ -85,11 +85,30 @@ function anchors(m: GameMap): AnchorTile[] {
   return list;
 }
 
+const anchorIdxCache = new WeakMap<GameMap, Int16Array>();
+/** Anchor index per tile (−1 = none), computed once per map. */
+export function anchorIndex(m: GameMap): Int16Array {
+  let a = anchorIdxCache.get(m);
+  if (a) return a;
+  const list = anchors(m);
+  a = new Int16Array(m.width * m.height).fill(-1);
+  const best = new Float32Array(m.width * m.height).fill(Infinity);
+  list.forEach((t, k) => {
+    for (let y = Math.max(0, Math.floor(t.y - t.r)); y <= Math.min(m.height - 1, Math.ceil(t.y + t.r)); y++)
+      for (let x = Math.max(0, Math.floor(t.x - t.r)); x <= Math.min(m.width - 1, Math.ceil(t.x + t.r)); x++) {
+        const d = Math.hypot(t.x - x, t.y - y), i = y * m.width + x;
+        if (d < t.r && d < best[i]) { best[i] = d; a![i] = k; }
+      }
+  });
+  anchorIdxCache.set(m, a);
+  return a;
+}
+
 /** Anchor neighbourhood a tile belongs to (nearest within radius), if any. */
 export function anchorAt(m: GameMap, x: number, y: number): Anchor | null {
-  let best: Anchor | null = null, bd = Infinity;
-  for (const t of anchors(m)) { const d = Math.hypot(t.x - x, t.y - y); if (d < t.r && d < bd) { bd = d; best = t.a; } }
-  return best;
+  if (x < 0 || y < 0 || x >= m.width || y >= m.height) return null;
+  const k = anchorIndex(m)[y * m.width + x];
+  return k >= 0 ? anchors(m)[k].a : null;
 }
 
 /**

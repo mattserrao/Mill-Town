@@ -6,11 +6,13 @@ import { GROUPS } from "../core/ancestry";
 import { tileLatLon, type GameMap } from "../core/map";
 import { areaAt, areaReport, civicLabel, type AreaReport } from "../core/neighbourhood";
 import { RIVALS } from "../core/rivals";
-import { TERRAIN_NAMES } from "../core/terrain";
+import { Terrain, TERRAIN_NAMES } from "../core/terrain";
 import { STRUCTURES, SUB_NAMES, Use, USE_NAMES } from "../core/town";
 import { parseHouseKey } from "../render/houses";
 import type { Renderer } from "../render/renderer";
 import { stageOf } from "../render/renderer";
+import { blockGrid, blockOf } from "../core/blocks";
+import { RIVER_REF, SOOT_SCALE } from "../core/environment";
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -58,11 +60,15 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     if (w.eth[i] && w.pop[i]) bRows.push(["Family background", GROUPS[w.eth[i]].name]);
     if (spec) bRows.push(["Condition", `${spec.boarded ? "boarded up, " : ""}${SOOT[spec.soot]}${spec.corner ? " · corner lot" : ""}`]);
   } else if (use === Use.Civic) {
-    title = civicLabel(sub, w.eth[i]);
-    if (w.built[i]) bRows.push(["Built", String(w.built[i])]);
-    if (w.eth[i] && (sub <= 1 || sub >= 5)) bRows.push(["Congregation", GROUPS[w.eth[i]].name]);
+    const was = w.was[i], now = w.eth[i];
+    title = civicLabel(sub, now || was);
+    if (was && !now) title = `${title} (closed)`;
+    if (w.built[i]) bRows.push(["Built", `${w.built[i]}${was ? ` by the ${GROUPS[was].name} community` : ""}`]);
+    if (now && (sub <= 1 || sub >= 5)) bRows.push(["Congregation", now !== was && was ? `${GROUPS[now].name} (once ${GROUPS[was].name})` : GROUPS[now].name]);
+    if (was && !now) bRows.push(["Now", "Closed — its people have moved away"]);
   } else if (use === Use.Commerce) {
-    if (w.built[i]) bRows.push(["Built", String(w.built[i])]);
+    if (sub >= 9 && w.eth[i]) title = `${short(w.eth[i])} ${title.toLowerCase()}`;
+    if (w.built[i]) bRows.push(["Opened", String(w.built[i])]);
   } else if (use === Use.Landmark) {
     const st = w.structure[i];
     if (st > 0 && st < 255) title = cap(STRUCTURES[st]);
@@ -110,13 +116,21 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     ["Elevation", `${m.elevation[i].toFixed(0)} m (${fmt(m.elevation[i] * 3.281)} ft), slope ${m.slope[i]}°`],
     ["Coal", ["None", "Pittsburgh seam underground", "Pittsburgh seam outcrop"][m.coal[i]]],
     ["Land value", `$${fmt(w.landValue[i])}`],
-    ["Air", w.pollution[i] < 0.05 ? "Clean" : w.pollution[i] < 0.3 ? "Smoky" : w.pollution[i] < 1 ? "Heavy smoke" : "Choking"],
+    ["Soot (years of smoke)", smokeWord(w.pollution[i])],
+    ["Smoke this season", smokeWord(g.env.air[blockOf(blockGrid(m), x, y)] * SOOT_SCALE)],
     ["Owner", w.owner[i] === 0 ? "Private / town" : w.owner[i] === 1 ? g.company?.name ?? "You" : RIVALS.find((r) => g.rivals.find((rs) => rs.ownerId === w.owner[i])?.id === r.id)?.company ?? "Rival"],
   ];
   if (g.company && g.access) {
     const mins = walkMinutes(g, i);
     lRows.push(["Walk to your works", isFinite(mins) ? `${mins.toFixed(0)} min (${Math.round(commuteWeight(mins) * 100)}% would take the job)` : "over an hour"]);
   }
+  const b = blockOf(blockGrid(m), x, y);
+  if (m.terrain[i] === Terrain.Water) lRows.push(["River water", riverWord(g.env.river[i])]);
+  if (w.pop[i]) {
+    lRows.push(["Health", `${Math.round(g.env.health[b] * 100)}%${g.env.health[b] < 0.6 ? " — sickly" : ""}`]);
+    lRows.push(["Unrest", unrestWord(g.env.unrest[b])]);
+  }
+  if (w.street[i]) lRows.push(["Commuter traffic", trafficWord(g.env.traffic[b] / (g.env.trafficNorm || 1))]);
   lRows.push(["Position", `tile ${x}, ${y} · ${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`]);
 
   return `
@@ -131,6 +145,10 @@ function kv(rows: [string, string][]) {
   return `<div class="q-kv">${rows.map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join("")}</div>`;
 }
 
+const smokeWord = (v: number) => (v < 0.05 ? "Clean" : v < 0.15 ? "Hazy" : v < 0.35 ? "Smoky" : v < 0.8 ? "Heavy smoke" : "Choking");
+const riverWord = (v: number) => { const r = v / RIVER_REF; return r < 0.1 ? "Clean" : r < 0.35 ? "Muddy" : r < 0.7 ? "Foul" : "Poisoned"; };
+const unrestWord = (u: number) => (u < 0.2 ? "Quiet" : u < 0.35 ? "Grumbling" : u < 0.5 ? "Restless" : "Angry");
+const trafficWord = (t: number) => (t < 0.05 ? "Quiet" : t < 0.3 ? "Light" : t < 0.7 ? "Busy" : "Packed");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const rgb = (gI: number) => `rgb(${GROUPS[gI].colour.join(",")})`;
 const short = (gI: number) => (gI === 1 ? "Old stock" : GROUPS[gI].name.split(" (")[0]);
@@ -148,8 +166,10 @@ export function neighbourhoodHtml(rep: AreaReport, year: number): string {
   const one = (l: string) => (l.endsWith("houses") ? l.slice(0, -1) : l.endsWith("ies") ? l.slice(0, -3) + "y" : l.endsWith("up") ? l : l.replace(/s$/, ""));
   const homes = rep.homes.slice(0, 4).map((h) => `${h.n} ${(h.n === 1 ? one(h.label) : h.label).toLowerCase()}`).join(" · ");
   const places = [...new Set(rep.places.map((p) => p.label))].slice(0, 6).join(" · ");
+  const character = characterOf(rep, year);
   return `
     <h4>Neighbourhood — ${esc(rep.area.named ? rep.area.name : "this area")}, ${year}</h4>
+    ${character ? `<p class="q-list q-character">${esc(character)}</p>` : ""}
     <div class="q-kv"><div class="k">People</div><div class="v">${fmt(rep.pop)}</div>
       ${homes ? `<div class="k">Homes (lots)</div><div class="v">${esc(homes)}</div>` : ""}
       ${rep.avgBuilt ? `<div class="k">Typical house built</div><div class="v">${rep.avgBuilt}</div>` : ""}
@@ -188,4 +208,37 @@ function growthChart(rep: AreaReport): string {
     <text x="${W - P}" y="${H - 2}" font-size="10" fill="#9aa" text-anchor="end">${y1}</text>
     <text x="${W - P}" y="10" font-size="10" fill="#9aa" text-anchor="end">peak ${fmt(max)}</text>
   </svg>`;
+}
+
+/** "Slovak since 1888, second generation; Italian arriving since 1912" */
+function characterOf(rep: AreaReport, year: number): string {
+  const s = rep.series;
+  const total = rep.groups.reduce((a, b) => a + b, 0) - rep.groups[0];
+  if (!total) return "";
+  const dom = rep.groups.map((n, gI) => ({ gI, n })).filter((o) => o.gI).sort((a, b) => b.n - a.n)[0];
+  if (!dom || dom.n / total < 0.3) return "Mixed — no community holds a third of the households.";
+  // since when has it been the largest community here (the run of snapshots ending now)
+  let since = year;
+  for (let k = s.length - 1; k >= 0; k--) {
+    const t = s[k].groups;
+    if (t.indexOf(Math.max(...t.slice(1))) !== dom.gI) break;
+    since = s[k].year;
+  }
+  const seeded = rep.arrivals.find((a) => a.group === dom.gI)?.year ?? since;
+  const gen = Math.min(3, 1 + Math.floor((year - seeded) / 25));
+  const genWord = ["first generation", "second generation", "third generation and more"][gen - 1];
+  let out = `${short(dom.gI)} since ${since}, ${genWord}`;
+  // who's rising: biggest gain in share over the last ten years
+  if (s.length >= 3) {
+    const a = s[s.length - 3], b = s[s.length - 1];
+    const ta = a.groups.reduce((x, y) => x + y, 0) || 1, tb = b.groups.reduce((x, y) => x + y, 0) || 1;
+    let best = 0, bg = 0;
+    for (let gI = 1; gI < b.groups.length; gI++) {
+      if (gI === dom.gI) continue;
+      const d = b.groups[gI] / tb - a.groups[gI] / ta;
+      if (d > best) { best = d; bg = gI; }
+    }
+    if (bg && best > 0.03) out += `; ${short(bg)} arriving since ${rep.arrivals.find((q) => q.group === bg)?.year ?? a.year}`;
+  }
+  return out + ".";
 }

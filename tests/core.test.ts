@@ -127,10 +127,12 @@ describe("hillsides", () => {
     expect(steps).toBeGreaterThan(10);
     // the furthest-uphill populated tile gets closer once an incline is built
     g.company!.cash = 1e6;
-    const before = new Float64Array(g.access!);
+    const n = g.world.pop.length;
+    const before = new Float64Array(n);
+    for (let i = 0; i < n; i++) if (g.world.pop[i]) before[i] = walkMinutes(g, i);
     expect(buildIncline(g).ok).toBe(true);
     let improved = 0;
-    for (let i = 0; i < before.length; i++) if (g.world.pop[i] && g.access![i] < before[i] - 5) improved++;
+    for (let i = 0; i < n; i++) if (g.world.pop[i] && walkMinutes(g, i) < Math.min(before[i], 90) - 5) improved++;
     expect(improved).toBeGreaterThan(5);
     expect(isFinite(walkMinutes(g, 237 * map.width + 483))).toBe(true);
   }, 60000);
@@ -188,4 +190,39 @@ describe("time", () => {
     expect(map.lines.creek.length).toBeGreaterThan(100);
     expect([...idx.values()].some((l) => l.some((s) => s.kind === "rail"))).toBe(true);
   });
+});
+
+describe("valley systems", () => {
+  it("rivals and homes smoke the air, freight moves, institutions follow communities", () => {
+    const g = newGame(map, 1850);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    while (calendar(g.turn).year < 1905) advanceTurn(g);
+    const w = g.world, W = map.width;
+    // soot: next to a rival steel works vs. open country far from anything
+    const rival = g.rivals.find((r) => r.id === "carnegie" || r.id === "jl")!;
+    const near = w.pollution[(rival.y + (rival.footprint >> 1)) * W + rival.x + (rival.footprint >> 1)];
+    expect(near).toBeGreaterThan(0.3);
+    let rural = 0, rn = 0;
+    for (let i = 0; i < w.pop.length; i += 97) if (!w.pop[i] && map.terrain[i] !== Terrain.Water && w.use[i] === Use.Forest) { rural += w.pollution[i]; rn++; }
+    expect(rural / rn).toBeLessThan(near / 4);
+    // freight: the works ships its inputs on real lanes
+    const fr = g.company!.freight!;
+    expect(fr.lanes.length).toBeGreaterThan(0);
+    expect(fr.delivered).toBeGreaterThan(0.3);
+    expect(fr.delivered).toBeLessThanOrEqual(1);
+    // health and unrest are in range, and the commute model makes traffic
+    for (const v of g.env.health) { expect(v).toBeGreaterThanOrEqual(0.15); expect(v).toBeLessThanOrEqual(1); }
+    expect(g.env.traffic.some((v) => v > 0)).toBe(true);
+    // institutions: boarding houses, community shops, churches, halls
+    let boarding = 0, shops = 0, halls = 0;
+    for (let i = 0; i < w.pop.length; i++) {
+      if (w.sub[i] === 4 && (w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses)) boarding++;
+      if (w.use[i] === 12 && w.sub[i] >= 9) shops++;
+      if (w.use[i] === Use.Civic && w.sub[i] === 8) halls++;
+    }
+    expect(boarding).toBeGreaterThan(5);
+    expect(shops).toBeGreaterThan(5);
+    expect(halls).toBeGreaterThan(2);
+    expect(w.kit.some((k) => k >= 5)).toBe(true); // some neighbourhood is held by a new-immigrant community
+  }, 300000);
 });

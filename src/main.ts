@@ -1,4 +1,4 @@
-import { advanceTurn, buildIncline, buildSteps, cal, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
+import { advanceTurn, buildIncline, buildSpur, buildSteps, cal, spurQuote, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
 import { loadMap, tileLatLon, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
@@ -165,6 +165,7 @@ function requestRender() {
     if (anim && !ovOn && cam.zoom >= 0.1875) traffic.drawSpills(ctx, game, cam, t, night);
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
+    if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t);
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) traffic.drawHaze(ctx, game, cam, canvas.width, canvas.height);
@@ -362,6 +363,12 @@ function companyPanel() {
       row("Wages", money(-s.wages)),
       row("Profit", money(s.profit), s.profit < 0 ? "bad" : "good"),
       row("Workers", `${fmt(s.workersHired)} / ${fmt(s.workersWanted)}`),
+      row("Workforce health", `${Math.round(c.health * 100)}%`, c.health < 0.7 ? "bad" : ""),
+      row("Unrest", c.unrest < 0.2 ? "Quiet" : c.unrest < 0.35 ? "Grumbling" : c.unrest < 0.5 ? "Restless" : "Angry", c.unrest >= 0.35 ? "bad" : ""),
+      ...(c.freight ? [
+        `<div class="full hint">Shipping in (last season)</div>`,
+        ...c.freight.lanes.map((l) => row(l.good[0].toUpperCase() + l.good.slice(1), `${fmt(l.delivered)} t by ${l.mode === "river" ? (l.gateway === "upper_mon" ? "Mon barge" : l.gateway === "allegheny" ? "Allegheny barge" : "Ohio barge") : "rail"} · $${l.costPerTon.toFixed(2)}/t${l.util > 0.85 ? ` · ${Math.round(l.util * 100)}% full` : ""}`, l.util > 1 ? "bad" : "")),
+      ] : []),
       s.notes.length ? `<div class="full hint">${s.notes.join(" ")}</div>` : "",
     ] : []),
   ].join("");
@@ -369,6 +376,10 @@ function companyPanel() {
   lib.disabled = c.library || cal(game).year < 1880 || c.cash < LIBRARY_COST;
   lib.textContent = c.library ? "Library funded" : `Fund a library ($${fmt(LIBRARY_COST)})`;
   ($<HTMLButtonElement>("steps")).disabled = c.cash < STEPS_COST;
+  const q = spurQuote(game), sp = $<HTMLButtonElement>("spur");
+  sp.hidden = !q && !c.spur;
+  sp.disabled = !q || c.cash < (q?.cost ?? Infinity);
+  sp.textContent = c.spur ? "Rail siding built" : q ? `Build a rail siding ($${fmt(q.cost)}, ${fmt(q.len * map.metersPerTile)} m)` : "";
   const inc = $<HTMLButtonElement>("incline");
   inc.disabled = c.cash < INCLINE_COST || cal(game).year < 1870;
   inc.title = cal(game).year < 1870 ? "Inclines arrive in 1870" : "Build an incline from a street near the works up to the hilltop houses";
@@ -457,7 +468,7 @@ function setupUI() {
   $("showRivals").addEventListener("click", () => setOverlay(overlay === "rivals" ? "none" : "rivals"));
   $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; if (placing && querying) setQuerying(false); requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
-  for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline]] as const) $(id).addEventListener("click", () => {
+  for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline], ["spur", buildSpur]] as const) $(id).addEventListener("click", () => {
     const r = fn(game);
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     afterChange();

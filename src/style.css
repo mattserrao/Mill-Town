@@ -68,7 +68,7 @@ select { font: inherit; width: 100%; background: var(--panel2); color: var(--tex
 
 #zoomButtons { position: absolute; left: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 #zoomButtons button { width: 30px; height: 30px; font-size: 16px; padding: 0; }
-#library, #steps, #incline { margin-top: 6px; width: 100%; }
+#library, #steps, #incline, #spur { margin-top: 6px; width: 100%; }
 label select { width: auto; margin-left: 6px; }
 
 #left { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
@@ -171,3 +171,4 @@ label.ov:has(input:checked) { color: #fff; background: rgba(214, 160, 74, 0.14);
 .sc-sub { color: var(--muted); font-size: 11px; line-height: 1.35; margin-left: 16px; }
 .ms-bar { display: flex; height: 12px; border: 1px solid #000; margin: 4px 0 2px; }
 .ms-bar div { height: 100%; border-right: 1px solid #000; }
+#query .q-character { color: #f0d8a8; font-style: italic; margin-bottom: 2px; }

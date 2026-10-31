@@ -12,6 +12,7 @@ npm test           # core model tests
 ```
 
 ## Controls
+- Overlays now include smoke this season, river water, health, unrest, commuter traffic and freight
 - Query tool: ? button under the zoom buttons, or Q — click a tile for building, objects, land and neighbourhood history
 - Version: shown next to the title, printed in the browser console and in the terminal running `npm run dev`
 - Time: Space = next season, Shift+Space = next year, P = play/pause; the game ends after Winter 1985
