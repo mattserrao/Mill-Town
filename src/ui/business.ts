@@ -5,6 +5,9 @@ import { ACTIONS, ACTIONS_PER_SEASON, type Meters, newestGroup, type Policy, res
 import { GROUPS } from "../core/ancestry";
 import { cal, type GameState } from "../core/game";
 import { Rng } from "../core/rng";
+import { RIVALS } from "../core/rivals";
+import { rivalName, targets } from "../core/rivalai";
+import { allWorks } from "../core/game";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const money = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
@@ -36,16 +39,23 @@ const POLICY_UI: { key: keyof Policy; label: string; options: [string, string][]
 let staged: Partial<Policy> = {};
 let status = "";
 let actionCount = 0;
+let rivalTarget = "";
 
 export function businessPanel(g: GameState, el: HTMLElement, changed: () => void) {
   const c = g.company;
   if (!c) { el.innerHTML = ""; return; }
   const b = c.biz, y = cal(g).year;
-  const strike = c.status === "strike" || c.strikeTurns > 0;
+  const strike = allWorks(c).some((w) => w.status === "strike" || w.strikeTurns > 0);
+  const tl = targets(g);
+  if (!tl.some((r) => r.id === rivalTarget)) {
+    const mine = new Set(allWorks(c).map((w) => w.industry));
+    rivalTarget = (tl.find((r) => mine.has(RIVALS.find((d) => d.id === r.id)!.industry)) ?? tl[0])?.id ?? "";
+  }
   const pips = Array.from({ length: ACTIONS_PER_SEASON }, (_, k) => (k < b.actionsLeft ? "●" : "○")).join("");
   const val = (k: keyof Policy) => String(staged[k] ?? b.policy[k]);
   const dirty = Object.keys(staged).some((k) => String(staged[k as keyof Policy]) !== String(b.policy[k as keyof Policy]));
-  const groups = ["Labour", "Public", "Politics"] as const;
+  const groups = ["Labour", "Public", "Politics", "Rivals"] as const;
+  const targetSel = tl.length ? `<label class="bz-target">Against <select data-target>${tl.map((r) => { const d = RIVALS.find((x) => x.id === r.id)!; return `<option value="${r.id}"${r.id === rivalTarget ? " selected" : ""}>${esc(rivalName(d))} (${d.industry === "metalworks" ? "boats & machinery" : d.industry})</option>`; }).join("")}</select></label>` : `<p class="hint">No rival works open yet.</p>`;
   const recruitable = GROUPS.filter((gr) => gr.id >= 2 && gr.wave(y) > 0.05);
   el.innerHTML = `
     ${meterRow("Reputation", "reputation", b.meters.reputation)}
@@ -60,14 +70,16 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
       ${POLICY_UI.filter((p) => !p.from || y >= p.from).map((p) => `<label>${p.label}<select data-pol="${p.key}">${p.options.map(([v, t]) => `<option value="${v}"${val(p.key) === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>`).join("")}
     </div>
     ${dirty ? `<button class="primary bz-apply" data-apply="1" ${b.actionsLeft ? "" : "disabled"}>Apply policy changes (1 action)</button>` : ""}
-    ${groups.map((grp) => `<h4>${grp}</h4>` + ACTIONS.filter((a) => a.group === grp).map((a) => {
-      const why = a.blocked(g) ?? (b.actionsLeft <= 0 ? "No actions left this season" : c.cash < a.cost(g) ? `Needs ${money(a.cost(g))}` : null);
+    ${groups.map((grp) => `<h4>${grp === "Rivals" ? "Rivals and money" : grp}</h4>` + (grp === "Rivals" ? targetSel : "") + ACTIONS.filter((a) => a.group === grp).map((a) => {
+      const arg = a.target ? rivalTarget : undefined;
+      if (a.target && !tl.length) return "";
+      const why = a.blocked(g, arg) ?? (b.actionsLeft <= 0 ? "No actions left this season" : c.cash < a.cost(g, arg) ? `Needs ${money(a.cost(g, arg))}` : null);
       if (a.id !== "negotiate" && a.id !== "pinkertons" && a.id !== "strikebreakers" && why === "Only during a strike") return "";
       if (why === "Only during a strike") return "";
       const extra = a.id === "recruit"
         ? `<select data-arg="recruit">${recruitable.map((gr) => `<option value="${gr.id}"${gr.id === newestGroup(y) ? " selected" : ""}>${gr.name}</option>`).join("")}</select>`
         : a.id === "locks" ? `<select data-arg="locks"><option value="upper_mon">Monongahela</option><option value="allegheny">Allegheny</option><option value="ohio">Ohio</option></select>` : "";
-      const cost = a.cost(g);
+      const cost = a.cost(g, arg);
       return `<div class="bz-act${strike && (a.id === "negotiate" || a.id === "pinkertons" || a.id === "strikebreakers") ? " bz-hot" : ""}">
         <button data-act="${a.id}" ${why ? `disabled title="${esc(why)}"` : ""}>${esc(a.name)}${cost ? ` — ${money(cost)}` : ""}</button>${extra}
         <div class="hint">${esc(a.blurb)}${why && why !== "No actions left this season" ? ` <i>(${esc(why)})</i>` : ""}</div></div>`;
@@ -79,6 +91,7 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
     (staged as Record<string, unknown>)[k] = k === "childLabour" || k === "companyStore" ? s.value === "true" : s.value;
     businessPanel(g, el, changed);
   }));
+  el.querySelector<HTMLSelectElement>("select[data-target]")?.addEventListener("change", (e) => { rivalTarget = (e.target as HTMLSelectElement).value; businessPanel(g, el, changed); });
   el.querySelector<HTMLButtonElement>("[data-apply]")?.addEventListener("click", () => {
     const r = setPolicy(g, staged);
     status = r.ok ? "New policies take effect." : r.text;
@@ -87,7 +100,8 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
   });
   el.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((btn) => btn.addEventListener("click", () => {
     const id = btn.dataset.act!;
-    const arg = el.querySelector<HTMLSelectElement>(`select[data-arg="${id}"]`)?.value;
+    const a = ACTIONS.find((x) => x.id === id);
+    const arg = a?.target ? rivalTarget : el.querySelector<HTMLSelectElement>(`select[data-arg="${id}"]`)?.value;
     const r = takeAction(g, id, new Rng(`${g.seed}:act:${g.turn}:${actionCount++}`), arg);
     status = r.text;
     changed();

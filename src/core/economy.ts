@@ -11,6 +11,8 @@ import type { GameMap } from "./map";
 import { RIVALS, type RivalDef } from "./rivals";
 import { navigable } from "./site";
 import { Terrain } from "./terrain";
+import { GATEWAYS as FREIGHT_GATEWAYS, type GatewayId as FreightGateway, type Lane, sourceRiver } from "./freight";
+import type { Good } from "./industries";
 
 // ---------------------------------------------------------------- types
 
@@ -49,6 +51,8 @@ export interface WorksRef {
   produced: number;
   name: string;
   rival?: string;
+  /** last season's shipping lanes from the freight simulation (your works): the map shows these routes */
+  lanes?: Lane[];
 }
 
 export type Relation = "competitor" | "supplier" | "customer" | "other";
@@ -127,7 +131,7 @@ const techsAt = (ind: IndustryId, year: number) => INDUSTRIES[ind].tech.filter((
 export function playerWorks(g: GameState): WorksRef | null {
   const c = g.company;
   if (!c) return null;
-  return { industry: c.industry, x: c.x, y: c.y, fp: c.footprint, techs: c.techs, produced: c.lastSeason?.produced ?? capacityOf(c.industry, c.techs), name: c.name };
+  return { industry: c.industry, x: c.x, y: c.y, fp: c.footprint, techs: c.techs, produced: c.lastSeason?.produced ?? capacityOf(c.industry, c.techs), name: c.name, lanes: c.freight?.lanes };
 }
 
 export function rivalWorks(g: GameState, r: RivalState): WorksRef {
@@ -155,20 +159,6 @@ export function relationOf(mine: IndustryId, theirs: IndustryId, rivalId?: strin
 
 const UNIT_PRICE: Record<string, number> = { "Iron ore": 3.2, Coal: 1.6, Coke: 3.4, Limestone: 1.2, Sand: 1.4, "Pig iron": 22, Uranium: 9 };
 
-function nearestCoal(g: GameState, cx: number, cy: number): [number, number] | null {
-  const m = g.map;
-  const d0 = g.fields.coal[Math.round(cy) * m.width + Math.round(cx)];
-  if (d0 > 120) return null;
-  let best: [number, number] | null = null, bd = Infinity;
-  const r = d0 + 3;
-  for (let y = Math.round(cy) - r; y <= Math.round(cy) + r; y++) for (let x = Math.round(cx) - r; x <= Math.round(cx) + r; x++) {
-    if (x < 0 || y < 0 || x >= m.width || y >= m.height || m.coal[y * m.width + x] !== 2) continue;
-    const d = Math.hypot(x - cx, y - cy);
-    if (d < bd) { bd = d; best = [x, y]; }
-  }
-  return best;
-}
-
 /** All economic links of a works in a given year. */
 export function supplyChain(g: GameState, w: WorksRef): Flow[] {
   const m = g.map, year = g.world.year;
@@ -187,35 +177,42 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
   // ---------------- raw materials
   const inputs: Omit<Flow, "share" | "value" | "id" | "kind">[] = [];
   const add = (f: Omit<Flow, "share" | "value" | "id" | "kind">) => inputs.push(f);
-  const coalLink = (qty: number) => {
-    const mine = nearestCoal(g, me.x, me.y);
-    if (mine && kmTo(mine[0], mine[1]) <= ind.site.coalWithinM / 1000)
-      add({ good: "Coal", qty, from: { x: mine[0] + 0.5, y: mine[1] + 0.5, name: "Drift mine on the Pittsburgh seam" }, to: me, mode: "wagon", via: "Mine tramway and wagons", partner: "Drift mine on the Pittsburgh seam" });
-    else
-      add({ good: "Coal", qty, from: gate(gw.mon, "River pits up the Mon"), to: me, mode: "river", via: "Monongahela coal barges", partner: "River coal operators up the Mon" });
+  // raw materials come the way the freight simulation ships them: by the river its gateway names (or by rail
+  // when the river is full or the works has no landing); before founding, by the river the good comes down
+  const FG: Record<FreightGateway, GatewayId> = { upper_mon: "mon", allegheny: "allegheny", ohio: "ohio" };
+  const SOURCE: Record<string, { river: string; rail: string; partner: string }> = {
+    coal: { river: "River pits up the Mon", rail: "Connellsville coal by rail", partner: "Coal operators up the Monongahela" },
+    coke: { river: "Connellsville coke by the Mon", rail: "Connellsville coke ovens", partner: "Connellsville coke ovens" },
+    ore: year < 1880 ? { river: "Allegheny valley ore banks", rail: "Juniata ore banks", partner: "Allegheny and Juniata ore banks" } : { river: "Lake Erie ore docks (via the Ohio)", rail: "Lake Erie ore docks", partner: "Lake Superior mines (Marquette, Mesabi)" },
+    limestone: { river: "Allegheny valley quarries", rail: "Juniata limestone", partner: "Limestone quarries" },
+    sand: { river: "Allegheny sand dredges", rail: "Juniata glass sand", partner: year >= 1880 ? "Glass-sand pits and river dredges" : "River sand dredges" },
+  };
+  const rawLink = (good: Good, label: string, qty: number, key = good as string, partner?: string, rival?: string) => {
+    const lane = w.lanes?.find((l) => l.good === good);
+    const src = SOURCE[key];
+    if (!lane || lane.mode === "river") {
+      const gwF = lane?.gateway ?? sourceRiver(good, year);
+      add({ good: label, qty: lane ? Math.round(lane.delivered) : qty, from: gate(gw[FG[gwF]], src.river), to: me, mode: "river", via: `${FREIGHT_GATEWAYS[gwF].name} barges`, partner: partner ?? src.partner, rival });
+    } else {
+      const railGate = good === "ore" ? (year < 1880 ? gw.prrEast : gw.ftWayne) : good === "coal" ? (pc ? gw.pc : gw.prrEast) : gw.prrEast;
+      const via = good === "ore" && year >= 1879 ? "Pittsburgh & Lake Erie RR" : good === "coal" && pc ? "Pittsburgh & Connellsville RR" : prr ? "Pennsylvania Railroad" : "Railroad";
+      add({ good: label, qty: Math.round(lane.delivered), from: gate(railGate, src.rail), to: me, mode: "rail", via, partner: partner ?? src.partner, rival });
+    }
   };
   for (const [good, per] of Object.entries(ind.inputs)) {
     const qty = Math.round(out * (per ?? 0));
-    if (good === "ore") {
-      if (year < 1860) add({ good: "Iron ore", qty, from: gate(gw.prrEast, "Juniata ore banks"), to: me, mode: prr ? "rail" : "canal", via: prr ? "Pennsylvania Railroad" : "Main Line Canal", partner: "Juniata ore banks and charcoal furnaces" });
-      else add({ good: "Iron ore", qty, from: gate(gw.ftWayne, "Lake Erie ore docks"), to: me, mode: ftw ? "rail" : "river", via: year >= 1879 ? "Pittsburgh & Lake Erie RR" : ftw ? "Lake ore by rail from Cleveland" : "Ohio River barges", partner: "Lake Superior mines (Marquette, Mesabi)" });
-    } else if (good === "coal" && w.industry === "steel" && has("coke_furnace") && !has("byproduct_coke")) {
+    if (good === "ore") rawLink("ore", "Iron ore", qty);
+    else if (good === "coal" && w.industry === "steel" && has("coke_furnace") && !has("byproduct_coke")) {
       const frick = active.find((a) => a.def.id === "frick");
-      add({ good: "Coke", qty, from: gate(pc ? gw.pc : gw.yough, "Connellsville coke ovens"), to: me, mode: pc ? "rail" : "river", via: pc ? "Pittsburgh & Connellsville RR" : "Youghiogheny barges", partner: frick ? "H. C. Frick Coke Co. (Connellsville)" : "Connellsville coke ovens", rival: frick?.def.id });
+      rawLink("coal", "Coke", qty, "coke", frick ? "H. C. Frick Coke Co. (Connellsville)" : undefined, frick?.def.id);
     } else if (good === "coal" && w.industry === "power" && has("nuclear")) {
       add({ good: "Uranium", qty: Math.round(qty / 400), from: gate(gw.ftWayne, "Fuel fabricators"), to: me, mode: "rail", via: "Rail", partner: "Westinghouse nuclear fuel" });
     } else if (good === "coal" && w.industry === "glass" && has("gas_furnace")) {
       // the furnaces burn gas: shown as a utility below
-    } else if (good === "coal") {
-      coalLink(qty);
-    } else if (good === "limestone") {
-      add({ good: "Limestone", qty, from: gate(gw.allegheny, "Allegheny valley quarries"), to: me, mode: "river", via: "Allegheny barges", partner: "Limestone quarries up the Allegheny" });
-    } else if (good === "sand") {
-      if (year >= 1880) {
-        add({ good: "Sand", qty: Math.round(qty / 2), from: gate(gw.prrEast, "Juniata glass sand"), to: me, mode: "rail", via: "Pennsylvania Railroad", partner: "Glass-sand pits (Mapleton, Juniata)" });
-        add({ good: "Sand", qty: qty - Math.round(qty / 2), from: gate(gw.allegheny, "Allegheny sand dredges"), to: me, mode: "river", via: "Allegheny sand boats", partner: "River sand dredges" });
-      } else add({ good: "Sand", qty, from: gate(gw.allegheny, "Allegheny sand dredges"), to: me, mode: "river", via: "Allegheny sand boats", partner: "River sand dredges" });
-    } else if (good === "iron") {
+    } else if (good === "coal") rawLink("coal", "Coal", qty);
+    else if (good === "limestone") rawLink("limestone", "Limestone", qty);
+    else if (good === "sand") rawLink("sand", "Sand", qty);
+    else if (good === "iron") {
       const mills = active.filter((a) => a.def.industry === "steel" && a.def.id !== "frick");
       mills.sort((a, b) => kmTo(a.r.x, a.r.y) - kmTo(b.r.x, b.r.y));
       const src = mills[0];
@@ -244,7 +241,7 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
   }
 
   // ---------------- finished goods / utilities out
-  const price = ind.basePrice * (1 + (year - 1850) * 0.004);
+  const price = ind.basePrice * (1 + (year - 1850) * 0.008);
   const product = productName(w.industry, w.techs, year);
   const markets: { w: number; f: Omit<Flow, "share" | "value" | "id" | "kind" | "qty" | "good"> }[] = [];
   const mk = (weight: number, f: (typeof markets)[number]["f"]) => { if (weight > 0) markets.push({ w: weight, f }); };
@@ -342,6 +339,8 @@ function nearestRiver(m: GameMap, cx: number, cy: number): [number, number] | nu
 
 export interface Competitor {
   def: RivalDef;
+  /** bought by you */
+  owned?: boolean;
   relation: Relation;
   state?: RivalState;
   /** estimated output per season (0 if not yet open) */
@@ -363,6 +362,7 @@ export function competitors(g: GameState, industry: IndustryId, from?: { x: numb
     for (const l of g.map.landmarks) if (l.kind === "town") { const d = Math.hypot(l.x - at.x, l.y - at.y); if (d < nd) { nd = d; near = l.name; } }
     return {
       def,
+      owned: g.rivals.some((r) => r.id === def.id && r.owned),
       relation: relationOf(industry, def.industry, def.id),
       state: st,
       capacity: st ? Math.round(capacityOf(def.industry, techs) * 0.85) : 0,

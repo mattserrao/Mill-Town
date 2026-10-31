@@ -145,6 +145,28 @@ export function layoutPlant(c: PlantCtx): PlantTile[] {
       break;
     }
   }
+  return segments(out, fp);
+}
+
+/** An expansion beside a works: rows of the industry's main buildings, facing the same way. */
+export function layoutAnnex(c: PlantCtx): PlantTile[] {
+  const fp = c.fp;
+  const { toL, axisB } = orient(c.side, fp);
+  const out: PlantTile[] = Array.from({ length: fp * fp }, () => ({ part: "", ground: "yard" as Ground }));
+  let gid = 1;
+  const rows: string[] = c.ind === "steel"
+    ? [has(c, "bof") ? "bof" : has(c, "open_hearth") ? "openhearth" : has(c, "bessemer") ? "bessemer" : "puddle", has(c, "strip_mill") ? "strip" : "rolling", "rolling2", "stockyard"]
+    : c.ind === "glass" ? [has(c, "gas_furnace") ? (has(c, "bottle_machine") ? "bottleplant" : "tankfurnace") : "lehr", has(c, "plate_glass") ? "grinding" : "lehr", "warehouse"]
+    : c.ind === "power" ? (has(c, "steam_turbine") ? ["boilerhouse", "turbinehall"] : has(c, "dc_dynamo") ? ["powerhouse", "retort"] : ["retort", "warehouse"])
+    : [has(c, "heavy_machinery") ? "heavyshop" : has(c, "machine_shop") ? "machineshop" : "sawmill", "foundry", "plateshop", "warehouse"];
+  for (let a = 0; a < fp; a++) {
+    const part = rows[a % rows.length], g = gid++;
+    for (let b = 0; b < fp; b++) { const [lx, ly] = toL(a, b); out[ly * fp + lx] = { part, ground: "yard", axis: axisB, group: g }; }
+  }
+  return segments(out, fp);
+}
+
+function segments(out: PlantTile[], fp: number): PlantTile[] {
   // segment positions from global coordinates
   const groups = new Map<number, { idx: number[] }>();
   out.forEach((t, i) => { if (t.group) { const gr = groups.get(t.group) ?? { idx: [] }; gr.idx.push(i); groups.set(t.group, gr); } });

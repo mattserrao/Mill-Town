@@ -22,8 +22,8 @@ export const GATEWAYS: Record<GatewayId, { name: string; river: RegExp }> = {
   ohio: { name: "Ohio (Lake Erie ore)", river: /Ohio/ },
 };
 
-/** where each good comes from by river, by year */
-function sourceRiver(good: Good, year: number): GatewayId {
+/** where each good comes from by river, by year (the supply-chain map uses the same routes) */
+export function sourceRiver(good: Good, year: number): GatewayId {
   switch (good) {
     case "coal": case "coke": return "upper_mon";
     case "ore": return year < 1880 ? "allegheny" : "ohio";
@@ -113,7 +113,11 @@ function railDist(m: GameMap, year: number): Int32Array {
   return d;
 }
 
-export interface Site { x: number; y: number; fp: number; spur?: [number, number] }
+export interface Site {
+  x: number; y: number; fp: number; spur?: [number, number];
+  /** a private dock: a water tile right at the works, and first call on the barges */
+  dock?: [number, number];
+}
 
 /** nearest tile (to the footprint) where `ok` holds, within `r` tiles; returns [tile, distance] */
 function nearest(m: GameMap, s: Site, r: number, ok: (i: number) => boolean): [number, number] {
@@ -139,7 +143,8 @@ export interface Access {
 export function siteAccess(m: GameMap, s: Site, year: number): Access {
   const st = statics(m), rd = railDist(m, year);
   const out: Access = {};
-  const [dock, dd] = nearest(m, s, 30, (i) => m.terrain[i] === Terrain.Water);
+  let [dock, dd] = nearest(m, s, 30, (i) => m.terrain[i] === Terrain.Water);
+  if (s.dock) { dock = s.dock[1] * m.width + s.dock[0]; dd = 0; }
   if (dock >= 0) {
     const dist: Partial<Record<GatewayId, number>> = {};
     for (const id of Object.keys(GATEWAYS) as GatewayId[]) if (st.river[id][dock] >= 0) dist[id] = st.river[id][dock];
@@ -164,7 +169,9 @@ type LinkId = GatewayId | "rail";
  * Ship every works' inputs for the season. Rivals take their cheapest lane; the player too, overflowing
  * to the next lane when the first is full. Returns the player's result and marks freight along the routes.
  */
-export function shipSeason(m: GameMap, year: number, riverFactor: number, shippers: Shipper[], freight: Float32Array, playerId = "p", locks: Partial<Record<GatewayId, number>> = {}): { player?: ShipResult; norm: number } {
+export function shipSeason(m: GameMap, year: number, riverFactor: number, shippers: Shipper[], freight: Float32Array, playerId = "p", locks: Partial<Record<GatewayId, number>> = {}): { player?: ShipResult; players: Record<string, ShipResult>; norm: number } {
+  // the player's works are "p", "p:1", "p:2"…
+  const mine = (id: string) => id === playerId || id.startsWith(playerId + ":");
   // locks and dams won by lobbying add 35% each to a river's capacity
   const lk = (gw: GatewayId) => 1 + 0.35 * (locks[gw] ?? 0);
   const cap: Record<LinkId, number> = {
@@ -195,14 +202,14 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
   // the player overflows from a full lane to the next one
   const util = (l: LinkId) => (cap[l] > 0 ? demand[l] / cap[l] : Infinity);
   for (const b of bookings) {
-    if (b.s.id !== playerId || b.k < 0) continue;
+    if (!mine(b.s.id) || b.k < 0) continue;
     while (b.k + 1 < b.opts.length && util(b.opts[b.k].link) > 1 && util(b.opts[b.k + 1].link) < util(b.opts[b.k].link)) {
       demand[b.opts[b.k].link] -= b.tons; b.k++; demand[b.opts[b.k].link] += b.tons;
     }
   }
   // deliver: an over-full lane gives everyone the same fraction, at a congestion premium
   for (let i = 0; i < freight.length; i++) freight[i] *= 0.5;
-  let player: ShipResult | undefined;
+  const players: Record<string, ShipResult> = {};
   const W = m.width;
   for (const b of bookings) {
     let delivered = 0, costPerTon = Infinity, u = 0;
@@ -210,7 +217,9 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
     if (b.k >= 0) {
       const o = b.opts[b.k];
       u = util(o.link);
-      delivered = b.tons * Math.min(1, 1 / Math.max(u, 1e-9));
+      // a private dock gets first call on the barges when the river is over-full
+      const prio = o.mode === "river" && b.s.site.dock ? 1.3 : 1;
+      delivered = b.tons * Math.min(1, prio / Math.max(u, 1e-9));
       costPerTon = o.costPerTon * (1 + 1.5 * Math.max(0, u - 0.7));
       lane = { good: b.good, mode: o.mode, gateway: o.gateway, tons: b.tons, delivered, costPerTon, util: u };
       // mark the route: follow the distance field from the works back to the edge of the map
@@ -229,14 +238,14 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
         i = next;
       }
     }
-    if (b.s.id !== playerId) continue;
-    player ??= { lanes: [], delivered: 1, freightCost: 0, purchaseCost: 0, notes: [] };
+    if (!mine(b.s.id)) continue;
+    const player = (players[b.s.id] ??= { lanes: [], delivered: 1, freightCost: 0, purchaseCost: 0, notes: [] });
     if (lane) {
       player.lanes.push(lane);
       player.freightCost += lane.delivered * lane.costPerTon;
       player.purchaseCost += lane.delivered * PRICE(year);
       player.delivered = Math.min(player.delivered, lane.delivered / b.tons);
-      if (u > 1) player.notes.push(`${lane.mode === "river" ? GATEWAYS[lane.gateway!].name + " barges" : "The railroads"} over-full: ${Math.round((1 - 1 / u) * 100)}% of the ${b.good} didn't arrive.`);
+      if (lane.delivered < b.tons * 0.995) player.notes.push(`${lane.mode === "river" ? GATEWAYS[lane.gateway!].name + " barges" : "The railroads"} over-full: ${Math.round((1 - lane.delivered / b.tons) * 100)}% of the ${b.good} didn't arrive.`);
     } else {
       // no dock and no siding within reach: haul everything by wagon from the nearest town (slow and dear)
       player.lanes.push({ good: b.good, mode: "rail", tons: b.tons, delivered: b.tons * 0.5, costPerTon: COST.wagon(60), util: 0 });
@@ -247,7 +256,7 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
     }
   }
   void blockGrid;
-  return { player, norm: percentile(freight, 0.95) };
+  return { player: players[playerId], players, norm: percentile(freight, 0.95) };
 }
 
 /**

@@ -103,11 +103,23 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      community, picnic), public (endow a hospital or church, buy the papers), politics (lobby, bribe, river locks
      +35% barge capacity, tariff); historical decisions when your works is in them (Homestead 1892, 1919, 1937,
      1959) with "what the owners did" marked and auto-chosen if you skip
+   - Works, technology and rivals (v0.10, `src/core/market.ts`, `projects.ts`, `rivalai.ts`, `src/ui/works.ts`):
+     - Technology race: commission processes (cost up front, seasons to build, milestones); every process the
+       industry has had for four years that you lack costs 10% on price (Westinghouse sets the standard early);
+       bigger plant needs fewer men per ton
+     - Building on the map, suggested then confirmed (click to move): expand the works (+30% capacity, up to 3),
+       company housing, a private dock (no wagon haul, first call on the barges), a new works in any industry (1890+)
+     - Rivals move by personality each season: Carnegie price wars and poaching, Frick corners coke, Mellon lends
+       and finances the others, Westinghouse sues; everyone expands; a caught saboteur's victim takes revenge
+     - Against the rivals: undercut, poach, rumours, buy their drawings, sabotage (often traced: ruinous), buy their
+       works outright (runs as a second works with its own panel; Carnegie and Frick won't sell); Mellon loans
+     - Upkeep on capacity; eight seasons overdrawn and the receivers take the company (game over)
+     - One route model: the supply-chain map shows the lanes the freight simulation actually used
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); next: finished-goods shipping out, player-built docks, and one gateway/route model shared by the supply-chain map (`economy.ts`) and the freight simulation (`freight.ts`)
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. Tech tree UI and research; era transitions and market prices
-5. Rival AI behaviour (bid for land, price wars, buyouts, labor policy — rivals use the player's actions by personality)
-   Next business actions: building placement (game suggests, player confirms), acquisitions as a second works, sabotage
+5. Rival AI behaviour: ~~price wars, cornering supply, lending, revenge (v0.10)~~; next: rivals bidding for land and
+   buying each other (U.S. Steel 1901), rival strikes and lockouts shown at their works
 6. Second industry purchase (Era II) and cross-industry supply (power → mills, steel → shipyards)
 7. Historical events (1877 rail strike, 1892 Homestead, 1936 flood, wars, 1950s peak, 1980s collapse) and legacy choices
 8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
@@ -117,11 +129,11 @@ See `docs/MECHANICS.md` — comparison with SimCity (Micropolis) and the recomme
 routing, environment, growth and neighbourhood style.
 
 ## Known gaps in the current build
-- Economy balance: profits pile up; input prices and the freight premium need tuning against wages and prices
+- Economy balance (v0.10 pass): a company that never invests goes under by the late 1870s; one that keeps up
+  ends rich (cash still piles up from the 1940s unless spent on works, rivals or the town)
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
-- Economy numbers are first-pass placeholders. The supply-chain map (`economy.ts`) is still a display model;
-  capacities and congestion now live in the freight simulation (`freight.ts`, v0.8), and the two should share one route model
+- Finished goods: the markets on the supply-chain map are still a display model (inputs follow the freight simulation)
 - Event effects are first-pass; dates for some events are approximate
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow

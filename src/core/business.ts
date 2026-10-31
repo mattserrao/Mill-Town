@@ -9,7 +9,7 @@
 // Pinkertons, blacklists, dumping slag in the river, buying newspapers and officials — and everything has a price.
 
 import { GROUPS } from "./ancestry";
-import { cal, type GameState, log } from "./game";
+import { allWorks, cal, type GameState, log, totalEmployees } from "./game";
 import type { GatewayId } from "./freight";
 import type { Rng } from "./rng";
 
@@ -106,6 +106,7 @@ export function policyEffects(g: GameState): PolicyEffects {
   if (p.union === "recognise") strikeMult *= 0.5;
   if (p.union === "fight") strikeMult *= 1.3;
   if (b.blacklistUntil > g.turn) strikeMult *= 0.6;
+  strikeMult *= 0.9 ** g.company!.annexes.filter((a) => a.kind === "housing").length; // a striker can be evicted
   return {
     wageMult,
     wpuMult: HOURS_WPU[p.hours],
@@ -129,6 +130,7 @@ function targets(g: GameState): Meters {
     + (p.union === "fight" ? -15 : p.union === "recognise" ? 20 : 0)
     + (p.safety === "none" ? (year < 1880 ? 0 : -10) : p.safety === "programme" ? 10 : 0)
     + (p.companyStore ? -10 : 0) + (p.childLabour ? -5 : 0)
+    + 4 * c.annexes.filter((a) => a.kind === "housing").length
     - c.unrest * 30;
   // what decent opinion expects keeps rising: child labour and dumping look worse every decade
   const reputation =
@@ -186,17 +188,21 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
 
 export interface ActionDef {
   id: string;
-  group: "Labour" | "Public" | "Politics";
+  group: "Labour" | "Public" | "Politics" | "Rivals";
   name: string;
   /** one line on what it does and what it costs you */
   blurb: string;
-  cost: (g: GameState) => number;
+  cost: (g: GameState, arg?: string) => number;
   /** null if it can be taken now, otherwise why not */
-  blocked: (g: GameState) => string | null;
+  blocked: (g: GameState, arg?: string) => string | null;
+  /** acts on a rival works chosen in the panel */
+  target?: boolean;
   run: (g: GameState, rng: Rng, arg?: string) => string;
 }
 
-const onStrike = (g: GameState) => (g.company!.strikeTurns > 0 || g.company!.status === "strike");
+const onStrike = (g: GameState) => allWorks(g.company!).some((w) => w.strikeTurns > 0 || w.status === "strike");
+/** end (or shorten) the strike at every works */
+const endStrikes = (g: GameState, left = 0) => { for (const w of allWorks(g.company!)) w.strikeTurns = Math.min(w.strikeTurns, left); };
 const needStrike = (g: GameState) => (onStrike(g) ? null : "Only during a strike");
 const year = (g: GameState) => cal(g).year;
 
@@ -215,7 +221,7 @@ export const ACTIONS: ActionDef[] = [
       const c = g.company!, p = c.biz.policy;
       if (p.wages !== "high") p.wages = p.wages === "low" ? "market" : "high";
       else if (p.hours !== "eight") p.hours = p.hours === "twelve" ? "ten" : "eight";
-      c.strikeTurns = 0; bump(g, "labour", 15); bump(g, "reputation", 5);
+      endStrikes(g); bump(g, "labour", 15); bump(g, "reputation", 5);
       return "Settled with the men. The fires are relit.";
     },
   },
@@ -232,7 +238,7 @@ export const ACTIONS: ActionDef[] = [
         pushHeadline(g, `Battle at ${c.name}`, `Pinkerton guards and strikers exchange fire at the works; ${dead} are dead. The governor sends the militia.`);
         log(g, `Pinkertons and strikers fight at ${c.name}: ${dead} dead.`);
       }
-      if (rng.chance(0.6)) { c.strikeTurns = 0; bump(g, "labour", -15); c.biz.policy.union = "fight"; return violence ? "The strike is broken, at a price in blood." : "The guards hold the gates; the strike collapses."; }
+      if (rng.chance(0.6)) { endStrikes(g); bump(g, "labour", -15); c.biz.policy.union = "fight"; return violence ? "The strike is broken, at a price in blood." : "The guards hold the gates; the strike collapses."; }
       return violence ? "Blood on the riverbank, and the men are still out." : "The guards hold the gates, but the men stay out.";
     },
   },
@@ -245,7 +251,7 @@ export const ACTIONS: ActionDef[] = [
       // whom the agents bring: the newest arrivals of the day; from 1916, Black workers from the South
       const group = y >= 1916 && y < 1930 ? 4 : newestGroup(y);
       c.biz.recruits.push([group, 250]);
-      c.strikeTurns = Math.min(c.strikeTurns, 1); bump(g, "labour", -20); bump(g, "reputation", -5);
+      endStrikes(g, 1); bump(g, "labour", -20); bump(g, "reputation", -5);
       return `Agents bring in ${GROUPS[group].name} strikebreakers under guard.`;
     },
   },
@@ -347,9 +353,9 @@ export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { 
   const a = ACTIONS.find((x) => x.id === id);
   if (!a) return { ok: false, text: "Unknown action" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
-  const why = a.blocked(g);
+  const why = a.blocked(g, arg);
   if (why) return { ok: false, text: why };
-  const cost = a.cost(g);
+  const cost = a.cost(g, arg);
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
   c.biz.actionsLeft--;
@@ -390,7 +396,9 @@ export function newestGroup(year: number): number {
 export interface DecisionOption { label: string; detail: string; apply: (g: GameState, rng: Rng) => string }
 export interface Decision { id: string; title: string; text: string; options: DecisionOption[]; /** what the real owners did (taken if the decision is left open) */ historical: number }
 
-const labourIndustry = (g: GameState) => !!g.company && (g.company.industry === "steel" || g.company.industry === "metalworks") && g.company.employees >= 400;
+const labourIndustry = (g: GameState) => !!g.company && allWorks(g.company).some((w) => w.industry === "steel" || w.industry === "metalworks") && totalEmployees(g.company) >= DECISION_MEN;
+/** men employed before the great labour fights reach your works */
+export const DECISION_MEN = 250;
 
 /** event name → the decision it puts to you when it reaches your works */
 export const DECISIONS: Record<string, (g: GameState) => Decision | null> = {
@@ -411,11 +419,11 @@ export const DECISIONS: Record<string, (g: GameState) => Decision | null> = {
     text: "350,000 steelworkers are out across the country for the eight-hour day and union recognition. Your men walk out with them.",
     options: [
       { label: "Recognise the union, eight-hour day", detail: "Strike ends now. Labour +30, union recognised, hours eight. The other owners are furious (influence −15).",
-        apply: (g) => { const b = g.company!.biz; b.policy.union = "recognise"; b.policy.hours = "eight"; bump(g, "labour", 30); bump(g, "influence", -15); bump(g, "reputation", 8); g.company!.strikeTurns = 0; return "You break ranks with Big Steel and sign."; } },
+        apply: (g) => { const b = g.company!.biz; b.policy.union = "recognise"; b.policy.hours = "eight"; bump(g, "labour", 30); bump(g, "influence", -15); bump(g, "reputation", 8); endStrikes(g); return "You break ranks with Big Steel and sign."; } },
       { label: "Hold firm with the state police", detail: "The strike drags on two seasons and collapses. Labour −20; the union is beaten.",
-        apply: (g) => { const b = g.company!.biz; b.policy.union = "fight"; b.blacklistUntil = g.turn + 20; g.company!.strikeTurns = 2; bump(g, "labour", -20); bump(g, "reputation", -6); return "The Cossacks ride the streets; the men drift back by January."; } },
+        apply: (g) => { const b = g.company!.biz; b.policy.union = "fight"; b.blacklistUntil = g.turn + 20; for (const w of allWorks(g.company!)) w.strikeTurns = 2; bump(g, "labour", -20); bump(g, "reputation", -6); return "The Cossacks ride the streets; the men drift back by January."; } },
       { label: "Concede the eight-hour day only", detail: "Strike ends next season. Labour +10, hours eight, no union.",
-        apply: (g) => { const b = g.company!.biz; b.policy.hours = "eight"; g.company!.strikeTurns = 1; bump(g, "labour", 10); return "The eight-hour day, but no union."; } },
+        apply: (g) => { const b = g.company!.biz; b.policy.hours = "eight"; for (const w of allWorks(g.company!)) w.strikeTurns = 1; bump(g, "labour", 10); return "The eight-hour day, but no union."; } },
     ],
   },
   "Big Steel Signs": (g) => !labourIndustry(g) ? null : {
@@ -425,7 +433,7 @@ export const DECISIONS: Record<string, (g: GameState) => Decision | null> = {
       { label: "Sign with SWOC", detail: "Labour +25, union recognised, union wage scale.",
         apply: (g) => { g.company!.biz.policy.union = "recognise"; bump(g, "labour", 25); bump(g, "reputation", 6); return "You sign the SWOC contract."; } },
       { label: "Resist like Little Steel", detail: "A strike for a season or two; violence possible; the Wagner Act may force you to sign anyway.",
-        apply: (g, rng) => { const b = g.company!.biz; b.policy.union = "fight"; g.company!.strikeTurns = 2; bump(g, "labour", -20); if (rng.chance(0.35)) { bump(g, "reputation", -20); pushHeadline(g, `Police Fire on Pickets at ${g.company!.name}`, "Company police and deputies fire on a picket line; the Senate's La Follette committee will hear of it."); } return "You refuse to recognise SWOC."; } },
+        apply: (g, rng) => { const b = g.company!.biz; b.policy.union = "fight"; for (const w of allWorks(g.company!)) w.strikeTurns = 2; bump(g, "labour", -20); if (rng.chance(0.35)) { bump(g, "reputation", -20); pushHeadline(g, `Police Fire on Pickets at ${g.company!.name}`, "Company police and deputies fire on a picket line; the Senate's La Follette committee will hear of it."); } return "You refuse to recognise SWOC."; } },
     ],
   },
   "116-Day Strike": (g) => !labourIndustry(g) ? null : {
@@ -433,9 +441,9 @@ export const DECISIONS: Record<string, (g: GameState) => Decision | null> = {
     text: "The industry wants to rewrite the work rules; the United Steelworkers walk out nationwide. Customers are already buying Japanese and European steel.",
     options: [
       { label: "Settle early", detail: "Wages up a step; no lost customers. Labour +10.",
-        apply: (g) => { const b = g.company!.biz; if (b.policy.wages !== "high") b.policy.wages = b.policy.wages === "low" ? "market" : "high"; bump(g, "labour", 10); g.company!.strikeTurns = 0; return "You settle with the Steelworkers."; } },
+        apply: (g) => { const b = g.company!.biz; if (b.policy.wages !== "high") b.policy.wages = b.policy.wages === "low" ? "market" : "high"; bump(g, "labour", 10); endStrikes(g); return "You settle with the Steelworkers."; } },
       { label: "Hold out with the industry", detail: "Out for two seasons; imports take a permanent bite (prices −3%). Labour −10.",
-        apply: (g) => { g.company!.strikeTurns = 2; bump(g, "labour", -10); g.priceLoss = (g.priceLoss ?? 0) + 0.03; return "You stand with the industry. The imports keep coming."; } },
+        apply: (g) => { for (const w of allWorks(g.company!)) w.strikeTurns = 2; bump(g, "labour", -10); g.priceLoss = (g.priceLoss ?? 0) + 0.03; return "You stand with the industry. The imports keep coming."; } },
     ],
   },
 };

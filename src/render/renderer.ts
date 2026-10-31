@@ -15,7 +15,7 @@ import { ANCHORS } from "../core/ancestry";
 import { latLonToTile } from "../core/features";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, project, tileCorners, ZPX } from "./iso";
-import { buildPlant, type Emitter, emittersFor, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
+import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 
 interface PlantRef { t: PlantTile; c: PlantCtx; years: number }
@@ -167,14 +167,15 @@ export class Renderer {
     const c = g.company;
     // only what the plant drawings depend on: layout, status, how full the yards are, and the year (soot, rival tech)
     const fillOf = (co: NonNullable<typeof c>) => Math.min(2, Math.round(((co.lastSeason?.produced ?? 0) / INDUSTRIES[co.industry].baseCapacity) * 2));
-    const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.world.year}`;
+    const extra = c ? [...c.others.map((w) => `${w.id}:${w.x},${w.y}:${w.techs.length}:${w.status}`), ...c.annexes.map((a) => `${a.kind}${a.x},${a.y}`)].join(";") : "";
+    const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.rivals.filter((r) => r.owned).length}|${extra}|${g.world.year}`;
     if (key === this.plantsKey) return;
     this.plantsKey = key;
     this.plants.clear();
     this.emitters = [];
     const m = this.map;
-    const add = (x0: number, y0: number, fp: number, ctx: PlantCtx, running: boolean, years: number) => {
-      const lay = layoutPlant(ctx);
+    const add = (x0: number, y0: number, fp: number, ctx: PlantCtx, running: boolean, years: number, annex = false) => {
+      const lay = annex ? layoutAnnex(ctx) : layoutPlant(ctx);
       for (let ly = 0; ly < fp; ly++) for (let lx = 0; lx < fp; lx++) {
         const t = lay[ly * fp + lx];
         const x = x0 + lx, y = y0 + ly;
@@ -192,11 +193,17 @@ export class Renderer {
       const fill = Math.min(2, Math.round(((c.lastSeason?.produced ?? 0) / capacity) * 2));
       add(c.x, c.y, c.footprint, { ind: c.industry, techs: c.techs, fp: c.footprint, side: c.riverSide, owner: "p", status: c.status, fill },
         c.status === "running" || c.status === "flooded", c.seasonsOperating / 4);
+      for (const a of c.annexes) if (a.kind === "expand")
+        add(a.x, a.y, a.fp, { ind: c.industry, techs: c.techs, fp: a.fp, side: c.riverSide, owner: "p", status: c.status, fill }, c.status === "running", (g.world.year - a.year) * 1, true);
+      for (const w of c.others)
+        add(w.x, w.y, w.footprint, { ind: w.industry, techs: w.techs, fp: w.footprint, side: w.riverSide, owner: "p", status: w.status, fill: w.status === "running" ? 1 : 0 },
+          w.status === "running" || w.status === "flooded", g.world.year - w.founded + (w.fromRival ? 10 : 0));
     }
     for (const r of g.rivals) {
       const def = RIVALS.find((d) => d.id === r.id);
       if (!def) continue;
       this.rivalIndustry.set(r.ownerId, def.industry);
+      if (r.owned) continue;
       // Homestead, 1892: the lockout at the Frick/Carnegie works
       const status = g.world.year === 1892 && (r.id === "frick" || r.id === "carnegie") ? "strike" : g.world.year >= 1983 && def.industry === "steel" ? "idle" : "running";
       add(r.x, r.y, r.footprint, { ind: def.industry, techs: techsForYear(def.industry, g.world.year), fp: r.footprint, side: r.riverSide, owner: r.id, status, fill: status === "running" ? 1 : 0 },

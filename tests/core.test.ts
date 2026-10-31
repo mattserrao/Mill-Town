@@ -116,6 +116,7 @@ describe("hillsides", () => {
   it("fills the slopes as the region grows, with public steps, and inclines shorten the climb", () => {
     const g = newGame(map, 1850);
     expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    g.company!.cash = 1e9; // solvent without investing
     for (let t = 0; t < 4 * 50; t++) advanceTurn(g);
     let steepLots = 0, steps = 0;
     for (let i = 0; i < g.world.pop.length; i++) {
@@ -196,7 +197,8 @@ describe("valley systems", () => {
   it("rivals and homes smoke the air, freight moves, institutions follow communities", () => {
     const g = newGame(map, 1850);
     expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
-    while (calendar(g.turn).year < 1905) advanceTurn(g);
+    g.company!.cash = 1e9; // stay solvent without investing
+    while (calendar(g.turn).year < 1905 && !g.over) advanceTurn(g);
     const w = g.world, W = map.width;
     // soot: next to a rival steel works vs. open country far from anything
     const rival = g.rivals.find((r) => r.id === "carnegie" || r.id === "jl")!;
@@ -263,12 +265,73 @@ describe("running the business", () => {
     const g = newGame(map, 22);
     expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
     g.company!.techs = ["puddling", "hot_blast", "coke_furnace", "bessemer"];
-    while (!(calendar(g.turn).year === 1892 && calendar(g.turn).season === "Summer")) advanceTurn(g);
-    if (g.company!.employees >= 400) {
+    g.company!.cash = 1e9;
+    while (!(calendar(g.turn).year === 1892 && calendar(g.turn).season === "Summer") && !g.over) advanceTurn(g);
+    if (g.company!.employees >= 250) {
       expect(g.pendingDecision?.id).toBe("homestead1892");
       advanceTurn(g); // left open: the owners' course (lockout and Pinkertons)
       expect(g.pendingDecision).toBeUndefined();
       expect(g.company!.biz.policy.union).toBe("fight");
     }
   }, 300000);
+});
+
+describe("works, technology and rivals", () => {
+  it("commissions processes, punishes falling behind, expands the works and docks it", async () => {
+    const { commission, techStanding } = await import("../src/core/market");
+    const { suggestProject, buildProject } = await import("../src/core/projects");
+    const g = newGame(map, 31);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    const c = g.company!;
+    c.cash = 1e7;
+    expect(commission(g, c, "hot_blast").ok).toBe(false); // not invented until 1855
+    while (calendar(g.turn).year < 1860) advanceTurn(g);
+    expect(techStanding(g, c).behind.map((t) => t.id)).toContain("hot_blast"); // the industry has it, you don't
+    expect(techStanding(g, c).factor).toBeLessThan(1);
+    expect(commission(g, c, "hot_blast").ok).toBe(true);
+    expect(c.research?.id).toBe("hot_blast");
+    for (let t = 0; t < 4; t++) advanceTurn(g);
+    expect(c.techs).toContain("hot_blast");
+    expect(techStanding(g, c).behind.length).toBe(0);
+    // expansion: the game finds ground touching the works; building it adds capacity
+    const p = suggestProject(g, "expand");
+    expect(p?.ok).toBe(true);
+    expect(buildProject(g, p!).ok).toBe(true);
+    expect(c.annexes.length).toBe(1);
+    expect(g.world.owner[p!.y * map.width + p!.x]).toBe(1);
+    const d = suggestProject(g, "dock");
+    if (d) { expect(buildProject(g, d).ok).toBe(true); expect(c.dock).toBeDefined(); }
+  }, 200000);
+
+  it("lets you hurt a rival, buy one, and run it as a second works", async () => {
+    const { takeAction } = await import("../src/core/business");
+    const g = newGame(map, 32);
+    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    const c = g.company!;
+    c.cash = 5e7;
+    while (calendar(g.turn).year < 1880) advanceTurn(g);
+    const jl = g.rivals.find((r) => r.id === "jl")!;
+    expect(jl.active).toBe(true);
+    const rng = new Rng(3);
+    expect(takeAction(g, "poach", rng, "jl").ok).toBe(true);
+    expect(jl.damage.length).toBeGreaterThan(0);
+    expect(takeAction(g, "buy", rng, "carnegie").ok).toBe(false); // Carnegie won't sell
+    expect(takeAction(g, "buy", rng, "jl").ok).toBe(true);
+    expect(jl.owned).toBe(true);
+    expect(c.others.length).toBe(1);
+    advanceTurn(g);
+    const w = c.others[0];
+    expect(w.lastSeason).toBeDefined();
+    expect(w.employees).toBeGreaterThan(0);
+    expect(c.totals!.revenue).toBeGreaterThan(c.lastSeason!.revenue); // both works sold iron
+  }, 300000);
+
+  it("sends a company that stays overdrawn into receivership", () => {
+    const g = newGame(map, 33);
+    expect(foundCompany(g, "glass", 300, 300).ok || foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    g.company!.cash = -1e9;
+    for (let t = 0; t < 10 && !g.over; t++) advanceTurn(g);
+    expect(g.company!.bankrupt).toBe(true);
+    expect(g.over).toBe(true);
+  }, 120000);
 });

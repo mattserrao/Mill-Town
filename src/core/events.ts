@@ -39,7 +39,7 @@ export const EVENTS: HistEvent[] = parseCsv(csvText).slice(1).map((r) => ({
   year: Number(r[0]), season: r[1] as Season, name: r[2], description: r[3], category: (r[4] || "Society") as Category,
 }));
 
-export type ModKind = "price" | "strike" | "wage" | "migrants" | "pollution" | "output";
+export type ModKind = "price" | "strike" | "wage" | "migrants" | "pollution" | "output" | "input";
 
 export interface Mod { kind: ModKind; mult: number; until: number; source: string }
 

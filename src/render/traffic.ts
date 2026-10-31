@@ -472,8 +472,8 @@ export class Traffic {
     const m = this.m, z = cam.zoom;
     const S = (fx: number, fy: number, h: number): [number, number] => { const [wx, wy] = project(fx, fy, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
     const plants: { x: number; y: number; fp: number; ind: string; running: boolean }[] = [];
-    if (g.company) plants.push({ x: g.company.x, y: g.company.y, fp: g.company.footprint, ind: g.company.industry, running: g.company.status === "running" });
-    for (const r of g.rivals) plants.push({ x: r.x, y: r.y, fp: r.footprint, ind: r.id === "westinghouse" ? "power" : r.id === "ppg" ? "glass" : r.id === "dravo" || r.id === "mellon" ? "metalworks" : "steel", running: true });
+    if (g.company) for (const w of [g.company, ...g.company.others]) plants.push({ x: w.x, y: w.y, fp: w.footprint, ind: w.industry, running: w.status === "running" });
+    for (const r of g.rivals) if (!r.owned) plants.push({ x: r.x, y: r.y, fp: r.footprint, ind: r.id === "westinghouse" ? "power" : r.id === "ppg" ? "glass" : r.id === "dravo" || r.id === "mellon" ? "metalworks" : "steel", running: true });
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (const p of plants) {
