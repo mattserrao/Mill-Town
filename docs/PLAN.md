@@ -249,7 +249,8 @@ routing, environment, growth and neighbourhood style.
   drawn and kept in a 64 MB least-recently-used cache; scaled copies only for the current and last zoom; drawn
   map sections sized to about three screens and dropped for a zoom you've left. ~105–175 MB in all through 1985
   (was ~500 MB at its peaks). Still to do: draw slopes separately so houses don't need a variant per slope
-- Graphics still to do: HiDPI canvas scaling (blurry on Retina screens); bridges and inclines are drawn over the
+- Graphics still to do: the map canvas ignores the screen's pixel ratio (scaled up by the browser on HiDPI
+  displays); boats aren't depth-masked; bridges and inclines are drawn over the
   buildings in front of them; the small "0" marks are street-lamp globes and read oddly when zoomed in; walkers on
   lanes walk the middle of the road
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
@@ -262,8 +263,6 @@ routing, environment, growth and neighbourhood style.
   is kept in Autumn 1985 so it appears
 - Left out by design: highways, busways and the Liberty Tubes as travel links (X2; the Tubes act as South Hills
   growth), per-line transit (X1), outbound freight and taxes; Frick Park's land isn't held from growth before 1927
-- The map canvas ignores the screen's pixel ratio: on HiDPI displays it is scaled up by the browser (sharp but uneven pixels)
-- Moving figures and boats draw over buildings that stand in front of them (no per-tile depth yet)
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal
