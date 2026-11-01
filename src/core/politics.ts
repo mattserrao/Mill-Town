@@ -162,6 +162,9 @@ export interface LawDef {
   events?: string[];
   /** the policy it forces: a test and the compliant change */
   forbids?: { test: (p: Policy) => boolean; fix: Partial<Policy>; what: string };
+  /** an environmental law (v0.18): the smoke-control level (1–4) or water treatment it requires, where, and how
+   *  hard it is enforced (src/core/enviro.ts) */
+  env?: { level?: number; water?: boolean; scope: "city" | "all"; light?: boolean; permits?: boolean; stretch?: boolean };
 }
 
 export const LAWS: LawDef[] = [
@@ -174,7 +177,14 @@ export const LAWS: LawDef[] = [
     events: ["The Wagner Act", "The Aliquippa Case"], forbids: { test: (p) => p.union === "fight", fix: { union: "tolerate" }, what: "Fighting the union" } },
   { id: "hours", name: "Fair Labor Standards Act", level: "federal", year: 1938, range: [1916, 1950], side: "reform", blurb: "The eight-hour day and the forty-hour week, by law.",
     forbids: { test: (p) => p.hours !== "eight", fix: { hours: "eight" }, what: "Shifts longer than eight hours" } },
-  { id: "smoke", name: "Smoke Control", level: "city", year: 1946, range: [1935, 1960], side: "reform", blurb: "Smokeless fuel for homes and mills; the skies clear.", events: ["Smoke Control Enforced"] },
+  { id: "smoke1869", name: "Locomotive smoke ordinance", level: "city", year: 1869, range: [1860, 1885], side: "reform", blurb: "Locomotives may not burn soft coal inside the city. Like the ordinances after it, it is hardly enforced.", env: { scope: "city", light: true } },
+  { id: "smokebureau", name: "Bureau of Smoke Regulation", level: "city", year: 1908, range: [1895, 1920], side: "reform", blurb: "The city's smoke inspectors: 'the smoke nuisance is not a necessary evil.' Works in the city must fire their boilers cleanly.", env: { level: 1, scope: "city", light: true } },
+  { id: "cleanstreams", name: "Clean Streams Law", level: "state", year: 1937, range: [1925, 1950], side: "reform", blurb: "Pennsylvania limits what industry pours into its rivers (mine drainage still exempt). Works must treat their waste water.", env: { water: true, scope: "all", light: true } },
+  { id: "smoke", name: "Smoke Control", level: "city", year: 1946, range: [1935, 1960], side: "reform", blurb: "Smokeless fuel for homes and mills; the skies clear. Works in the city need precipitators.", events: ["Smoke Control Enforced"], env: { level: 2, scope: "city" } },
+  { id: "county1949", name: "Allegheny County smoke law", level: "city", year: 1949, range: [1940, 1962], side: "reform", blurb: "After Donora, smoke control for the whole county: every works in the valley needs precipitators.", env: { level: 2, scope: "all" } },
+  { id: "cleanair", name: "Clean Air Act and the EPA", level: "federal", year: 1970, range: [1960, 1978], side: "reform", blurb: "National air standards, state plans to meet them, and a federal agency to enforce them: furnaces and ovens must be hooded.", env: { level: 3, scope: "all" } },
+  { id: "caa1977", name: "Clean Air Act amendments", level: "federal", year: 1977, range: [1970, 1984], side: "reform", blurb: "A valley that misses the standards is 'nonattainment': scrubbers on the stacks, and no new furnace without cleaning up an old one first.", env: { level: 4, scope: "all", permits: true } },
+  { id: "stretchout", name: "Steel Compliance Extension Act", level: "federal", year: 1981, range: [1979, 1985], side: "business", blurb: "The 'stretch-out': steel firms under a consent decree get three more years if the money goes into modernising instead.", env: { scope: "all", stretch: true } },
   { id: "tafthartley", name: "Taft-Hartley Act", level: "federal", year: 1947, range: [1940, 1990], side: "business", blurb: "Limits on strikes and the closed shop; injunctions against strikes.", events: ["Taft-Hartley"] },
   { id: "osha", name: "Occupational Safety and Health Act", level: "federal", year: 1970, range: [1950, 1980], side: "reform", blurb: "Federal safety rules and inspectors in every works.",
     forbids: { test: (p) => p.safety === "none", fix: { safety: "basic" }, what: "No safety men" } },
@@ -183,7 +193,11 @@ export const LAWS: LawDef[] = [
 ];
 
 export interface LawState { shift: number; passed?: number; defied?: boolean; passedTurn?: number }
-export const lawsOf = (g: GameState): Record<string, LawState> => (g.laws ??= Object.fromEntries(LAWS.map((l) => [l.id, { shift: 0 }])));
+export const lawsOf = (g: GameState): Record<string, LawState> => {
+  const L = (g.laws ??= {});
+  for (const l of LAWS) L[l.id] ??= { shift: 0 }; // laws added since the game was saved
+  return L;
+};
 /** the year the law is due now (history, moved by the balance and by lobbying) */
 export function lawYear(g: GameState, l: LawDef): number {
   const s = lawsOf(g)[l.id] ?? { shift: 0 };

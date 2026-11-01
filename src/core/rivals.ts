@@ -24,6 +24,9 @@ export interface RivalDef {
   renames?: [number, string][];
   /** adopts new processes this many years late (or early, if negative) */
   techLag?: number;
+  /** its works lie off the map (New Kensington, Neville Island…): it competes and is shown at the map's edge, and its
+   *  headquarters tower (src/core/civic.ts) stands downtown */
+  offmap?: string;
 }
 
 export const RIVALS: readonly RivalDef[] = [
@@ -193,6 +196,83 @@ export const RIVALS: readonly RivalDef[] = [
     at: [40.4600, -80.0400],
     style: "steady",
     note: "The city's electric utility: Brunot Island station, then Elrama, Shippingport and Beaver Valley.",
+  },
+  // ---------------------------------------------------------------- v0.18: the modern industries (real firms)
+  {
+    id: "alcoa", company: "Pittsburgh Reduction Company", figures: ["Alfred E. Hunt", "Charles Martin Hall"],
+    industry: "aluminium", entryYear: 1891, site: "New Kensington", at: [40.5700, -79.7650], offmap: "New Kensington",
+    style: "innovator", note: "Hall's process, Mellon money; the smelters move to New Kensington (1891), Niagara Falls and Massena. A monopoly until the war (antitrust 1938–45).",
+    renames: [[1907, "Aluminum Company of America"]],
+  },
+  {
+    id: "koppers", company: "Koppers Company", figures: ["Heinrich Koppers", "Andrew W. Mellon"],
+    industry: "chemicals", entryYear: 1915, site: "Bridgeville", at: [40.3560, -80.1100], offmap: "Bridgeville and Neville Island",
+    style: "integrator", note: "By-product coke ovens and their chemicals; tar, wood treating, then plastics. Mellon bought out the founder.",
+  },
+  {
+    id: "neville", company: "Neville Chemical Company", figures: ["Harvey Dauler"],
+    industry: "chemicals", entryYear: 1925, site: "Neville Island", at: [40.5100, -80.1200], offmap: "Neville Island",
+    style: "steady", note: "Hydrocarbon resins for paints, coatings and rubber.",
+  },
+  {
+    id: "pcc", company: "Pittsburgh Coke & Chemical", figures: ["Pittsburgh Coke & Iron"],
+    industry: "chemicals", entryYear: 1940, site: "Neville Island", at: [40.5050, -80.1100], offmap: "Neville Island",
+    style: "integrator", note: "Coke for the mills, chemicals, coatings and activated carbon (sold to Calgon, 1965).",
+    renames: [[1964, "USS Chemicals (Neville Island)"]],
+  },
+  {
+    id: "mobay", company: "Mobay Chemical", figures: ["Monsanto", "Bayer"],
+    industry: "chemicals", entryYear: 1954, site: "Robinson Township", at: [40.4500, -80.1500], offmap: "Robinson Township",
+    style: "innovator", note: "Polyurethanes: a Monsanto–Bayer venture (1954), Bayer's alone from 1967.",
+  },
+  {
+    id: "mellon_inst", company: "Mellon Institute of Industrial Research", figures: ["Andrew W. Mellon", "Richard B. Mellon"],
+    industry: "research", entryYear: 1913, site: "Oakland", at: [40.4462, -79.9510],
+    style: "steady", note: "Industrial fellowships: firms pay for a fellow and own what he finds. 1,600 patents; Dow Corning's silicones.",
+    renames: [[1967, "Carnegie-Mellon University (Mellon Institute)"]],
+  },
+  {
+    id: "wresearch", company: "Westinghouse Research Laboratories", figures: ["Westinghouse Electric"],
+    industry: "research", entryYear: 1916, site: "Forest Hills", at: [40.4200, -79.8500],
+    style: "innovator", note: "Forest Hills (1916), the atom smasher (1937), then a hilltop campus at Churchill (1956), 1,500 staff.",
+  },
+  {
+    id: "gulf_rd", company: "Gulf Research & Development", figures: ["Gulf Oil"],
+    industry: "research", entryYear: 1935, site: "Harmarville", at: [40.5400, -79.8400], offmap: "Harmarville",
+    style: "steady", note: "Up to 2,000 scientists at Harmarville; closed when Chevron took Gulf (1985).", closes: 1985,
+  },
+  {
+    id: "uss_research", company: "U.S. Steel Research Center", figures: ["U.S. Steel"],
+    industry: "research", entryYear: 1956, site: "Monroeville", at: [40.4300, -79.7700], offmap: "Monroeville",
+    style: "steady", note: "The steel corporation's laboratories (1956).", decline: [[1982, 0.6]],
+  },
+  {
+    id: "bettis", company: "Bettis Atomic Power Laboratory", figures: ["Westinghouse Electric", "Hyman Rickover"],
+    industry: "nuclear", entryYear: 1949, site: "West Mifflin", at: [40.3574, -79.8994],
+    style: "innovator", note: "The Navy's reactors: Nautilus (1955), then Shippingport's core (1957).",
+  },
+  {
+    id: "numec", company: "Nuclear Materials and Equipment Corp. (NUMEC)", figures: ["Zalman Shapiro"],
+    industry: "nuclear", entryYear: 1957, site: "Apollo", at: [40.5800, -79.5700], offmap: "Apollo",
+    style: "aggressive", note: "Reactor fuel; the 1965 inquiry into missing uranium.",
+    renames: [[1967, "NUMEC (Atlantic Richfield)"], [1971, "Babcock & Wilcox (Apollo)"]],
+  },
+  {
+    id: "astro", company: "Westinghouse Astronuclear Laboratory", figures: ["Westinghouse Electric"],
+    industry: "nuclear", entryYear: 1959, site: "Large", at: [40.2960, -79.9350],
+    style: "innovator", note: "NERVA nuclear rocket engines for NASA, 1,100 engineers; funding ends 1972.",
+    decline: [[1972, 0.35]], renames: [[1976, "Westinghouse Advanced Energy Systems"]],
+  },
+  {
+    id: "presby", company: "Presbyterian Hospital", figures: ["University of Pittsburgh"],
+    industry: "medicine", entryYear: 1938, site: "Oakland", at: [40.4428, -79.9608],
+    style: "steady", note: "900 beds beside the medical school (1938); the University Health Center (1965); Starzl's transplants (1981).",
+    renames: [[1965, "Presbyterian-University Hospital"]],
+  },
+  {
+    id: "uhc", company: "Children's and Magee hospitals", figures: ["University Health Center of Pittsburgh"],
+    industry: "medicine", entryYear: 1955, site: "Oakland", at: [40.4380, -79.9590],
+    style: "steady", note: "The Oakland hospitals that join the University Health Center (1965).",
   },
 ];
 

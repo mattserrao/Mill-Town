@@ -7,7 +7,7 @@
 
 import { bump, pushHeadline } from "./business";
 import { allWorks, cal, type GameState, log, updateAccess, updateWorksAccess, type Works } from "./game";
-import { INDUSTRIES, type IndustryId } from "./industries";
+import { INDUSTRIES, industriesIn, type IndustryId } from "./industries";
 import { inheritLedger, mark, martyrsOf, standing, topMarks, whoDid } from "./ledger";
 import { Rng } from "./rng";
 import { ERAS, priceLevel } from "./time";
@@ -235,7 +235,7 @@ export function resolveSuccession(g: GameState, ch: SuccessionChoice): string {
   switch (path) {
     case "business": if (g.career && !g.career.office) g.career = undefined; parts.push(was ? "The family takes the works back from the managers." : "The works stays in the family's hands."); break;
     case "industry": {
-      const ind = ch.industry && ch.industry !== c.industry ? ch.industry : (Object.keys(INDUSTRIES) as IndustryId[]).find((i) => i !== c.industry)!;
+      const ind = ch.industry && ch.industry !== c.industry ? ch.industry : industriesIn(cal(g).year).find((i) => i !== c.industry)!;
       f.newIndustry = { industry: ind, sellOld: !!ch.sellOld };
       if (ch.sellOld) for (const w of [...c.others]) if (w.industry !== ind) parts.push(sellWorks(g, w, "market"));
       parts.push(`The family will build a ${INDUSTRIES[ind].name.toLowerCase()} works: found it from the Works tab.`);

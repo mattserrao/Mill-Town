@@ -64,6 +64,10 @@ export function unionName(ind: IndustryId, y: number): string | null {
     if (ind === "metalworks" && y >= 1889 && y < 1936) return "International Association of Machinists";
     return y < 1858 ? null : y < 1876 ? "Sons of Vulcan" : y < 1936 ? "Amalgamated Association" : y < 1942 ? "Steel Workers Organizing Committee" : "United Steelworkers";
   }
+  if (ind === "aluminium") return y < 1937 ? null : "Aluminum Workers of America";
+  if (ind === "chemicals") return y < 1936 ? null : "District 50, United Mine Workers";
+  if (ind === "research" || ind === "medicine") return y < 1965 ? null : ind === "medicine" ? "Hospital workers (SEIU)" : null;
+  if (ind === "nuclear") return y < 1950 ? null : "International Union of Electrical Workers (IUE)";
   if (ind === "glass") return y < 1865 ? null : y < 1880 ? "Window Glass Workers" : y < 1909 ? "Local Assembly 300, Knights of Labor" : y < 1934 ? "American Flint Glass Workers" : "Federation of Glass, Ceramic and Silica Sand Workers";
   return y < 1891 ? null : y < 1936 ? "Brotherhood of Electrical Workers" : y < 1950 ? "United Electrical Workers (UE)" : "International Union of Electrical Workers (IUE)";
 }
@@ -73,7 +77,7 @@ const LEADERS: Record<"steel" | "glass" | "power", [number, string][]> = {
   power: [[1891, "Henry Miller"], [1936, "James Carey"], [1941, "Albert Fitzgerald"], [1950, "James Carey"], [1965, "Paul Jennings"]],
 };
 export function leaderOf(ind: IndustryId, y: number): string {
-  const list = LEADERS[ind === "metalworks" ? "steel" : ind];
+  const list = LEADERS[ind === "metalworks" ? "steel" : ind === "glass" || ind === "power" || ind === "steel" ? ind : "power"];
   let n = list[0][1];
   for (const [yy, name] of list) if (y >= yy) n = name;
   return n;

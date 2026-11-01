@@ -6,6 +6,7 @@
 //   Private dock         a landing of your own on the river: no wagon haul and first call on the barges
 //   A new works          from 1890: found a second works, in any industry, with the processes of the day
 
+import { permitBlock } from "./enviro";
 import { feet } from "./units";
 import { bump } from "./business";
 import { type Annex, cal, claimFootprint, type Company, type GameState, log, nextWorksId, riverSideOf, updateWorksAccess, type Works } from "./game";
@@ -59,6 +60,7 @@ export function projectBlocked(g: GameState, kind: ProjectKind): string | null {
   const y = cal(g).year;
   if (PROJECTS[kind].from && y < PROJECTS[kind].from! && !(kind === "found" && g.family?.newIndustry)) return `From ${PROJECTS[kind].from}`;
   if (kind === "expand" && c.annexes.filter((a) => a.kind === "expand").length >= 3) return "The works has been expanded three times";
+  if (kind === "expand") { const pb = permitBlock(g, c); if (pb) return pb; }
   if (kind === "dock" && c.dock) return "The works already has a dock";
   if (kind === "housing" && c.annexes.filter((a) => a.kind === "housing").length >= 4) return "Four blocks of company housing is plenty";
   return null;
@@ -72,6 +74,7 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
   const size = projectSize(g, kind, industry);
   const out: Proposal = { kind, x, y, size, ok: true, cost: 0, industry, displaced: 0 };
   const fail = (reason: string) => { out.ok = false; out.reason ??= reason; return out; };
+  if (kind === "found" && industry && (INDUSTRIES[industry].from ?? 1850) > year) return fail(`${INDUSTRIES[industry].name} can be founded from ${INDUSTRIES[industry].from}`);
   if (kind === "found") {
     const ind = industry ?? c.industry;
     const rep = evaluateSite(m, w, g.fields, ind, x, y);

@@ -47,6 +47,16 @@ export const PALETTES: Record<string, Palette> = {
   ppg: { wall: "#8a8e7a", roof: "#2e4a3a", trim: "#e0e0d0", steel: "#4e5a52" },
   mellon: { wall: "#5e5248", roof: "#3a2e2a", trim: "#b0a080", steel: "#4a4642" },
   dravo: { wall: "#6a5a4a", roof: "#3a3a40", trim: "#3a5a8a", steel: "#3a5a8a" },
+  alcoa: { wall: "#9aa0a8", roof: "#4a5058", trim: "#2a5a9a", steel: "#7a8088" },
+  koppers: { wall: "#6a5040", roof: "#3a3430", trim: "#b8782a", steel: "#4a4440" },
+  neville: { wall: "#7a6a5a", roof: "#3a3a3a", trim: "#9a3a2a", steel: "#505050" },
+  mobay: { wall: "#a8a49a", roof: "#4a4e52", trim: "#2a7a4a", steel: "#6a6e72" },
+  mellon_inst: { wall: "#c8bca0", roof: "#5a5448", trim: "#7a5a2a", steel: "#6a6460" },
+  wresearch: { wall: "#b8a888", roof: "#4a4a50", trim: "#2e5a8a", steel: "#6a6a70" },
+  bettis: { wall: "#a4a8ac", roof: "#5a5e64", trim: "#e0c040", steel: "#6a6e74" },
+  astro: { wall: "#b0b4b8", roof: "#5a5e64", trim: "#3a6aa0", steel: "#6a6e74" },
+  presby: { wall: "#b06a50", roof: "#4a4644", trim: "#e0d8c0", steel: "#6a6460" },
+  uhc: { wall: "#c4b8a4", roof: "#4a4a4e", trim: "#2a4a7a", steel: "#6a6a70" },
 };
 
 const has = (c: PlantCtx, t: string) => c.techs.includes(t);
@@ -154,6 +164,48 @@ export function layoutPlant(c: PlantCtx): PlantTile[] {
       run(fp - 1, 3, fp - 1, "warehouse");
       break;
     }
+    case "aluminium": {
+      for (let b = 0; b < fp; b++) one(0, b, b % 2 ? "derrick" : "bollards", "dock");
+      if (has(c, "bayer")) { run(1, 0, Math.min(2, fp - 1), "refinery_run"); for (let b = 3; b < fp; b++) one(1, b, "bauxiteyard"); }
+      else for (let b = 0; b < fp; b++) one(1, b, "bauxiteyard");
+      run(2, 0, fp - 1, "potline"); run(3, 0, fp - 1, "potline");
+      if (fp > 5) {
+        if (has(c, "cans")) run(4, 0, fp - 1, "sheetmill");
+        else if (has(c, "extrusion")) { run(4, 0, 2, "sheetmill"); run(4, 3, fp - 1, "machineshop"); }
+        else if (has(c, "sheet_mill")) run(4, 0, fp - 1, "sheetmill");
+        else for (let b = 0; b < fp; b++) one(4, b, b % 2 ? "rectifier" : "");
+      }
+      one(fp - 1, 0, has(c, "automation") ? "control" : "office"); one(fp - 1, 1, "gate", "paved"); one(fp - 1, 2, "stack");
+      for (let b = 3; b < fp; b++) one(fp - 1, b, "rectifier");
+      break;
+    }
+    case "chemicals": {
+      for (let b = 0; b < fp; b++) one(0, b, b % 2 ? "derrick" : "bollards", "dock");
+      for (let b = 0; b < fp; b++) one(1, b, "tankfarm");
+      run(2, 0, fp - 1, "tarstills");
+      if (has(c, "polyurethane")) run(3, 0, fp - 1, "chemplant");
+      else for (let b = 0; b < fp; b++) one(3, b, has(c, "synthetic_rubber") || has(c, "resins") ? (b % 2 ? "column" : "tankfarm") : "tankfarm");
+      if (fp > 5) for (let b = 0; b < fp; b++) one(4, b, has(c, "plasticisers") || has(c, "activated_carbon") ? (b % 3 === 0 ? "column" : "tankfarm") : b % 2 ? "warehouse" : "");
+      one(fp - 1, 0, has(c, "automation") ? "control" : "office"); one(fp - 1, 1, "gate", "paved"); one(fp - 1, 2, "stack");
+      run(fp - 1, 3, fp - 1, "warehouse");
+      break;
+    }
+    case "research": case "nuclear": case "medicine": {
+      // campuses: buildings on lawns, no river landing
+      for (let b = 0; b < fp; b++) one(0, b, "campus", "grass");
+      const main = c.ind === "medicine" ? "hospitalwing" : c.ind === "nuclear" ? "reactorhall" : "labblock";
+      if (c.ind === "nuclear") { one(1, 0, "containment", "grass"); run(1, 1, fp - 1, main); }
+      else run(1, 0, fp - 1, main);
+      const second = c.ind === "medicine" ? (has(c, "health_center") ? "medtower" : "hospitalwing")
+        : c.ind === "nuclear" ? (has(c, "fuel") ? "fuelplant" : "labblock")
+        : has(c, "campus") ? "labblock" : "";
+      if (second) run(2, 0, fp - 1, second); else for (let b = 0; b < fp; b++) one(2, b, "campus", "grass");
+      for (let b = 0; b < fp; b++) one(3, b, c.ind === "research" && has(c, "physics") && b === 1 ? "vandegraaff" : "campus", "grass");
+      if (fp > 5) run(4, 0, fp - 1, c.ind === "medicine" ? "labblock" : c.ind === "nuclear" && has(c, "pwr") ? "reactorhall" : has(c, "computing") ? "labblock" : "campus");
+      one(fp - 1, 0, "control"); one(fp - 1, 1, "gate", "paved");
+      for (let b = 2; b < fp; b++) one(fp - 1, b, "carpark", "paved");
+      break;
+    }
   }
   // a process being built: scaffolding and a crane on two tiles at the back of the works
   if (c.research) {
@@ -198,6 +250,11 @@ export function layoutAnnex(c: PlantCtx): PlantTile[] {
       ["foundry", "plateshop", "spur"],
       ["tiles:platestack", "warehouse", "tiles:lumber,platestack"],
     ],
+    aluminium: [["potline", "potline", "tiles:rectifier"], ["sheetmill", "spur", "warehouse"], ["tiles:bauxiteyard", "refinery_run", "warehouse"]],
+    chemicals: [["tarstills", "tiles:tankfarm,column", "warehouse"], ["chemplant", "tiles:tankfarm", "spur"], ["tiles:column,tankfarm", "warehouse", "tiles:tankfarm"]],
+    research: [["labblock", "tiles:campus", "tiles:carpark"], ["labblock", "labblock", "tiles:campus"], ["tiles:campus", "labblock", "tiles:carpark"]],
+    nuclear: [["reactorhall", "tiles:campus", "labblock"], ["fuelplant", "tiles:carpark", "tiles:campus"], ["labblock", "tiles:campus", "tiles:carpark"]],
+    medicine: [["hospitalwing", "tiles:campus", "tiles:carpark"], ["medtower", "tiles:campus", "labblock"], ["hospitalwing", "tiles:carpark", "tiles:campus"]],
   };
   const rows = WINGS[c.ind][wing];
   for (let a = 0; a < fp; a++) {
@@ -262,6 +319,10 @@ export function emittersFor(part: string): Emitter[] {
     case "foundry": return [{ u: 0.7, v: 0.4, z: 52, kind: "smoke", size: 0.7 }, { u: 0.7, v: 0.45, z: 6, kind: "glow", size: 0.6 }];
     case "sawmill": return [{ u: 0.8, v: 0.4, z: 36, kind: "smoke", size: 0.5 }];
     case "containment": return [{ u: 0.5, v: 0.5, z: 60, kind: "steam", size: 1.6 }];
+    case "potline": return [{ u: 0.3, v: 0.5, z: 22, kind: "steam", size: 0.6 }, { u: 0.7, v: 0.5, z: 22, kind: "steam", size: 0.6 }];
+    case "tarstills": return [{ u: 0.5, v: 0.5, z: 30, kind: "smoke", size: 0.7 }];
+    case "column": return [{ u: 0.5, v: 0.5, z: 70, kind: "steam", size: 0.6 }];
+    case "refinery_run": return [{ u: 0.5, v: 0.5, z: 40, kind: "steam", size: 0.8 }];
   }
   return [];
 }
@@ -409,7 +470,8 @@ export function buildPlant(key: string): Sprite {
     case "puddle": case "bessemer": case "openhearth": case "bof": case "rolling": case "rolling2": case "strip": case "caster": case "warehouse":
     case "glassshed": case "tankfurnace": case "lehr": case "grinding": case "bottleplant": case "floatline":
     case "retort": case "enginehouse": case "powerhouse": case "boilerhouse": case "turbinehall":
-    case "sawmill": case "machineshop": case "heavyshop": case "foundry": case "plateshop": {
+    case "sawmill": case "machineshop": case "heavyshop": case "foundry": case "plateshop":
+    case "potline": case "sheetmill": case "tarstills": case "chemplant": case "labblock": case "reactorhall": case "fuelplant": case "hospitalwing": case "medtower": case "refinery_run": {
       // ---- long buildings
       const spec: Record<string, { c: [number, number]; h: number; roof: "gable" | "monitor" | "flat" | "saw"; wall?: string; win?: number }> = {
         puddle: { c: [0.12, 0.88], h: 14, roof: "gable" },
@@ -437,6 +499,16 @@ export function buildPlant(key: string): Sprite {
         heavyshop: { c: [0.05, 0.95], h: 30, roof: "monitor" },
         foundry: { c: [0.1, 0.9], h: 16, roof: "gable" },
         plateshop: { c: [0.08, 0.92], h: 18, roof: "saw" },
+        potline: { c: [0.1, 0.9], h: 14, roof: "monitor", wall: "#8a8e94" },
+        sheetmill: { c: [0.06, 0.94], h: 20, roof: "saw", wall: "#9a9ea4" },
+        refinery_run: { c: [0.15, 0.85], h: 24, roof: "flat", wall: "#b0a898" },
+        tarstills: { c: [0.15, 0.85], h: 12, roof: "flat", wall: "#4a4440" },
+        chemplant: { c: [0.1, 0.9], h: 22, roof: "flat", wall: "#a8a49a" },
+        labblock: { c: [0.15, 0.85], h: 26, roof: "flat", wall: "#b8b4aa", win: 1 },
+        reactorhall: { c: [0.08, 0.92], h: 40, roof: "flat", wall: "#a4a8ac" },
+        fuelplant: { c: [0.12, 0.88], h: 16, roof: "flat", wall: "#9aa0a6" },
+        hospitalwing: { c: [0.15, 0.85], h: 44, roof: "flat", wall: "#b06a50", win: 1 },
+        medtower: { c: [0.2, 0.8], h: 72, roof: "flat", wall: "#c8c4bc", win: 1 },
       };
       const sp = spec[part];
       const wall = sp.wall ?? W;
@@ -456,6 +528,8 @@ export function buildPlant(key: string): Sprite {
           else { p.poly([r.A(top), r.B(top), p.P(sp.c[1], a1, top + 6), p.P(sp.c[0], a1, top + 6)], shade(R, 0.9)); p.poly([p.P(sp.c[0], a1, top), p.P(sp.c[1], a1, top), p.P(sp.c[1], a1, top + 6), p.P(sp.c[0], a1, top + 6)], "#9ab0c0"); }
         }
       }
+      // tall office-like blocks: a window band on every floor
+      if (part === "labblock" || part === "hospitalwing" || part === "medtower") for (let z = 12; z < sp.h - 4; z += 8) winRow(p, b, lf, 5, z, 3, part === "labblock" ? "#9ab4c8" : "#2a2426", part === "labblock" ? undefined : pal.trim);
       // part-specific dressing
       const mid = (sp.c[0] + sp.c[1]) / 2;
       const at = (t: number, c: number, z: number) => (axis === "u" ? p.P(t, c, z) : p.P(c, t, z));
@@ -475,6 +549,9 @@ export function buildPlant(key: string): Sprite {
       if (part === "foundry") { cylinder(p, 0.7, 0.4, 0.07, 16, 34, "#4a4240", "#141212"); const [x, y] = p.P(0.7, 0.48, 4); p.px(x - 1, y - 3, "#f08a2a", 3, 2); }
       if (part === "sawmill") { for (let k = 0; k < 4; k++) { const [x, y] = at(0.2 + k * 0.2, sp.c[1] + 0.06, 0); p.px(x - 4, y - 2, "#8a6a3a", 8, 2); } stackAt(p, 0.8, 0.4, 12, 22, "#7a6a5a", 0.03); }
       if (part === "caster" && (s === "s" || s === "1")) { const [u, vv] = axis === "u" ? [0.3, mid] : [mid, 0.3]; box(p, u - 0.14, vv - 0.14, u + 0.14, vv + 0.14, 24, { wall: "#6e7278", top: "#4a4e54", z0: 20 }); const q = at(0.3, sp.c[1], 26); p.px(q[0] - 2, q[1] - 4, "#f0a040", 4, 3); } // ladle turret
+      if (part === "refinery_run") for (const t of [0.25, 0.75]) { const [u, vv] = axis === "u" ? [t, mid] : [mid, t]; cylinder(p, u, vv, 0.12, 24, 18, "#c8c0b0", "#9a9284"); }
+      if (part === "tarstills") for (const t of [0.2, 0.5, 0.8]) chimney(p, ...(axis === "u" ? [t, mid] : [mid, t]) as [number, number], 12, 18, "#3a3430");
+      if (part === "chemplant") for (let k = 0; k < 3; k++) { const q = at(0.2 + k * 0.3, sp.c[1] + 0.04, 8); p.px(q[0] - 3, q[1], "#8a8478", 6, 2); }
       if (part === "heavyshop" && (s === "m")) { const q = at(0.5, mid, sp.h + 2); p.px(q[0] - 6, q[1] - 2, pal.trim, 12, 2); }
       break;
     }
@@ -632,6 +709,48 @@ export function buildPlant(key: string): Sprite {
     case "stack": {
       box(p, 0.25, 0.25, 0.75, 0.75, 6, { wall: "#5a524c", top: "#3a3432" });
       stackAt(p, 0.5, 0.5, 6, 104, palId === "p" ? "#93503c" : shade(W, 0.95), 0.08);
+      break;
+    }
+    case "bauxiteyard": {
+      pile(p, 0.5, 0.5, fill + 0.5, ["#8a3a24", "#a84a2c", "#c06038"], v + 11);
+      break;
+    }
+    case "rectifier": {
+      // the rectifier yard: transformers and busbars feeding the potlines
+      for (let k = 0; k < 3; k++) box(p, 0.15 + k * 0.25, 0.3, 0.32 + k * 0.25, 0.6, 9, { wall: "#6a7078", top: "#8a9098" });
+      p.line(p.P(0.1, 0.75, 12), p.P(0.9, 0.75, 12), "#b08a4a"); p.line(p.P(0.1, 0.8, 12), p.P(0.9, 0.8, 12), "#b08a4a");
+      break;
+    }
+    case "tankfarm": {
+      for (const [u, vv] of [[0.3, 0.3], [0.72, 0.3], [0.3, 0.72], [0.72, 0.72]] as const) cylinder(p, u, vv, 0.17, 0, 10 + ((u * 10 + vv * 7) % 3) * 4, "#c8c4b8", "#a8a498");
+      p.line(p.P(0.1, 0.5, 4), p.P(0.9, 0.5, 4), "#6a6a6e");
+      break;
+    }
+    case "column": {
+      box(p, 0.2, 0.2, 0.8, 0.8, 4, { wall: "#5a5a5e", top: "#6a6a6e" });
+      cylinder(p, 0.4, 0.4, 0.09, 4, 64, "#b0aca4", "#8a8680");
+      cylinder(p, 0.66, 0.6, 0.07, 4, 46, "#a4a098", "#807c76");
+      for (const z of [18, 34, 50]) p.px(...p.P(0.4, 0.4, z), "#6a6660", 3, 1);
+      p.line(p.P(0.4, 0.4, 60), p.P(0.66, 0.6, 44), "#7a7670");
+      break;
+    }
+    case "campus": {
+      for (const [u, vv, k] of [[0.3, 0.35, 1], [0.75, 0.6, 2]] as const) {
+        const [x, y] = p.P(u, vv);
+        if ((v + k) % 3 !== 0) { blob(p, x, y - 9, 8, 7, ["#3e6a2a", "#4e7e32", "#5e8e3a"], (j) => tileNoise(v, j, k, 5)); p.px(x, y - 3, "#5a4030", 1, 3); }
+      }
+      break;
+    }
+    case "carpark": {
+      const cols = ["#a83a2a", "#3a5a8a", "#d8d0b8", "#2a2a2e", "#5a7a4a", "#c8a040"];
+      for (let k = 0; k < 4; k++) { const [x, y] = p.P(0.2 + (k % 2) * 0.45, 0.3 + Math.floor(k / 2) * 0.4); if ((v + k) % 4 !== 0) { p.px(x - 3, y - 3, cols[(v + k) % cols.length], 7, 3); p.px(x - 2, y - 5, shade(cols[(v + k) % cols.length], 0.8), 5, 2); } }
+      break;
+    }
+    case "vandegraaff": {
+      // Westinghouse's atom smasher (1937): a pear-shaped steel tank on a brick base
+      box(p, 0.25, 0.25, 0.75, 0.75, 8, { wall: "#8e4a36", top: "#5a4a40" });
+      cylinder(p, 0.5, 0.5, 0.2, 8, 30, "#b8bcc0", "#a0a4a8");
+      for (let k = 0; k < 6; k++) cylinder(p, 0.5, 0.5, 0.26 * Math.sin(((k + 1) / 7) * Math.PI) + 0.05, 38 + k * 4, 4, "#c8ccd0", "#b0b4b8");
       break;
     }
     case "": break;

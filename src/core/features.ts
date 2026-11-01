@@ -22,7 +22,13 @@ export const PARKS: { name: string; lat: number; lon: number; radiusM: number; y
   { name: "Highland Park", lat: 40.4740, lon: -79.9150, radiusM: 600, year: 1893 },
   { name: "Riverview Park", lat: 40.4710, lon: -80.0150, radiusM: 500, year: 1894 },
   { name: "Frick Park", lat: 40.4330, lon: -79.9060, radiusM: 650, year: 1927 },
+  { name: "Grandview Park", lat: 40.4235, lon: -79.9925, radiusM: 160, year: 1897 },
+  { name: "McKinley Park", lat: 40.4110, lon: -79.9960, radiusM: 260, year: 1898 },
+  { name: "Arsenal Park", lat: 40.4666, lon: -79.9611, radiusM: 110, year: 1907 },
+  { name: "Westinghouse Park", lat: 40.4532, lon: -79.9027, radiusM: 140, year: 1919 },
   { name: "South Park", lat: 40.3000, lon: -80.0000, radiusM: 900, year: 1927 },
+  { name: "Mellon Park", lat: 40.4521, lon: -79.9181, radiusM: 170, year: 1943 },
+  { name: "Mellon Square", lat: 40.4412, lon: -79.9980, radiusM: 50, year: 1955 },
   { name: "Point State Park", lat: 40.4418, lon: -80.0105, radiusM: 220, year: 1974 },
 ];
 

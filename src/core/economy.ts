@@ -187,6 +187,7 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
     ore: year < 1880 ? { river: "Allegheny valley ore banks", rail: "Juniata ore banks", partner: "Allegheny and Juniata ore banks" } : { river: "Lake Erie ore docks (via the Ohio)", rail: "Lake Erie ore docks", partner: "Lake Superior mines (Marquette, Mesabi)" },
     limestone: { river: "Allegheny valley quarries", rail: "Juniata limestone", partner: "Limestone quarries" },
     sand: { river: "Allegheny sand dredges", rail: "Juniata glass sand", partner: year >= 1880 ? "Glass-sand pits and river dredges" : "River sand dredges" },
+    bauxite: { river: "Bauxite by the Ohio", rail: "Bauxite by rail", partner: year >= 1960 ? "Jamaica and Surinam bauxite" : "Arkansas bauxite (Bauxite, Ark.)" },
   };
   const rawLink = (good: Good, label: string, qty: number, key = good as string, partner?: string, rival?: string) => {
     const lane = w.lanes?.find((l) => l.good === good);
@@ -213,6 +214,8 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
     } else if (good === "coal") rawLink("coal", "Coal", qty);
     else if (good === "limestone") rawLink("limestone", "Limestone", qty);
     else if (good === "sand") rawLink("sand", "Sand", qty);
+    else if (good === "bauxite") rawLink("bauxite", "Bauxite", qty);
+    else if (good === "coke") rawLink("coke", "Coke-oven tar and light oil", qty, "coke", "By-product coke ovens");
     else if (good === "iron") {
       const mills = active.filter((a) => a.def.industry === "steel" && a.def.id !== "frick");
       mills.sort((a, b) => kmTo(a.r.x, a.r.y) - kmTo(b.r.x, b.r.y));
@@ -286,6 +289,23 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
           : { from: me, to: gate(gw.allegheny, "Heinz, Sharpsburg"), mode: "river", via: "Allegheny packets", partner: "Heinz, Noble & Co. (bottles)" });
       }
       if (year >= 1915 && ftw) mk(25, { ...west, to: gate(gw.ftWayne, "Detroit auto makers"), partner: "Auto makers (windshields)" });
+    } else if (w.industry === "aluminium") {
+      mk(30, east); if (ftw) mk(25, west);
+      mk(20, { from: me, to: local(40.4406, -79.9959, "Pittsburgh fabricators and builders"), mode: "rail", via: "Rail", partner: year >= 1953 ? "Builders (curtain walls)" : "Cookware and wire makers" });
+      if (year >= 1938) mk(year >= 1941 && year <= 1945 ? 60 : 15, { ...west, to: gate(gw.ftWayne, "Aircraft plants"), partner: "Aircraft makers" });
+      if (has("cans")) mk(30, { from: me, to: local(40.4720, -79.9620, "Pittsburgh Brewing (Iron City)"), mode: "rail", via: "Rail", partner: "Brewers and canners" });
+    } else if (w.industry === "chemicals") {
+      mk(25, east); mk(20, downriver);
+      mk(20, { from: me, to: local(40.4406, -79.9959, "Paint and coating makers"), mode: "rail", via: "Rail", partner: "PPG and the paint makers" });
+      customers(["steel"], 10);
+      if (has("synthetic_rubber")) mk(25, { ...west, to: gate(gw.ftWayne, "Akron tyre makers"), partner: "Rubber and tyre makers" });
+    } else if (w.industry === "research" || w.industry === "nuclear") {
+      customers(["steel", "glass", "power", "aluminium", "chemicals", "metalworks"], 6);
+      mk(w.industry === "nuclear" ? 60 : 15, { ...east, to: gate(gw.prrEast, "Washington"), mode: "rail", via: "Contracts", partner: w.industry === "nuclear" ? "U.S. Navy and the Atomic Energy Commission" : "Federal research contracts" });
+      if (w.industry === "nuclear" && has("pwr")) mk(30, { ...downriver, to: gate(gw.ohio, "Shippingport"), partner: "Duquesne Light and the utilities" });
+    } else if (w.industry === "medicine") {
+      for (const lm of m.landmarks) if (lm.kind === "town" && kmTo(lm.x, lm.y) < 15) mk(townWeight(g, lm.x, lm.y), { from: me, to: { x: lm.x + 0.5, y: lm.y + 0.5, name: lm.name }, mode: "wagon", via: "Patients and referrals", partner: `${lm.name} patients` });
+      mk(15, { ...east, to: gate(gw.prrEast, "Washington"), mode: "rail", via: "Grants", partner: "National Institutes of Health" });
     } else {
       const war = year >= 1941 && year <= 1945;
       mk(war ? 70 : 45, { ...downriver, to: gate(gw.ohio, war ? "New Orleans (to the Navy)" : "Ohio & Mississippi trade"), partner: war ? "U.S. Navy (LSTs)" : "River packet lines" });
@@ -319,6 +339,11 @@ export function productName(ind: IndustryId, techs: string[], year: number): str
   switch (ind) {
     case "steel": return has("strip_mill") ? "Sheet & strip steel" : has("open_hearth") ? "Structural steel & plate" : has("bessemer") ? "Steel rail" : "Bar iron & nails";
     case "power": return has("dc_dynamo") ? "Electricity" : "Coal gas";
+    case "aluminium": return has("cans") ? "Can sheet and ends" : has("curtain_wall") ? "Building panels and extrusions" : has("aircraft") ? "Aircraft alloys" : has("extrusion") ? "Extrusions and sheet" : "Aluminium ingot";
+    case "chemicals": return has("plasticisers") ? "Plastics and plasticisers" : has("polyurethane") ? "Polyurethanes" : has("synthetic_rubber") ? "Styrene for synthetic rubber" : has("resins") ? "Resins and coal-tar chemicals" : "Tar, benzol and ammonia";
+    case "research": return has("robotics") ? "Robotics and computing research" : has("campus") ? "Industrial research contracts" : "Industrial fellowships";
+    case "nuclear": return has("pwr") ? "Reactors and fuel" : "Naval reactors";
+    case "medicine": return has("transplant") ? "Transplants and specialist care" : has("vaccine") ? "Vaccines and hospital care" : "Hospital care";
     case "glass": return has("float_glass") ? "Float glass" : has("plate_glass") ? "Plate glass" : has("bottle_machine") ? "Machine-made bottles" : "Window glass & bottles";
     default: return year >= 1941 && year <= 1945 && has("welded_hulls") ? "Landing ships (LSTs)" : has("towboats") ? "Diesel towboats" : has("steel_barges") ? "Steel barges" : has("heavy_machinery") ? "Machinery & barges" : "Steamboats";
   }

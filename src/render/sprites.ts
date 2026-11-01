@@ -1252,6 +1252,109 @@ function plant(): Sprite {
   return p.sprite();
 }
 
+
+// ---------------------------------------------------------------- v0.18 landmarks: the downtown towers and the labs
+
+/** a window grid on a tall face: dark panes in rows (lit-window colour handled by the night pass) */
+function grid(p: Painter, b: Box, face: "left" | "right", cols: number, z0: number, z1: number, step: number, col: string) {
+  const a = face === "left" ? b.D(0) : b.C(0), c = face === "left" ? b.C(0) : b.B(0);
+  for (let z = z0; z < z1; z += step) for (let k = 0; k < cols; k++) { const [x, y] = lerp(a, c, (k + 0.5) / cols); p.px(x, y - z - 2, col, 1, 2); }
+}
+
+function skyscraper(): Sprite {
+  // a 1900s–1930s office tower: stone base, brick or limestone shaft, a crown (the Frick, Koppers, Gulf, Grant)
+  const p = new Painter(1, 320);
+  const st = "#c4b496";
+  const base = box(p, 0.08, 0.08, 0.92, 0.92, 18, { wall: shade(st, 0.9), top: "#6a6258" });
+  grid(p, base, "left", 5, 4, 16, 6, WIN); grid(p, base, "right", 5, 4, 16, 6, "#26262c");
+  const shaft = box(p, 0.14, 0.14, 0.86, 0.86, 170, { wall: st, z0: 18, top: "#5a544c" });
+  ribs(p, shaft, "left", 6, shade(st, 0.82), 18, 188); ribs(p, shaft, "right", 6, shade(st, 0.6), 18, 188);
+  grid(p, shaft, "left", 6, 22, 186, 5, WIN); grid(p, shaft, "right", 6, 22, 186, 5, "#24242a");
+  cornice(p, shaft, "#e2d6ba");
+  // setback crown: a copper-roofed pyramid (Koppers) / stepped top with a beacon (Gulf)
+  const c1 = box(p, 0.28, 0.28, 0.72, 0.72, 18, { wall: shade(st, 1.04), z0: 188, top: "#5a544c" });
+  grid(p, c1, "left", 3, 192, 204, 5, WIN);
+  const top = 206, [ax, ay] = p.P(0.5, 0.5, top + 26);
+  p.poly([c1.D(top), c1.C(top), [ax, ay]], COPPER); p.poly([c1.C(top), c1.B(top), [ax, ay]], shade(COPPER, 0.7));
+  p.px(ax, ay - 6, "#3a3a3e", 1, 6); p.px(ax - 1, ay - 8, "#e05a3a", 3, 2);
+  return p.sprite();
+}
+
+function skytower(): Sprite {
+  // the U.S. Steel Building (1970): 64 floors of rust-brown Cor-Ten, columns standing outside the walls
+  const p = new Painter(2, 460);
+  lawn(p, -1, -1, 1, 1, 31);
+  const cor = "#6a4232";
+  const b = box(p, -0.7, -0.7, 0.7, 0.7, 330, { wall: cor, top: "#3a2a24" });
+  for (let k = 1; k < 9; k++) { const [x, y] = lerp(b.D(0), b.C(0), k / 9); p.px(x - 1, y - 330, shade(cor, 0.72), 2, 330); }
+  for (let k = 1; k < 9; k++) { const [x, y] = lerp(b.C(0), b.B(0), k / 9); p.px(x - 1, y - 330, shade(cor, 0.5), 2, 330); }
+  for (let z = 8; z < 328; z += 6) { p.line(b.D(z), b.C(z), "#2a2024"); p.line(b.C(z), b.B(z), "#20181a"); }
+  cornice(p, b, shade(cor, 1.2));
+  // the plaza and its fountain
+  ell(p, 0.6, 0.85, 0.12, 0, "#b8b2a6"); ell(p, 0.6, 0.85, 0.08, 0.5, "#6a9ac0");
+  return p.sprite();
+}
+
+function glasstower(): Sprite {
+  // Renaissance II glass: a Gothic cluster of reflective glass (PPG Place) beside a tall dark-glass shaft
+  const p = new Painter(2, 400);
+  lawn(p, -1, 0.5, 1, 1, 33);
+  const g1 = "#4e6a86", g2 = "#7a94ae";
+  const main = box(p, -0.85, -0.85, 0.15, 0.15, 290, { wall: g1, top: "#2a3644" });
+  ribs(p, main, "left", 10, shade(g1, 1.4)); ribs(p, main, "right", 10, shade(g1, 0.75));
+  for (let z = 6; z < 288; z += 7) { p.line(main.D(z), main.C(z), shade(g1, 0.85)); p.line(main.C(z), main.B(z), shade(g1, 0.6)); }
+  // the Gothic glass castle in front: towers with pinnacles
+  for (const [u0, v0, h] of [[0.25, -0.85, 150], [0.25, -0.2, 110], [-0.85, 0.3, 120], [0.3, 0.35, 70]] as const) {
+    const t = box(p, u0, v0, u0 + 0.5, v0 + 0.45, h, { wall: g2, top: "#3a4a5a" });
+    ribs(p, t, "left", 6, "#c8d8e8"); ribs(p, t, "right", 5, shade(g2, 0.7));
+    for (const [cu, cv] of [[u0, v0 + 0.45], [u0 + 0.5, v0 + 0.45], [u0 + 0.5, v0]] as const) { const [x, y] = p.P(cu, cv, h); p.poly([[x - 2, y], [x + 2, y], [x, y - 12]], "#9ab0c8"); }
+  }
+  return p.sprite();
+}
+
+function lab(): Sprite {
+  // a research campus: low modern blocks of brick and glass on a lawn, a car park, a water tower
+  const p = new Painter(3, 160);
+  lawn(p, -2, -2, 1, 1, 35);
+  const blk = (u0: number, v0: number, u1: number, v1: number, h: number, col: string) => {
+    const b = box(p, u0, v0, u1, v1, h, { wall: col, top: "#5a5e64", foundation: 2 });
+    for (let z = 4; z < h - 2; z += 6) { winRow2(p, b, "left", z); winRow2(p, b, "right", z); }
+    cornice(p, b, "#d8d8d0");
+    return b;
+  };
+  blk(-1.8, -1.8, 0.6, -1.2, 22, "#a8664c");
+  blk(-1.8, -0.9, -1.2, 0.6, 18, "#8e98a2");
+  blk(-0.8, -0.8, 0.6, -0.2, 26, "#b8bcc0");
+  // car park
+  p.poly([p.P(-0.8, 0.1), p.P(0.8, 0.1), p.P(0.8, 0.85), p.P(-0.8, 0.85)], "#6a6a6e");
+  for (let k = 0; k < 7; k++) { const [x, y] = p.P(-0.65 + k * 0.22, 0.4); p.px(x, y - 3, ["#a83a2a", "#3a5a8a", "#d8d0b8", "#2a2a2e"][k % 4], 5, 3); }
+  cylinder(p, 0.75, -1.6, 0.12, 30, 12, "#a8b0b8", "#8890a0");
+  for (const [u, v] of [[-1.9, 0.8], [0.85, 0.85], [-1.0, 0.85], [0.9, -0.9]] as const) treeAt(p, u, v, 1, u * 3 + v);
+  return p.sprite();
+}
+function winRow2(p: Painter, b: Box, face: "left" | "right", z: number) {
+  const a = face === "left" ? b.D(0) : b.C(0), c = face === "left" ? b.C(0) : b.B(0);
+  p.line([a[0], a[1] - z], [c[0], c[1] - z], face === "left" ? "#9ab8cc" : "#7a94a8");
+  p.line([a[0], a[1] - z - 1], [c[0], c[1] - z - 1], face === "left" ? "#b8d0e0" : "#8aa4b8");
+}
+
+function reactor(): Sprite {
+  // an atomic laboratory: a containment sphere beside the prototype hall, offices, a security fence
+  const p = new Painter(3, 200);
+  lawn(p, -2, -2, 1, 1, 37);
+  cylinder(p, -1.1, -1.1, 0.55, 0, 26, "#d0d0cc", "#c4c4c0");
+  for (let k = 0; k < 10; k++) cylinder(p, -1.1, -1.1, 0.55 * Math.cos((k / 10) * Math.PI / 2), 26 + k * 4, 4, "#dcdcd8", "#cacac6");
+  const hall = box(p, -0.3, -1.8, 0.8, -0.6, 36, { wall: "#a4a8ac", top: "#6a6e74" });
+  ribs(p, hall, "left", 8, "#8a8e94"); ribs(p, hall, "right", 8, "#7a7e84");
+  const off = box(p, -1.8, -0.2, 0.6, 0.4, 16, { wall: "#b06a50", top: "#5a5e64", foundation: 2 });
+  winRow2(p, off, "left", 5); winRow2(p, off, "left", 11);
+  stack(p, 0.6, -0.3, 0, 60, "#a8a8a8", 0.05);
+  // the fence
+  for (let t = -1.95; t <= 0.95; t += 0.12) { const [x, y] = p.P(t, 0.95); p.px(x, y - 5, "#6a6a6e", 1, 5); }
+  p.line(p.P(-1.95, 0.95, 5), p.P(0.95, 0.95, 5), "#8a8a8e");
+  return p.sprite();
+}
+
 function office(): Sprite {
   // Gateway Center: stainless-and-glass towers on a plaza
   const p = new Painter(2, 260);
@@ -1506,6 +1609,7 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
     ["chapel", chapel], ["school", school], ["theatre", theatre], ["observatory", observatory], ["zoo", zoo],
     ["amusement", amusement], ["airport", airport], ["plant", plant], ["office", office], ["housing", housing],
     ["fountain", fountain], ["factory", factory], ["shipyard", shipyard], ["planetarium", planetarium], ["church", church], ["hall", hall],
+    ["skyscraper", skyscraper], ["skytower", skytower], ["glasstower", glasstower], ["lab", lab], ["reactor", reactor],
   ];
   for (const [k, f] of LANDMARKS) s.set(`struct:${k}`, f());
   for (let n = 1; n <= 4; n++) s.set(`struct:ruin${n}`, ruin(n));

@@ -575,7 +575,7 @@ export function drawSpills(ctx: CanvasRenderingContext2D, g: GameState, cam: Cam
   // rivals: their real industry, and only while they run (not before they open, on strike or after they close)
   for (const r of g.rivals) {
     const def = RIVALS.find((d) => d.id === r.id);
-    if (r.owned || !def || def.id === "mellon") continue; // the Mellons are a bank: no outfall
+    if (r.owned || r.offmap || !def || def.id === "mellon") continue; // the Mellons are a bank: no outfall
     const run = rivalRunning(def, year);
     const running = r.active && !r.closed && (r.strikeUntil ?? 0) <= g.turn && run > 0 && !(def.opens !== undefined && year < def.opens);
     plants.push({ x: r.x, y: r.y, fp: r.footprint, ind: def.industry, running, amount: alcosan * clamp01(run / 0.85) });

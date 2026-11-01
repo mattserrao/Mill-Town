@@ -47,7 +47,7 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
   const pips = Array.from({ length: ACTIONS_PER_SEASON }, (_, k) => (k < b.actionsLeft ? "●" : "○")).join("");
   const val = (k: keyof Policy) => String(staged[k] ?? b.policy[k]);
   const dirty = Object.keys(staged).some((k) => String(staged[k as keyof Policy]) !== String(b.policy[k as keyof Policy]));
-  const groups = inPolitics(g) ? (["Office", "Politics", "Public", "Labour", "Rivals"] as const) : (["Labour", "Public", "Politics", "Rivals"] as const);
+  const groups = inPolitics(g) ? (["Office", "Politics", "Public", "Labour", "Environment", "Rivals"] as const) : (["Labour", "Public", "Politics", "Environment", "Rivals"] as const);
   const pendingLaws = LAWS.filter((l) => lawsOf(g)[l.id].passed === undefined && l.range[1] >= y && lawYear(g, l) <= y + 25);
   const recruitable = GROUPS.filter((gr) => gr.id >= 2 && gr.wave(y) > 0.05);
   // a policy is shown unless the law has taken it away (and you're not already using it)

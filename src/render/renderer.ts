@@ -41,7 +41,7 @@ export interface Marks {
 }
 
 const CS = 16;              // chunk size in tiles
-const PAD_TOP = 330;        // room for tall sprites (stacks, smoke, spires), zoom-1 px
+const PAD_TOP = 420;        // room for tall sprites (stacks, smoke, spires), zoom-1 px
 const PAD_X = 48;
 /** cached chunk pixels: about three screens' worth at the current zoom, within these bounds */
 const BUDGET_MIN_PX = 12e6, BUDGET_MAX_PX = 40e6;

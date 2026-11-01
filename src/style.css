@@ -529,3 +529,10 @@ button.link.go:hover:not(:disabled) { color: var(--accent); }
   .kpi small { letter-spacing: 0; }
   #standing { gap: 4px; }
 }
+
+/* v0.18: the neighbourhood card */
+.hood { display: grid; gap: 3px; margin: 4px 0 6px; }
+.hood-row { display: grid; grid-template-columns: 74px 1fr 26px; align-items: center; gap: 6px; font-size: 11px; }
+.hood-row b { text-align: right; font-weight: 600; }
+.hood-bar { height: 6px; background: #2c3038; border-radius: 3px; overflow: hidden; }
+.hood-bar i { display: block; height: 100%; }

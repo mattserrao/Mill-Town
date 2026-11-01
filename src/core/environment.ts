@@ -246,7 +246,7 @@ export function eraGrievance(year: number): number {
 }
 
 /** Yearly: health from air, water and crowding; unrest from health, crowding and the era. */
-export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: number; y: number }[] = []) {
+export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: number; y: number }[] = [], boosts: { x: number; y: number; r: number; water: number; health: number; unrest: number }[] = []) {
   const g = blockGrid(m);
   const air = new Float32Array(g.n), water = new Float32Array(g.n), pop = new Float32Array(g.n), homes = new Float32Array(g.n);
   for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
@@ -267,9 +267,12 @@ export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: num
     // a hospital within reach (about 1½ miles) takes the edge off sickness
     const bx = (b % g.bw) * 4 + 2, by = Math.floor(b / g.bw) * 4 + 2;
     const care = hospitals.some((h) => Math.abs(h.x - bx) < 50 && Math.abs(h.y - by) < 50) ? 0.08 : 0;
-    const health = Math.max(0.15, Math.min(1, 1 - 0.35 * airT - 0.45 * waterT - 0.25 * crowd + care));
+    // a company's investments in its neighbourhood (src/core/hood.ts): mains and sewers, care, amenity
+    let wMult = 1, plus = 0, calm = 0;
+    for (const o of boosts) if (Math.abs(o.x - bx) <= o.r && Math.abs(o.y - by) <= o.r) { wMult *= o.water; plus += o.health; calm += o.unrest; }
+    const health = Math.max(0.15, Math.min(1, 1 - 0.35 * airT - 0.45 * waterT * wMult - 0.25 * crowd + care + plus));
     env.health[b] = health;
-    env.unrest[b] = Math.max(0, Math.min(1, 0.5 * (1 - health) + 0.25 * crowd + grievance));
+    env.unrest[b] = Math.max(0, Math.min(1, 0.5 * (1 - health) + 0.25 * crowd + grievance - calm));
   }
 }
 

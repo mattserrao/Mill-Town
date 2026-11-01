@@ -56,6 +56,28 @@ in the terminal running `npm run dev`.
   than lose the works) and you arrive at the succession, with the family's works, cash and ledger: as the
   **Industrialist** (the business, a new industry, the co-op or finance) or the **Politician** (a manager runs the
   works; you run for office). Choose the family business and the family's name
+- **Nine industries**: steel, power, glass and metalworking from 1850; aluminium (1893), coal chemicals (1915),
+  industrial research (1915), medicine (1947) and nuclear (1949), each with its own processes and real rivals
+  (Alcoa, Koppers, Neville Chemical, Mobay, the Mellon Institute, Westinghouse Research, Gulf R&D, Bettis, NUMEC,
+  Presbyterian Hospital…); works that lay off the map (New Kensington, Neville Island, Harmarville, Apollo) compete
+  from there, with their headquarters towers downtown
+- **Your neighbourhood** (Town tab): health, housing, amenity, cohesion and land value for the streets around each
+  works, and what the company can do for them in their day — water mains, paving, Carnegie-style baths and
+  libraries, settlement houses, company hospitals, houses sold to the men, playgrounds, parklets, restoration funds,
+  rehab loans and community development corporations. Each shows on the map
+- **Clean air and water**: smoke ordinances (1869, 1908), the Clean Streams Law (1937), Smoke Control (1946), the
+  county law (1949), the Clean Air Act (1970) and its 1977 amendments ask for pollution-control equipment
+  (stokers, precipitators, water treatment, hoods and baghouses, scrubbers — each far dearer than the last). Install
+  it, sign a consent decree (a deadline; violations pile up and can collapse into lawsuits) or defy the law (fines,
+  and from 1969 GASP). File a curtailment plan before the next killing inversion; after 1977 no expansion without
+  offsets
+- **The world market** (from 1946): orders follow U.S. demand, imports (2% → 26% in 1984), trade policy and
+  minimills, and your costs against Japan's and Europe's (oxygen furnaces, continuous casting, automation, wages).
+  Unsold plant idles, its upkeep still runs, and the men are laid off. From 1982 a steel works losing money faces
+  the board's closure card: almost no steel works survives without the family's other businesses
+- **Landmarks** fill in on their real dates and places: ~60 more hospitals, high schools, colleges and libraries,
+  ballparks and arenas, memorials and the downtown towers (the Frick, Koppers, Gulf, Alcoa and U.S. Steel
+  buildings, PPG Place), with renames (Duquesne University, Chatham, Carnegie Mellon) and demolitions
 - Top bar: the date and the clock (pause, speeds, next season) first; on narrower windows the meters lose their
   bars and then shorten their labels, and the brand, the valley's population and the family chip give way
 - Main menu (at start, and ☰ → Save & exit): **Resume last game**, **New game** (blank seed for a fresh town, or a
@@ -78,6 +100,7 @@ src/audio/                    procedural music and ambience
 src/main.ts                   app wiring, camera, panels, minimap
 docs/EVENTS.csv               the historical timeline the game reads (edit it to change history; see docs/EVENTS.md)
 docs/PLAN.md                  design plan and milestones · docs/EVENTS-PLAN.md, MECHANICS.md: design notes
+docs/V018-PLAN.md, V018-RESEARCH.md   the modern valley: industries, neighbourhoods, clean air, the world market
 ```
 
 ## Data
