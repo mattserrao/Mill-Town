@@ -24,6 +24,10 @@ in the terminal running `npm run dev`.
   keys 1–4 pick a speed; at 1× a game takes about two hours). The game ends after Winter 1985
 - Top bar: date, cash, last season's profit, valley population, and four meters (reputation, labour relations,
   influence, town morale; hover for the word)
+- **Holdings** tab: every works, small businesses to buy (coal mine, coke ovens, ore boats, quarry, sand pit, barge
+  line, short-line railroad, trucking, gas, water and electric companies, company stores, machine shop, brickworks:
+  income plus cheaper inputs, freight or upkeep), 10% stakes in the rival and supplier works (dividends; at 20% they
+  leave you alone; at 50% buy the rest) and shares in Heinz, Westinghouse, Alcoa, PPG, Gulf, U.S. Steel and Mellon
 - Right panel tabs: **Overview** (cash, profit, output, market share, price and cost per unit, a Watch list of
   risks, last season's accounts) · **Works** (processes, commissioning, building on the map, projects for the town,
   roads and bridges, supply chain) · **Policy** (standing policies, three actions a season) · **Town** (morale,
@@ -34,9 +38,10 @@ in the terminal running `npm run dev`.
   prices, wages and raw materials · population, morale, the jobless and your workforce's health
 - Map: drag / WASD / arrows to pan; scroll, +/- or the on-screen buttons to zoom; click a tile for its card
   (before founding, a click picks a site); the **Map** button holds the layers (land, town, business, best sites)
-  and view options; the headline strip at the bottom opens the paper, with the ledger (log) beside it; Esc closes
+  and view options (click a layer again, or ✕ on its legend, to go back to the town); the headline strip at the bottom opens the paper, with the ledger (log) beside it; Esc closes
 - Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in ☰
-- Main menu (at start, and ☰ → Main menu): **Resume last game**, **New game** (blank seed for a fresh town, or a
+- Saving: Ctrl+S saves; Esc (with nothing open) or ☰ → **Save & exit** saves and goes to the main menu
+- Main menu (at start, and ☰ → Save & exit): **Resume last game**, **New game** (blank seed for a fresh town, or a
   seed to replay one) and **Load game**. Games are saved in the browser (IndexedDB): the autosave every new year,
   when you leave the page and when you open the menu; ☰ → **Save game** keeps a named save (the newest 12 are
   kept). A `?seed=` in the address skips the menu and starts that town

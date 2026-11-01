@@ -218,7 +218,7 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #gameDrop #version { font-size: 10px; }
 
 /* right panel */
-#right { width: 320px; padding: 0 10px 10px; }
+#right { width: 344px; padding: 0 10px 10px; }
 #rightTabs { position: sticky; top: 0; z-index: 2; display: flex; margin: 0 -10px 10px; padding: 4px 10px 0; background: var(--panel); border-bottom: 1px solid var(--line); }
 #rightTabs button { flex: 1; border: 0; background: none; padding: 7px 0 6px; color: var(--muted); border-bottom: 2px solid transparent; }
 #rightTabs button:hover { background: none; color: var(--text); }
@@ -227,6 +227,7 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #right[data-tab="works"] [data-tab]:not([data-tab="works"]):not(button),
 #right[data-tab="policy"] [data-tab]:not([data-tab="policy"]):not(button),
 #right[data-tab="town"] [data-tab]:not([data-tab="town"]):not(button),
+#right[data-tab="holdings"] [data-tab]:not([data-tab="holdings"]):not(button),
 #right[data-tab="rivals"] [data-tab]:not([data-tab="rivals"]):not(button) { display: none; }
 .tab-empty { margin: 10px 2px; }
 [hidden] { display: none !important; }
@@ -402,3 +403,19 @@ button.link.go:hover:not(:disabled) { color: var(--accent); }
 .mm-save span { color: var(--muted); font-size: 11px; }
 .mm-foot { color: var(--muted); font-size: 10px; text-align: center; margin-top: 8px; }
 #gameDrop button { text-align: left; }
+#legendBox { position: relative; }
+.lg-close { position: absolute; right: 4px; top: 4px; padding: 0 6px; font-size: 11px; }
+#gameDrop kbd { float: right; font: 10px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); padding: 0 4px; margin-left: 8px; }
+#exitBtn { border-color: var(--accent); }
+.mm-ok { color: var(--good); margin: 0 0 4px; }
+.mm-big span:only-of-type { }
+#toast { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 25; background: rgba(24, 26, 30, 0.95); border: 1px solid var(--accent); padding: 6px 14px; color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
+#rightTabs button { font-size: 11px; padding-left: 0; padding-right: 0; }
+/* holdings */
+.hd-sec { cursor: pointer; user-select: none; }
+.hd-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid #2c3038; }
+.hd-row .muted { font-size: 10px; }
+.hd-grp { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin: 8px 0 3px; }
+.hd-sub { font-size: 10px; color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase; margin: 10px 0 2px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.act .act-n button.link.go { font-size: 12px; text-decoration: none; border: 0; margin-left: 2px; }
+.act > button + button { margin-left: -2px; }

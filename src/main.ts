@@ -15,6 +15,8 @@ import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
 import { trendsView } from "./ui/trends";
 import { resetTownUi, townPanel } from "./ui/town";
+import { holdingsPanel, resetHoldingsUi } from "./ui/holdings";
+import { bizDef } from "./core/holdings";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { money as short } from "./ui/fx";
 import { loadGame, newSaveId, saveGame } from "./core/save";
@@ -105,7 +107,7 @@ function resetUiState() {
     proposal = null; roadPreview = null; placeBar();
     $("query").hidden = true;
     toggleTrends(false); openPaper(false);
-    resetBusinessUi(); resetWorksUi(); resetTownUi();
+    resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
@@ -146,10 +148,12 @@ function autosave() {
   saveGame(game).catch((e) => console.warn("autosave failed", e)).finally(() => { autosaving = false; });
 }
 
-function openMenu(atStart = false) {
-  if (!atStart) autosave();
+function openMenu(atStart = false, saved = false) {
+  if (!atStart && !saved) autosave();
   mainMenu($("menu"), {
     inGame: !atStart,
+    saved,
+    onSave: saveNamed,
     onResume: () => closeMenu(),
     onNew: (seed) => { closeMenu(); newTown(seed ?? Math.floor(Math.random() * 1e6)); showNews(); homeView(); },
     onLoad: async (id) => {
@@ -165,14 +169,32 @@ function openMenu(atStart = false) {
 }
 function closeMenu() { $("menu").hidden = true; }
 
-/** save under a new name from the ☰ menu */
-async function saveNamed() {
-  const b = $<HTMLButtonElement>("saveBtn");
-  if (!game.company) { b.textContent = "Found a company first"; setTimeout(() => { b.textContent = "Save game"; }, 1800); return; }
-  b.disabled = true; b.textContent = "Saving…";
-  try { const m = await saveGame(game, newSaveId()); b.textContent = `Saved: ${m.season} ${m.year}`; }
-  catch (e) { b.textContent = "Save failed"; console.warn(e); }
-  setTimeout(() => { b.disabled = false; b.textContent = "Save game"; }, 1800);
+/** a short note at the bottom of the map ("Saved") */
+let toastT = 0;
+function toast(text: string) {
+  const el = $("toast");
+  el.textContent = text; el.hidden = false;
+  clearTimeout(toastT);
+  toastT = window.setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+/** save under a new name (☰ → Save game, Ctrl+S, or from the main menu) */
+async function saveNamed(): Promise<boolean> {
+  if (!game.company) { toast("Found a company first: there's nothing to save yet."); return false; }
+  toast("Saving…");
+  try { const m = await saveGame(game, newSaveId()); toast(`Saved: ${m.company} — ${m.season} ${m.year}`); return true; }
+  catch (e) { toast("Couldn't save the game"); console.warn(e); return false; }
+}
+
+/** save the game and go to the main menu */
+async function saveAndExit() {
+  $("gameDrop").hidden = true;
+  stopPlay();
+  if (game.company) {
+    toast("Saving…");
+    try { await saveGame(game); toast("Game saved"); } catch (e) { toast("Couldn't save the game"); console.warn(e); }
+  }
+  openMenu(false, true);
 }
 
 /**
@@ -285,6 +307,7 @@ function requestRender() {
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (anim && !ovOn && night > 0.02) traffic.drawLights(ctx, cam, night); // lamps over the night tint, at full strength
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
+    drawHoldings();
     if (overlay === "supply") {
       const sc = currentChain();
       if (sc) drawSupply(ctx, cam, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, reservedRects());
@@ -461,6 +484,7 @@ function refreshPanels() {
     meterChip("Morale", "Town morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
   townPanel(game, $("town"), () => { afterChange(); }, goTo);
+  holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo);
   worksPanel(game, $("works"), () => { afterChange(); }, startPlacing, startRoad);
   businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
@@ -540,7 +564,7 @@ function overviewPanel() {
     <div class="risks">${riskRows(list.slice(0, 5))}</div>
     ${s ? `<h4 class="mh">Last season${c.others.length ? " · all works" : ""}</h4>
     <div class="pl">
-      ${([["Revenue", s.revenue, "#7ac8e0"], ["Raw materials", -s.inputCost, "#e07a64"], ["Wages", -s.wages, "#e07a64"], ["Upkeep", -s.upkeep, "#e07a64"], ...(s.other ? [["Other", -s.other, s.other > 0 ? "#e07a64" : "#7cc87c"]] : [])] as [string, number, string][])
+      ${([["Revenue", s.revenue, "#7ac8e0"], ["Raw materials", -s.inputCost, "#e07a64"], ["Wages", -s.wages, "#e07a64"], ["Upkeep", -s.upkeep, "#e07a64"], ...(s.other ? [["Other", -s.other, s.other > 0 ? "#e07a64" : "#7cc87c"]] : []), ...(c.totals?.holdings ? [["Holdings", c.totals.holdings, "#7cc87c"]] : [])] as [string, number, string][])
         .map(([k, v, col]) => `<span class="k">${k}</span><span class="bar"><b style="width:${s.revenue ? Math.min(100, (Math.abs(v) / s.revenue) * 100) : 0}%;background:${col}"></b></span><span class="v">${short(v)}</span>`).join("")}
       <span class="k tot">Profit</span><span class="tot"></span><span class="v tot ${s.profit < 0 ? "down" : "up"}">${short(s.profit)}</span>
     </div>
@@ -617,11 +641,21 @@ function setupUI() {
     $("layerBtn").classList.toggle("on", overlay !== "none");
     $("legend").innerHTML = overlayLegend(overlay, game);
     $("legendBox").hidden = overlay === "none";
+    $("legendBox").querySelector(".lg-close")?.remove();
+    if (overlay !== "none") $("legendBox").insertAdjacentHTML("afterbegin", `<button class="lg-close" title="Back to the town">✕</button>`);
     if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; industryNote(); }
     siteReport();
     requestRender();
   });
   $("layerBtn").addEventListener("click", (e) => { e.stopPropagation(); $("layerMenu").hidden = !$("layerMenu").hidden; });
+  // a layer chip clicked again turns that layer off: back to the town
+  $("overlays").addEventListener("click", (e) => {
+    const input = (e.target as HTMLElement).closest("label.chip")?.querySelector<HTMLInputElement>("input[name=overlay]");
+    if (!input || input.value === "none" || input.value !== overlay) return;
+    e.preventDefault();
+    setOverlay("none");
+  });
+  $("legendBox").addEventListener("click", (e) => { if ((e.target as HTMLElement).closest(".lg-close")) setOverlay("none"); });
   document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#mapTools")) $("layerMenu").hidden = true; });
   // the headline strip opens the paper; the paper has a ledger tab (the log)
   $("headline").addEventListener("click", () => openPaper(true));
@@ -728,8 +762,10 @@ function setupUI() {
   $("gameBtn").addEventListener("click", (e) => { e.stopPropagation(); $("gameDrop").hidden = !$("gameDrop").hidden; });
   document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#gameMenu")) $("gameDrop").hidden = true; });
   $("nextYear").addEventListener("click", nextYear);
-  $("saveBtn").addEventListener("click", (e) => { e.stopPropagation(); saveNamed(); });
-  $("menuBtn").addEventListener("click", () => { $("gameDrop").hidden = true; openMenu(); });
+  $("saveBtn").addEventListener("click", () => { $("gameDrop").hidden = true; saveNamed(); });
+  $("exitBtn").addEventListener("click", () => saveAndExit());
+  // Ctrl/Cmd+S saves, anywhere (not the browser's "save page")
+  window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if ($("menu").hidden) saveNamed(); } });
   // leaving the page (or hiding it) saves the game
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autosave(); });
   window.addEventListener("pagehide", autosave);
@@ -809,7 +845,7 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("menu").hidden) { if ($("menu").querySelector("[data-a=back]")) closeMenu(); } else if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
+    else if (k === "escape") { if (!$("menu").hidden) { if ($("menu").querySelector("[data-a=back]")) closeMenu(); } else if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else if (!$("gameDrop").hidden) $("gameDrop").hidden = true; else if (selected) { selected = null; siteReport(); requestRender(); } else saveAndExit(); }
     else if (k === "t") { toggleTrends(); return; }
     else return;
     clampCam();
@@ -915,6 +951,28 @@ function startRoad(p: RoadPlan) {
   requestRender();
 }
 
+/** your businesses on the map: a small flag in the company colours, named when you're close */
+function drawHoldings() {
+  const h = game.company?.holdings;
+  if (!h?.biz.length || cam.zoom < 0.25) return;
+  ctx.save();
+  ctx.font = "bold 11px ui-monospace, monospace"; ctx.textBaseline = "bottom";
+  for (const b of h.biz) {
+    const [x, y] = tileScreen(b.x, b.y);
+    if (x < -50 || y < -50 || x > canvas.width + 50 || y > canvas.height + 50) continue;
+    const pole = 18 * Math.max(0.6, Math.min(1.5, cam.zoom));
+    ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - pole); ctx.stroke();
+    ctx.fillStyle = "#e0b050"; ctx.fillRect(x, y - pole, 10, 7); ctx.fillStyle = "#8e3f2e"; ctx.fillRect(x, y - pole + 7, 10, 2);
+    if (cam.zoom >= 0.75) {
+      const name = bizDef(b.id).name;
+      const w = ctx.measureText(name).width + 8;
+      ctx.fillStyle = "rgba(20,20,24,0.85)"; ctx.fillRect(x + 12, y - pole - 2, w, 15);
+      ctx.fillStyle = "#ffd34a"; ctx.fillText(name, x + 16, y - pole + 12);
+    }
+  }
+  ctx.restore();
+}
+
 /** the planned road drawn over the map: dashed, with the new bridge in a warmer colour */
 function drawRoadPreview() {
   const p = roadPreview;
@@ -976,7 +1034,7 @@ function nextSeason() {
   if (game.over) return;
   // a historical moment is waiting for your answer
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi(); resetTownUi();
+  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
   if (proposal || roadPreview) stopPlacing();
   advanceTurn(game);
   afterTurn();
@@ -986,7 +1044,7 @@ function nextYear() {
   if (game.over) return;
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi(); resetTownUi();
+  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
   if (proposal || roadPreview) stopPlacing();
   do advanceTurn(game); while (!game.over && !game.pendingDecision && cal(game).season !== "Spring");
   afterTurn();
