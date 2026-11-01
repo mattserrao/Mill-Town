@@ -181,6 +181,7 @@ export const EFFECTS: Record<string, Effect[]> = {
     { mods: [["riverLoad", 3, 1]] },
     { place: "Mon Valley", health: -0.03, seasons: 1 },
     { meters: { reputation: -4 }, if: "tech:byproduct_coke" },
+    { flag: "benzene" }, // the slick below Clairton (drawn for a few seasons)
   ],
   "Gulf Leaves Town": [{ place: "Downtown", unrest: 0.05, seasons: 4 }, { meters: { morale: -4 } }],
   "Clergy Protest at Shadyside": [{ place: "Shadyside", unrest: 0.05, seasons: 2 }, { meters: { reputation: -8 }, if: "flag:laidOff" }],

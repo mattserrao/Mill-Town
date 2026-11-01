@@ -159,6 +159,13 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      averages; districts drawn as smooth dashed lines; supply-chain and place labels kept clear of each other and
      the edges; crisp 2× zoom; barges with decks and cargo; a warning when your works falls behind; an end-of-game
      epilogue from your choices
+   - Animation pass (v0.13, `docs/ANIMATION-PLAN.md`): smoke by era and waste policy, glow by output, seasonal wind,
+     haze by area from the smoke model, spills that drift as a stain and shrink with abatement and ALCOSAN, slag
+     pours to 1972, the 1984 benzene slick; commuters walking to the works, shift change and quiet nights, pickets
+     at works on strike, thinner streets in closed mill towns and floods; trains on the freight routes that reverse
+     at line ends, standing cuts at your sidings, boats along the river and fewer in winter; new period figures,
+     horses, streetcars, cars by decade, steam and diesel trains with varied cars, steamboats and towboats with wakes,
+     lamps and headlights at night
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -186,6 +193,7 @@ routing, environment, growth and neighbourhood style.
 - Left out by design: highways, busways and the Liberty Tubes as travel links (X2; the Tubes act as South Hills
   growth), per-line transit (X1), outbound freight and taxes; Frick Park's land isn't held from growth before 1927
 - The map canvas ignores the screen's pixel ratio: on HiDPI displays it is scaled up by the browser (sharp but uneven pixels)
+- Moving figures and boats draw over buildings that stand in front of them (no per-tile depth yet)
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal

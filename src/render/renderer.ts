@@ -5,7 +5,7 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { lineIndex, segDist, type Seg } from "../core/lines";
-import { rivalRunning, techsForYear, type GameState } from "../core/game";
+import { rivalRunning, techsForYear, type GameState, type Works } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
 import { RIVALS } from "../core/rivals";
@@ -17,9 +17,13 @@ import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
+import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
 
 interface PlantRef { t: PlantTile; c: PlantCtx; years: number }
-interface LiveEmitter extends Emitter { wx: number; wy: number; seed: number; running: boolean }
+/** an emitter placed on the map; `group` indexes the works it belongs to (its smoke look for the season) */
+interface LiveEmitter extends Emitter { wx: number; wy: number; seed: number; running: boolean; group: number }
+/** whose smoke an emitter group is: one of your works, or a rival by id */
+type EmitterOwner = { works: Works } | { rival: string };
 
 export type OverlayFn = ((i: number) => [number, number, number, number] | null) | null;
 
@@ -89,6 +93,10 @@ export class Renderer {
   private rivalIndustry = new Map<number, IndustryId>();
   private plants = new Map<number, PlantRef>();
   private emitters: LiveEmitter[] = [];
+  /** per emitter group: whose works it is, and its smoke look this season (recomputed once a season) */
+  private emitterOwners: EmitterOwner[] = [];
+  private looks: SmokeLook[] = [];
+  private looksKey = "";
   private plantsKey = "";
   private generated = 0;
   pending = 0;
@@ -173,8 +181,11 @@ export class Renderer {
     this.plantsKey = key;
     this.plants.clear();
     this.emitters = [];
+    this.emitterOwners = [];
+    this.looksKey = "";
     const m = this.map;
-    const add = (x0: number, y0: number, fp: number, ctx: PlantCtx, running: boolean, years: number, annex = false) => {
+    const add = (x0: number, y0: number, fp: number, ctx: PlantCtx, running: boolean, years: number, annex = false, owner: EmitterOwner = { rival: "" }) => {
+      const group = this.emitterOwners.push(owner) - 1;
       const lay = annex ? layoutAnnex(ctx) : layoutPlant(ctx);
       for (let ly = 0; ly < fp; ly++) for (let lx = 0; lx < fp; lx++) {
         const t = lay[ly * fp + lx];
@@ -184,7 +195,7 @@ export class Renderer {
         for (const e of emittersFor(t.part)) {
           const h = m.elevation[y * m.width + x];
           const [wx, wy] = project(x + e.u, y + e.v, h);
-          this.emitters.push({ ...e, wx, wy: wy - e.z, seed: (x * 31 + y * 17) % 997, running });
+          this.emitters.push({ ...e, wx, wy: wy - e.z, seed: (x * 31 + y * 17 + Math.round(e.u * 40) * 7 + Math.round(e.v * 40) * 3) % 997, running, group });
         }
       }
     };
@@ -192,12 +203,12 @@ export class Renderer {
       const capacity = INDUSTRIES[c.industry].baseCapacity;
       const fill = Math.min(2, Math.round(((c.lastSeason?.produced ?? 0) / capacity) * 2));
       add(c.x, c.y, c.footprint, { ind: c.industry, techs: c.techs, fp: c.footprint, side: c.riverSide, owner: "p", status: c.status, fill },
-        c.status === "running" || c.status === "flooded", c.seasonsOperating / 4);
+        c.status === "running" || c.status === "flooded", c.seasonsOperating / 4, false, { works: c });
       for (const a of c.annexes) if (a.kind === "expand")
-        add(a.x, a.y, a.fp, { ind: c.industry, techs: c.techs, fp: a.fp, side: c.riverSide, owner: "p", status: c.status, fill }, c.status === "running", (g.world.year - a.year) * 1, true);
+        add(a.x, a.y, a.fp, { ind: c.industry, techs: c.techs, fp: a.fp, side: c.riverSide, owner: "p", status: c.status, fill }, c.status === "running", (g.world.year - a.year) * 1, true, { works: c });
       for (const w of c.others)
         add(w.x, w.y, w.footprint, { ind: w.industry, techs: w.techs, fp: w.footprint, side: w.riverSide, owner: "p", status: w.status, fill: w.status === "running" ? 1 : 0 },
-          w.status === "running" || w.status === "flooded", g.world.year - w.founded + (w.fromRival ? 10 : 0));
+          w.status === "running" || w.status === "flooded", g.world.year - w.founded + (w.fromRival ? 10 : 0), false, { works: w });
     }
     for (const r of g.rivals) {
       const def = RIVALS.find((d) => d.id === r.id);
@@ -207,8 +218,20 @@ export class Renderer {
       // Homestead, 1892: the lockout at the Frick/Carnegie works
       const status = (r.strikeUntil ?? 0) > g.turn ? "strike" : r.closed || rivalRunning(def, g.world.year) === 0 || (def.opens !== undefined && g.world.year < def.opens) ? "idle" : "running";
       add(r.x, r.y, r.footprint, { ind: def.industry, techs: techsForYear(def.industry, g.world.year), fp: r.footprint, side: r.riverSide, owner: r.id, status, fill: status === "running" ? 1 : 0 },
-        status === "running", g.world.year - def.entryYear);
+        status === "running", g.world.year - def.entryYear, false, { rival: r.id });
     }
+  }
+
+  /**
+   * Each works' smoke look for the season (year, waste policy, how hard it ran, layoffs): computed once per
+   * emitter group when the season, the policy or the plants change, not per frame.
+   */
+  private updateLooks(g: GameState) {
+    const c = g.company;
+    const key = `${this.plantsKey}|${g.turn}|${c?.biz.policy.waste}|${c ? c.biz.layoffUntil > g.turn : ""}`;
+    if (key === this.looksKey) return;
+    this.looksKey = key;
+    this.looks = this.emitterOwners.map((o) => ("works" in o ? smokeLook(g, o.works) : rivalLook(g, o.rival)));
   }
 
   // ------------------------------------------------------------ frame
@@ -1149,46 +1172,24 @@ export class Renderer {
       ctx.fillRect(0, 0, cw, ch);
       if (z >= 0.375) this.drawLights(ctx, cam, g, night);
     }
-    const wind = 1;
+    this.updateLooks(g);
+    const wind = windFor(g);
+    ctx.imageSmoothingEnabled = true;
+    // smoke and steam first, then the fires on top (additive), so a furnace lights its own smoke
     for (const e of this.emitters) {
-      if (!e.running) continue;
+      if (!e.running || (e.kind !== "smoke" && e.kind !== "steam")) continue;
       const [sx, sy] = toS(e.wx, e.wy);
-      if (sx < -200 || sx > cw + 300 || sy < -300 || sy > ch + 100) continue;
-      const sz = e.size * z;
-      if (e.kind === "smoke" || e.kind === "steam") {
-        const N = 9;
-        for (let k = 0; k < N; k++) {
-          const ph = (t * 0.12 * (e.kind === "steam" ? 1.3 : 1) + k / N + e.seed / 97) % 1;
-          const r = (3 + ph * 16) * sz;
-          const px = sx + ph * 70 * sz * wind + Math.sin(ph * 6 + e.seed) * 4 * sz;
-          const py = sy - ph * 55 * sz;
-          const a = (1 - ph) * (e.kind === "steam" ? 0.5 : 0.62);
-          const c = e.kind === "steam" ? 230 : 58 + ph * 70;
-          ctx.fillStyle = `rgba(${c | 0},${(c - 4) | 0},${(c - 8) | 0},${a.toFixed(3)})`;
-          ctx.beginPath();
-          ctx.ellipse(px, py, r * 1.25, r, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else {
-        const flick = 0.65 + 0.35 * Math.sin(t * 9 + e.seed) * Math.sin(t * 3.7 + e.seed * 2);
-        const r = (e.kind === "flame" ? 10 : 14) * sz * (1 + night * 1.6);
-        ctx.globalCompositeOperation = "lighter";
-        const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-        const a = (0.35 + night * 0.55) * flick;
-        gr.addColorStop(0, `rgba(255,200,90,${a.toFixed(3)})`);
-        gr.addColorStop(0.5, `rgba(240,110,30,${(a * 0.5).toFixed(3)})`);
-        gr.addColorStop(1, "rgba(200,60,20,0)");
-        ctx.fillStyle = gr;
-        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
-        if (e.kind === "flame") {
-          ctx.fillStyle = `rgba(255,${(180 + 60 * flick) | 0},80,${(0.8 * flick).toFixed(3)})`;
-          ctx.beginPath();
-          ctx.ellipse(sx, sy - 6 * sz * flick, 3 * sz, 9 * sz * flick, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalCompositeOperation = "source-over";
-      }
+      if (sx < -260 * z || sx > cw + 360 * z || sy < -40 || sy > ch + 260 * z) continue;
+      drawPlume(ctx, sx, sy, e.size * z, e.kind === "steam", e.seed, this.looks[e.group], wind, t, night);
     }
+    ctx.globalCompositeOperation = "lighter";
+    for (const e of this.emitters) {
+      if (!e.running || (e.kind !== "glow" && e.kind !== "flame")) continue;
+      const [sx, sy] = toS(e.wx, e.wy);
+      if (sx < -80 || sx > cw + 80 || sy < -80 || sy > ch + 80) continue;
+      drawFire(ctx, sx, sy, e.size * z, e.kind === "flame", e.size >= 1.2, e.seed, this.looks[e.group].heat, wind, t, night);
+    }
+    ctx.globalCompositeOperation = "source-over";
     ctx.restore();
   }
 
@@ -1214,8 +1215,11 @@ export class Renderer {
       const sx = (wx - cam.x) * z, sy = (wy - cam.y) * z;
       if (sx < -20 || sy < -40 || sx > cw + 20 || sy > ch + 20) continue;
       if (lampTile) {
-        ctx.fillStyle = `rgba(255,220,140,${(0.5 * a).toFixed(3)})`;
-        ctx.beginPath(); ctx.arc(sx - 24 * z, sy - 12 * z, 5 * z, 0, Math.PI * 2); ctx.fill();
+        // a soft pool of lamplight (a cached radial sprite), not a flat disc
+        const r = 9 * z;
+        ctx.globalAlpha = 0.55 * a;
+        ctx.drawImage(lampGlow(), sx - 24 * z - r, sy - 12 * z - r, r * 2, r * 2);
+        ctx.globalAlpha = 1;
         if (!(u >= Use.Cottage)) continue;
       }
       if (w.pop[i] === 0 && u !== Use.Commerce && u !== Use.Civic) continue;
@@ -1341,4 +1345,16 @@ function shade6(col: string, k: number): string {
   const n = parseInt(col.slice(1), 16);
   const c = (v: number) => Math.min(255, Math.round(v * k));
   return `rgb(${c((n >> 16) & 255)},${c((n >> 8) & 255)},${c(n & 255)})`;
+}
+
+/** the soft glow of a street lamp, drawn once and scaled */
+let lampGlowCanvas: HTMLCanvasElement | null = null;
+function lampGlow(): HTMLCanvasElement {
+  if (lampGlowCanvas) return lampGlowCanvas;
+  const c = document.createElement("canvas"); c.width = c.height = 32;
+  const x = c.getContext("2d")!, gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, "rgba(255,236,180,1)"); gr.addColorStop(0.18, "rgba(255,214,140,0.75)");
+  gr.addColorStop(0.5, "rgba(255,190,110,0.22)"); gr.addColorStop(1, "rgba(255,170,90,0)");
+  x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+  return (lampGlowCanvas = c);
 }

@@ -224,6 +224,7 @@ function requestRender() {
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
+    if (anim && !ovOn && night > 0.02) traffic.drawLights(ctx, cam, night); // lamps over the night tint, at full strength
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
     if (overlay === "supply") {
       const sc = currentChain();

@@ -7,6 +7,10 @@ run, what they ship and how dirty they are. It comes from the animation review o
 Files: `src/render/traffic.ts` (people, vehicles, trains, boats, haze, spills), `src/render/renderer.ts`
 (smoke, glow, flame, moored boats, lights), `src/render/plants.ts` (emitters), `src/main.ts` (draw order).
 
+**Status (v0.13.0):** phases 1–4 are built, plus a quality pass on every animation. Not done: figures and boats
+still draw over buildings in front of them (needs per-tile depth from the renderer); parked train cuts only at
+the player's works; ALCOSAN keyed on the year.
+
 ## Phase 1 — Bugs (small)
 
 | # | Fix | Where | Done when |
