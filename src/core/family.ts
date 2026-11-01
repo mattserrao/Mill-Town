@@ -169,7 +169,9 @@ export function beginSuccession(g: GameState, reason: Succession["reason"] = "er
     : reason === "merger" ? `Morgan's men have bought the works for U.S. Steel stock. ${fullName(g, h)} retires a rich man.`
       : `The buyers have taken the company. ${fullName(g, h)} hands the proceeds to the next generation.`;
   f.succession = { year: y, reason, note, proceeds, paths: paths ?? (Object.keys(PATHS) as Path[]) };
-  // an heir too young is still a candidate (a guardian runs things); none at all: a nephew
+  // only the grown heirs can take over (a takeover a few years after a succession found seven-year-olds in
+  // line); none grown: a nephew or cousin of the right age
+  f.heirs = f.heirs.filter((p) => y - p.born >= 18);
   if (!f.heirs.length) f.heirs = children(g, y - 25);
   for (const p of f.heirs) if (!p.traits.length) p.traits = growTraits(g, p);
 }
@@ -220,7 +222,10 @@ export function resolveSuccession(g: GameState, ch: SuccessionChoice): string {
   inheritLedger(g);
   const h: Head = { ...heir, from: y, path, cashFrom: Math.round(c.cash), offices: [] };
   f.heads.push(h);
-  f.heirs = children(g, y);
+  // the next generation is born at the turn of an era; an early hand-over (a merger or takeover) leaves the
+  // new head's brothers and sisters in line, so the family doesn't run out of grown heirs
+  const siblings = f.heirs.filter((p) => p !== heir);
+  f.heirs = s.reason === "era" || !siblings.length ? children(g, y) : siblings;
   f.succession = undefined;
   f.freshUntil = g.turn + 4;
   const was = f.managed;

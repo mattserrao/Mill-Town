@@ -21,7 +21,6 @@ import { actionRows, STRUGGLE_BUTTONS, STRUGGLE_GROUPS, wireActions } from "./ac
 import type { RivalState } from "../core/game";
 
 let status = "";
-let seq = 0;
 let marksAll = false;
 
 const bar = (v: number, max: number, col: string, title = "") => `<span class="st-bar" title="${esc(title)}"><b style="width:${Math.max(2, Math.min(100, (v / max) * 100))}%;background:${col}"></b></span>`;
@@ -131,7 +130,7 @@ export function struggleView(g: GameState, el: HTMLElement, changed: () => void,
   el.querySelector("[data-marks]")?.addEventListener("click", () => { marksAll = !marksAll; struggleView(g, el, changed, close); });
   wireActions(el, g, (t) => { status = t; changed(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-sact]").forEach((b) => b.addEventListener("click", () => {
-    const r = takeAction(g, b.dataset.sact!, new Rng(`${g.seed}:st:${g.turn}:${seq++}`), b.dataset.arg);
+    const r = takeAction(g, b.dataset.sact!, new Rng(`${g.seed}:st:${g.turn}:${b.dataset.sact}:${g.company?.biz.actionsLeft ?? 0}:${g.log.length}`), b.dataset.arg);
     status = r.text;
     changed();
   }));

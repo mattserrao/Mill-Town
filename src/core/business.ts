@@ -388,14 +388,14 @@ const BASE_ACTIONS: ActionDef[] = [
   },
   {
     id: "picnic", group: "Labour", name: "Company picnic and turkeys",
-    blurb: "Kennywood picnic in summer, a turkey at Christmas. Labour +8, reputation +2.",
+    blurb: "Kennywood picnic in summer, a turkey at Christmas. Labour +8, reputation +2 (less each time it is repeated within two years).",
     cost: (g) => Math.round(2000 * era(year(g))), blocked: () => null,
     run: () => "The men's families picnic at the park; the band plays.",
   },
   // ---- public
   {
     id: "donate", group: "Public", name: "Endow a hospital or church",
-    blurb: "A wing for the hospital, a bell for the church. Reputation +8, labour +4.",
+    blurb: "A wing for the hospital, a bell for the church. Reputation +8, labour +4 (less each time within two years).",
     cost: (g) => Math.round(5000 * era(year(g))), blocked: () => null,
     run: () => "Your name goes on a cornerstone.",
   },
@@ -414,20 +414,20 @@ const BASE_ACTIONS: ActionDef[] = [
   // ---- politics
   {
     id: "lobby", group: "Politics", name: "Lobby City Hall and Harrisburg",
-    blurb: "Campaign money and dinners. Influence +12 (more if your reputation is good).",
+    blurb: "Campaign money and dinners. Influence +12 (more if your reputation is good; less each time within two years).",
     cost: (g) => Math.round(5000 * era(year(g))), blocked: () => null,
     run: (g) => {
-      bump(g, "influence", 12 * (1 + g.company!.biz.meters.reputation / 200) * (g.rules.lobby?.yield ?? 1));
+      bump(g, "influence", 12 * (1 + g.company!.biz.meters.reputation / 200) * (g.rules.lobby?.yield ?? 1) * ((g.company!.biz.flags.wear as number) ?? 1));
       earnFavour(g, "city");
       return g.politics === "machine" ? "The Magee–Flinn organisation counts you a friend." : g.politics === "newdeal" ? "The Democrats at City Hall take your money, and your measure." : g.politics === "renaissance" ? "Mayor Lawrence and the Mellon men welcome you to the table." : "The Republican organisation counts you a friend.";
     },
   },
   {
     id: "bribe", group: "Politics", name: "Bribe an official",
-    blurb: "Fast influence (+20) — and a one-in-five chance it ends up in the papers.",
+    blurb: "Fast influence (+20, less each time within two years) — and a one-in-five chance it ends up in the papers.",
     cost: (g) => Math.round(3000 * era(year(g))), blocked: () => null,
     run: (g, rng) => {
-      bump(g, "influence", 20 * (g.rules.bribe?.yield ?? 1));
+      bump(g, "influence", 20 * (g.rules.bribe?.yield ?? 1) * ((g.company!.biz.flags.wear as number) ?? 1));
       g.company!.biz.flags.bribed = year(g);
       earnFavour(g, "city", 2);
       mark(g, { id: "bribed", side: "politics", kind: "precedent", weight: 10, text: "bought a councilman" });
@@ -520,6 +520,16 @@ export function actionCost(g: GameState, a: ActionDef, arg?: string): number {
 }
 
 /** Take an action: checks the budget, cash and conditions; returns what happened (or why not). */
+/** how much of its usual effect a goodwill action has now, given how often it has been used lately */
+const WEARS = new Set(["picnic", "donate", "press", "relief", "retrain", "lobby", "bribe"]);
+export function wearOff(g: GameState, id: string): number {
+  if (!WEARS.has(id)) return 1;
+  const f = g.company!.biz.flags, last = (f[`last:${id}`] as number) ?? -99, streak = (f[`streak:${id}`] as number) ?? 0;
+  const next = g.turn - last <= 8 ? streak + 1 : 0;
+  f[`last:${id}`] = g.turn; f[`streak:${id}`] = next;
+  return 1 / (1 + next);
+}
+
 export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "No company" };
@@ -533,7 +543,11 @@ export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { 
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
   c.biz.actionsLeft--;
-  for (const [k, v] of Object.entries(SIMPLE[id] ?? {})) bump(g, k as keyof Meters, v);
+  // goodwill wears thin: the same gesture repeated within two years does half, then a third, as much
+  // (three picnics a season no longer buy a loyal workforce)
+  const wear = wearOff(g, id);
+  for (const [k, v] of Object.entries(SIMPLE[id] ?? {})) bump(g, k as keyof Meters, v * wear);
+  c.biz.flags.wear = wear;
   const text = a.run(g, rng, arg);
   const mv = MOVES[id];
   if (mv) recordMove(g, mv, a.target ? arg : undefined);

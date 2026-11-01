@@ -143,7 +143,7 @@ function act(g: GameState, r: RivalState, it: Intent, _rng: Rng) {
       text = `issued new shares: your stake is diluted to ${h.stakes[r.id] ?? 0}%`; break;
     }
     case "corner":
-      if (c.holdings?.biz.some((b) => b.id === "coke" || b.id === "coal")) { text = "tried to corner the coke, but you own your own"; break; }
+      if (c.holdings?.biz.some((b) => b.id === "coke_ovens" || b.id === "coal_mine")) { text = "tried to corner the coke, but you own your own"; break; }
       g.mods.push({ kind: "input", mult: 1.15, until: g.turn + 6, source: `${name} corners the coke` });
       text = "cornered the coke: your input costs +15% for six seasons"; break;
     case "race": r.expand = Math.min(1.2, r.expand + 0.15); text = "built more furnaces and mills to keep ahead of you"; break;
