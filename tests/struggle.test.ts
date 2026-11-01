@@ -198,3 +198,20 @@ describe("a whole succession in play", () => {
     expect(legacy(h).total).toBeGreaterThan(0);
   }, 120000);
 });
+
+describe("starting in a later era", () => {
+  it("simulates the family to 1920 and hands over at the succession", async () => {
+    const { laterStartGame, simulateSome } = await import("../src/core/autoplay");
+    for (const [ind, faction, year] of [["glass", "politician", 1893], ["steel", "industrialist", 1920]] as const) {
+      const o = { year, faction, industry: ind, founder: { first: "Ann", surname: "Moorhead" } } as const;
+      const g = laterStartGame(map, 21, o)!;
+      while (!simulateSome(g, o, 20));
+      expect(cal(g).year).toBe(year);
+      expect(g.over).toBeFalsy();
+      expect(g.company!.bankrupt).toBeFalsy();
+      expect(g.family!.succession!.paths).toEqual(faction === "politician" ? ["politics"] : ["business", "industry", "coop", "financier"]);
+      expect(g.family!.heads.length).toBe(year === 1893 ? 1 : 2);
+      expect(g.ledger!.length).toBeGreaterThan(3);
+    }
+  }, 300000);
+});

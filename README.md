@@ -51,6 +51,13 @@ in the terminal running `npm run dev`.
   and view options (click a layer again, or ✕ on its legend, to go back to the town); the headline strip at the bottom opens the paper, with the ledger (log) beside it; Esc closes
 - Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in ☰
 - Saving: Ctrl+S saves; Esc (with nothing open) or ☰ → **Save & exit** saves and goes to the main menu
+- Start in a later era: New game → **Start in** 1850, 1893, 1920 or 1947. For a later start the valley and your
+  family are played from 1850 by the simulation (a careful owner making the choices of the day; it borrows rather
+  than lose the works) and you arrive at the succession, with the family's works, cash and ledger: as the
+  **Industrialist** (the business, a new industry, the co-op or finance) or the **Politician** (a manager runs the
+  works; you run for office). Choose the family business and the family's name
+- Top bar: the date and the clock (pause, speeds, next season) first; on narrower windows the meters lose their
+  bars and then shorten their labels, and the brand, the valley's population and the family chip give way
 - Main menu (at start, and ☰ → Save & exit): **Resume last game**, **New game** (blank seed for a fresh town, or a
   seed to replay one) and **Load game**. Games are saved in the browser (IndexedDB): the autosave every new year,
   when you leave the page and when you open the menu; ☰ → **Save game** keeps a named save (the newest 12 are

@@ -20,7 +20,8 @@ import { bizDef } from "./core/holdings";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { money as short } from "./ui/fx";
 import { loadGame, newSaveId, saveGame } from "./core/save";
-import { mainMenu } from "./ui/menu";
+import { mainMenu, type NewGameOptions, simCard } from "./ui/menu";
+import { laterStartGame, simulateSome } from "./core/autoplay";
 import { lobbyInfluence, lobbySeasons, orderRoad, type RoadPlan, roadBlocked } from "./core/roads";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
@@ -141,6 +142,33 @@ function showGame(g: GameState) {
   requestRender();
 }
 
+/** a later start: simulate the valley and the family from 1850, a few seasons per frame, then hand over */
+function startLater(seed: number, o: NewGameOptions) {
+  resetUiState();
+  const founder = { first: o.first || FOUNDER_NAMES[seed % FOUNDER_NAMES.length], surname: o.surname || SURNAMES[(seed * 7) % SURNAMES.length] };
+  const lo = { year: o.year, faction: o.faction, industry: o.industry, founder, name: `${founder.surname} & Co. ${INDUSTRIES[o.industry].name} Works` };
+  simCard($("menu"), o.year, 1850, "Laying out the town…");
+  setTimeout(() => {
+    const g = laterStartGame(map, seed, lo);
+    if (!g) { openMenu(true); return; }
+    const step = () => {
+      const t0 = performance.now();
+      let done = false;
+      while (!done && performance.now() - t0 < 120) done = simulateSome(g, lo, 1);
+      const h = g.headlines[0];
+      simCard($("menu"), o.year, cal(g).year, `${cal(g).season} ${cal(g).year}${h ? ` · ${h.name}` : ""}`);
+      if (!done) { setTimeout(step, 0); return; }
+      closeMenu();
+      showGame(g);
+      showNews();
+      const c = g.company;
+      if (c) centerOn(c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 0.5);
+      autosave();
+    };
+    step();
+  }, 30);
+}
+
 function newTown(seed: number) {
   resetUiState();
   showGame(newGame(map, seed));
@@ -162,7 +190,11 @@ function openMenu(atStart = false, saved = false) {
     saved,
     onSave: saveNamed,
     onResume: () => closeMenu(),
-    onNew: (seed) => { closeMenu(); newTown(seed ?? Math.floor(Math.random() * 1e6)); showNews(); homeView(); },
+    onNew: (seed, later) => {
+      const s = seed ?? Math.floor(Math.random() * 1e6);
+      if (later) { startLater(s, later); return; }
+      closeMenu(); newTown(s); showNews(); homeView();
+    },
     onLoad: async (id) => {
       const g = await loadGame(id, map);
       resetUiState();
@@ -471,9 +503,10 @@ function openPaper(open: boolean) {
 
 /** a small bar for the top bar: signed meters run from the middle, the others from the left */
 function meterChip(label: string, title: string, v: number, signed: boolean, word: string) {
+  const short = label.slice(0, 3);
   const col = !signed ? "#c8a040" : v >= 0 ? "#5aa860" : "#c8503a";
   const bar = signed ? `<b style="left:${Math.min(50, (v + 100) / 2)}%;width:${Math.abs(v) / 2}%;background:${col}"></b><i class="mid"></i>` : `<b style="left:0;width:${Math.max(2, v)}%;background:${col}"></b>`;
-  return `<div class="meter" title="${title}: ${Math.round(v)} · ${word}"><span>${label}</span><span class="mbar">${bar}</span><b class="${signed ? (v >= 0 ? "up" : "down") : ""}">${signed && v > 0 ? "+" : ""}${Math.round(v)}</b></div>`;
+  return `<div class="meter" title="${title}: ${Math.round(v)} · ${word}"><span><span class="m-long">${label}</span><span class="m-short">${short}</span></span><span class="mbar">${bar}</span><b class="${signed ? (v >= 0 ? "up" : "down") : ""}">${signed && v > 0 ? "+" : ""}${Math.round(v)}</b></div>`;
 }
 
 function refreshPanels() {
