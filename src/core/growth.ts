@@ -20,6 +20,10 @@ import { Rng, tileNoise, valueNoise } from "./rng";
 import { habitable, Terrain } from "./terrain";
 import { CivicSub, densityCap, HouseSub, POP_CAP, Street, terrainCap, Use, useForPop, type World } from "./town";
 
+/** uses a house never goes on, by use id */
+const NO_HOUSE = new Uint8Array(64);
+for (const u of [Use.Civic, Use.Landmark, Use.Wharf, Use.Commerce, Use.Mine, Use.Incline, Use.Industry, Use.Rival, Use.Park]) NO_HOUSE[u] = 1;
+
 const CHURCH_SUBS = new Set<number>([CivicSub.Church, CivicSub.OnionChurch, CivicSub.TwinChurch, CivicSub.Synagogue, CivicSub.BlackChurch]);
 
 export interface GrowthReport { placed: number; byGroup: number[] }
@@ -102,30 +106,41 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   // ---- candidate lots and the part of their score that doesn't depend on who's coming
   const cand: number[] = [], base: number[] = [], lv: number[] = [], pol: number[] = [], cell: number[] = [];
   const anch: number[] = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x;
-    if (!near[i] || w.owner[i] || w.street[i] || m.road[i]) continue;
-    const u = w.use[i], t = m.terrain[i];
-    if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Mine || u === Use.Incline || u === Use.Industry || u === Use.Rival || u === Use.Park) continue;
-    const hill = hillB[i];
-    if (!habitable(t) && !(t === Terrain.Steep && (hill > 0 || year >= 1900))) continue;
-    const cap = Math.min(POP_CAP.rowhouses, terrainCap(t), densityCap(m, w, i));
-    if (w.pop[i] >= cap) continue;
-    let onStreet = false, pike = false;
-    for (let dy = -1; dy <= 1 && !onStreet; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!inBounds(m, x + dx, y + dy)) continue;
-      const j = (y + dy) * W + x + dx;
-      if (m.road[j] || w.street[j]) { onStreet = true; pike = w.street[j] === Street.Pike; break; }
+  // a tile's use that can never take a house (one lookup instead of nine comparisons)
+  const owner = w.owner, street = w.street, road = m.road, terrain = m.terrain, landValue = w.landValue, pollution = w.pollution;
+  const noiseSeed = w.seed + year * 4 + season;
+  for (let y = 0; y < H; y++) {
+    const row = y * W, crow = ((y / CELL) | 0) * cw, up = y > 0, down = y < H - 1;
+    for (let x = 0; x < W; x++) {
+      const i = row + x;
+      if (!near[i] || owner[i] || street[i] || road[i]) continue;
+      const u = use[i], t = terrain[i];
+      if (NO_HOUSE[u]) continue;
+      const hill = hillB[i];
+      if (!habitable(t) && !(t === Terrain.Steep && (hill > 0 || year >= 1900))) continue;
+      const p = pop[i];
+      const cap = Math.min(POP_CAP.rowhouses, terrainCap(t), densityCap(m, w, i));
+      if (p >= cap) continue;
+      // houses front onto streets: a street or road in the eight tiles around
+      let onStreet = false, pike = false;
+      const left = x > 0, right = x < W - 1;
+      for (let dy = up ? -1 : 0, de = down ? 1 : 0; dy <= de && !onStreet; dy++) {
+        const r = i + dy * W;
+        for (let dx = left ? -1 : 0, dxe = right ? 1 : 0; dx <= dxe; dx++) {
+          const j = r + dx, sj = street[j];
+          if (road[j] || sj) { onStreet = true; pike = sj === Street.Pike; break; }
+        }
+      }
+      if (!onStreet && !p) continue;
+      if (!p && (blocked[i] || besideWorks(m, w, x, y))) continue; // ravines and gardens; a works keeps a yard and a fence between it and the houses
+      const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
+      const s = 1.6 * sampleBlock(bg, access, x, y) + (p ? 0.35 : 0) + (pike ? 0.1 : 0) + 0.45 * hill - steep * (1 - hill * 0.7)
+        + 0.3 * tileNoise(noiseSeed, x, y, 611);
+      cand.push(i); base.push(s);
+      lv.push(Math.min(1, landValue[i] / 250)); pol.push(Math.min(1.5, pollution[i]));
+      cell.push(crow + ((x / CELL) | 0));
+      anch.push(anchorIdx[i]);
     }
-    if (!onStreet && !w.pop[i]) continue; // houses front onto streets
-    if (!w.pop[i] && (blocked[i] || besideWorks(m, w, x, y))) continue; // ravines and gardens; a works keeps a yard and a fence between it and the houses
-    const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
-    const s = 1.6 * sampleBlock(bg, access, x, y) + (w.pop[i] ? 0.35 : 0) + (pike ? 0.1 : 0) + 0.45 * hill - steep * (1 - hill * 0.7)
-      + 0.3 * tileNoise(w.seed + year * 4 + season, x, y, 611);
-    cand.push(i); base.push(s);
-    lv.push(Math.min(1, w.landValue[i] / 250)); pol.push(Math.min(1.5, w.pollution[i]));
-    cell.push(((y / CELL) | 0) * cw + ((x / CELL) | 0));
-    anch.push(anchorIdx[i]);
   }
   if (!cand.length) return { placed: 0, byGroup };
 

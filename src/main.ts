@@ -1289,11 +1289,21 @@ function nextYear() {
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
+  if (yearRunning) return;
   resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
-  do advanceTurn(game); while (!game.over && !game.pendingDecision && !game.family?.succession && cal(game).season !== "Spring");
-  afterTurn();
+  // one season a frame, so the map and the headlines move between them instead of the page freezing for a second
+  yearRunning = true;
+  const step = () => {
+    advanceTurn(game);
+    const more = !game.over && !game.pendingDecision && !game.family?.succession && cal(game).season !== "Spring";
+    if (more) { refreshPanels(); requestRender(); requestAnimationFrame(step); return; }
+    yearRunning = false;
+    afterTurn();
+  };
+  step();
 }
+let yearRunning = false;
 
 /** the industries a company can be founded in (the modern ones open as the years go by) */
 function industryOptions() {
@@ -1359,6 +1369,7 @@ function toggleTrends(force?: boolean) {
 /** why the clock is waiting for you, if it is */
 function holdReason(): string {
   if (!$("menu").hidden) return "Main menu open";
+  if (yearRunning) return "Playing out the year";
   if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
   if (game.family?.succession) { if ($("succession").hidden) successionCard(game, $("succession"), () => afterChange()); return "Waiting for the succession"; }
   if (proposal) return "Waiting while you place the building";
@@ -1489,8 +1500,9 @@ function afterChange() {
   requestRender();
 }
 
-// Debug handle for iterating from the browser console: window.mt
-Object.assign(window, {
+// Debug handle for iterating from the browser console: window.mt (only with ?dev in the address, so a published
+// game isn't one console line from mt.fire())
+if (new URLSearchParams(location.search).has("dev") || import.meta.env.DEV) Object.assign(window, {
   mt: {
     get game() { return game; },
     get map() { return map; },
