@@ -2,6 +2,12 @@
 
 Research and sources: `docs/V018-RESEARCH.md`.
 
+## Decisions (1 Nov 2026)
+- **New industries**: all of aluminium, coal chemicals, nuclear, and research & medicine.
+- **Off-map works**: modern plants that lie off the map run there, with an edge marker. Their headquarters towers and labs stand on the map.
+- **Environmental laws**: decree or defy. Comply, sign a consent decree with a deadline, or defy and face fines, suits and GASP.
+- **The collapse**: almost no one survives. Even a well-modernised steel works faces closure by 1985 unless the family has diversified.
+
 ## Where the game stands (v0.17.1)
 - **Environmental law**:
   - Smoke Control (1946, can move between 1935 and 1960) clears the valley's smoke but asks nothing of your works.
@@ -178,10 +184,12 @@ The collapse as it happened:
 
 Rival closures follow the model, not fixed dates, but land near history unless the player changes it (buys, saves, or undercuts a works).
 
-**Survival**:
-- A modernised, flat-rolled, integrated works with continuous casting by about 1980 and a labour cost near Japan's survives, as Edgar Thomson, Irvin and Clairton did.
-- It survives smaller: 60–70% utilisation and a far smaller workforce. U.S. Steel went from 75,000 to 20,000 men.
-- The epilogue counts the jobs you kept.
+**Survival** (decided: almost no one survives):
+- Even a modernised, flat-rolled, integrated works with continuous casting by about 1980 and a labour cost near Japan's runs at a loss by the mid-1980s and faces a closure card.
+- It can only hold on shrunken (30–40% of its peak workforce) and subsidised by the family's other businesses.
+- Edgar Thomson, Irvin and Clairton survived inside U.S. Steel, carried by a conglomerate; the game mirrors that.
+- The real way through is diversification: the new industries, holdings, research and medicine.
+- The epilogue counts the jobs the family kept in the valley, in any industry.
 
 ## Order of work
 1. **Landmarks D**: data and sprites. Quickest visible change.
