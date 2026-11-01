@@ -182,6 +182,12 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      conservatory, the zoo, parks…): each can be founded up to 15 years before history builds it, for cash and an
      action, opening at once with your name on it (reputation, influence, labour or morale); every landmark
      standing is listed and a click flies to it
+   - Main menu and saving (v0.14.1, `src/core/save.ts`, `src/ui/menu.ts`): Resume last game · New game · Load game
+     at start and from ☰; games saved in IndexedDB as one gzip blob (JSON header + typed-array bytes, ~3–4 MB);
+     the map's graded ground is saved, site fields rebuilt; a decision waiting for you is saved by its event and
+     asked again. Autosave every new year, on leaving the page and on opening the menu; named saves from ☰ (12
+     kept). A loaded game plays on exactly as the original would (the town's community-building cursor moved into
+     the world state for this)
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -189,7 +195,7 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
    buying each other (U.S. Steel 1901), rival strikes and lockouts shown at their works
 6. ~~Second industry: buy or found (Era II)~~ (v0.10); next: cross-industry supply (power → mills, steel → shipyards)
 7. Historical events (1877 rail strike, 1892 Homestead, 1936 flood, wars, 1950s peak, 1980s collapse) and legacy choices
-8. Art pass (smooth slopes, more building sprites, animation), sound, saves, balancing
+8. Art pass (smooth slopes, more building sprites, animation), sound, ~~saves~~ (v0.14.1), balancing
 
 ## Mechanics review
 See `docs/MECHANICS.md` — comparison with SimCity (Micropolis) and the recommended next steps for ticks,
