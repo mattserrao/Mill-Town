@@ -1235,6 +1235,8 @@ export class Traffic {
     const [wx0, wy0] = project(fx, fy, wl);
     const sx = (wx0 - cam.x) * k, sy = (wy0 - cam.y) * k;
     if (sx < -260 * k || sy < -200 * k || sx > this.cw + 260 * k || sy > this.ch + 200 * k) return;
+    // behind a wharf, a warehouse or a bridge pier on the near bank: the hull and the stack both covered
+    if (this.occluded && this.occluded(sx, sy - 3 * k, Math.floor(fx) + Math.floor(fy)) && this.occluded(sx, sy - 12 * k, Math.floor(fx) + Math.floor(fy))) return;
     const dx = Math.cos(a.ang!), dy = Math.sin(a.ang!);
     const night = this.night, lit = night > 0.35;
     const O = (al: number, c: number, z = 0) => { const [ox, oy] = ooff(k, dx, dy, al, c, z); return [sx + ox, sy + oy] as [number, number]; };

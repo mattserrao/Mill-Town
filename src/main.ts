@@ -374,12 +374,17 @@ function requestRender() {
     const ovOn = overlay !== "none" && !isVectorOverlay(overlay);
     if (anim && !ovOn && cam.zoom >= 0.1875) drawSpills(ctx, game, cam, t, night);
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now, night); traffic.drawBoats(ctx, cam, t); }
-    if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
-    if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
-    if (cam.zoom >= 0.25) renderer.drawMemorials(ctx, cam, game);
+    // the vector layers (bridges, siding, memorials, inclines) are drawn at the sprites' own scale and blown
+    // up nearest-neighbour like the chunks, so at 1.5× and 2× they keep the pixel grid instead of reading as
+    // smooth lines next to 2×2 pixel blocks
+    pixelLayer((c2, cm) => {
+      if (cm.zoom >= 0.1875) renderer.drawBridges(c2, cm, game);
+      if (cm.zoom >= 0.25) renderer.drawSpur(c2, cm, game);
+      if (cm.zoom >= 0.25) renderer.drawMemorials(c2, cm, game);
+      if (game.world.inclines.length && cm.zoom >= 0.25) renderer.drawInclines(c2, cm, game, anim ? t : 0);
+    });
     drawRoadPreview();
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t, night);
-    if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (anim && !ovOn && night > 0.02) traffic.drawLights(ctx, cam, night); // lamps over the night tint, at full strength
@@ -404,6 +409,24 @@ function requestRender() {
     if ($("zoom").textContent !== zt) $("zoom").textContent = zt;
     if (more || animating() || roadPreview) requestRender();
   });
+}
+
+/** draw a layer at the chunks' scale (≤ 1 world px per device px) and upscale it nearest-neighbour when zoomed past 1× */
+const pixelCanvas = document.createElement("canvas");
+function pixelLayer(draw: (c2: CanvasRenderingContext2D, cm: Camera) => void) {
+  const s = Math.min(1, cam.zoom), k = cam.zoom / s;
+  if (k === 1) { draw(ctx, cam); return; }
+  const w = Math.ceil(canvas.width / k), h = Math.ceil(canvas.height / k);
+  if (pixelCanvas.width !== w || pixelCanvas.height !== h) { pixelCanvas.width = w; pixelCanvas.height = h; }
+  const c2 = pixelCanvas.getContext("2d")!;
+  c2.setTransform(1, 0, 0, 1, 0, 0);
+  c2.clearRect(0, 0, w, h);
+  draw(c2, { x: cam.x, y: cam.y, zoom: s });
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixelCanvas, 0, 0, w, h, 0, 0, w * k, h * k);
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- minimap
