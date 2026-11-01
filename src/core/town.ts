@@ -449,8 +449,10 @@ export function activateFeatures(m: GameMap, w: World) {
   for (const inc of INCLINES) {
     if (inc.year > w.year) continue;
     if (w.inclines.some((r) => r.id === inc.id)) continue;
-    const [x0, y0] = snapHeight(m, ...latLonToTile(m, inc.lower[0], inc.lower[1]), 12, -1);
-    const [x1, y1] = snapHeight(m, ...latLonToTile(m, inc.upper[0], inc.upper[1]), 10, 1);
+    // the stations are where history put them, nudged a few tiles to the foot and the brow (a wider search
+    // stretched some inclines to three times their real length)
+    const [x0, y0] = snapHeight(m, ...latLonToTile(m, inc.lower[0], inc.lower[1]), 3, -1);
+    const [x1, y1] = snapHeight(m, ...latLonToTile(m, inc.upper[0], inc.upper[1]), 4, 1);
     w.inclines.push({ id: inc.id, name: inc.name, year: inc.year, path: tileLine(x0, y0, x1, y1) });
     for (const [x, y] of tileLine(x0, y0, x1, y1)) {
       if (!inBounds(m, x, y)) continue;
@@ -736,6 +738,9 @@ export function rebuildDowntown(m: GameMap, w: World) {
   if (w.year < 1855) return;
   const mask = downtownMask(m);
   const p = m.landmarks.find((l) => l.name.startsWith("The Point"))!;
+  // the skyline's heart was Grant Street and Fifth Avenue, a kilometre from the Point; the Point itself was
+  // warehouses and rail yards until Gateway Center went up in the 1950s
+  const [hx, hy] = latLonToTile(m, 40.4395, -79.9968);
   const rng = new Rng(`${w.seed}:dt:${w.year}`);
   let changed = 0;
   // the skyline grows slowly: ~1 office building per 2 years from 1880, then faster after 1945
@@ -748,19 +753,21 @@ export function rebuildDowntown(m: GameMap, w: World) {
     if (u !== Use.Rowhouses && u !== Use.Commerce) continue;
     if (u === Use.Commerce && (w.sub[i] === ShopSub.Market || w.sub[i] === ShopSub.Bank)) continue;
     const x = i % m.width, y = (i / m.width) | 0;
-    const near = 1 - Math.hypot(x - p.x, y - p.y) / 55;
+    const near = 1 - Math.hypot(x - hx, y - hy) / 45;
+    const tip = Math.hypot(x - p.x, y - p.y) < 14 && w.year < 1950;
     if (tileNoise(w.seed, x, y, 801) > 0.25 + near * 0.5) continue; // some blocks stay residential
     let street = false;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) street = true;
     if (!street) continue;
     const age = w.year - (w.built[i] || 1850);
-    const office = w.year >= 1880 && near > 0.4 && offices < officeCap;
+    const office = w.year >= 1880 && near > 0.4 && offices < officeCap && !tip;
     const want = office ? ShopSub.Office : ShopSub.Block;
     if (u === Use.Commerce && w.sub[i] === want && age < 35) continue;
     if (u === Use.Commerce && w.sub[i] === ShopSub.Office && age < 45) continue;
     if (!rng.chance(office ? 0.01 + near * 0.02 : 0.02)) continue;
     if (want === ShopSub.Office && !(u === Use.Commerce && w.sub[i] === ShopSub.Office)) offices++;
-    w.use[i] = Use.Commerce; w.sub[i] = want; w.pop[i] = 0; w.built[i] = w.year;
+    // (offices of the 1880s and '90s were eight or ten storeys: dated so they're drawn that way)
+    w.use[i] = Use.Commerce; w.sub[i] = tip && want === ShopSub.Block && rng.chance(0.5) ? ShopSub.Warehouse : want; w.pop[i] = 0; w.built[i] = want === ShopSub.Office && w.year < 1898 ? Math.min(w.year, 1890) : w.year;
     changed++;
   }
   if (changed) w.version++;

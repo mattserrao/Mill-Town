@@ -52,7 +52,11 @@ const OTHER_ZOOM_MS = 3000;
 interface GenSprite { sp: Sprite; bufs: Map<number, SpriteBuf>; bytes: number }
 const FRAME_MS = 28;        // raster budget per frame
 
-interface Chunk { canvas: HTMLCanvasElement; ox: number; oy: number; key: string; px: number }
+/**
+ * A drawn chunk. `depth` holds, per pixel, what was drawn there last: 0 nothing, 1 ground (and bridge decks),
+ * otherwise 2 + the tile depth (x + y) of the object — so moving figures can tell when a building stands in front.
+ */
+interface Chunk { canvas: HTMLCanvasElement; ox: number; oy: number; key: string; px: number; depth: Uint16Array; w: number }
 
 // ---------------------------------------------------------------- colour helpers
 const rgb = (r: number, g: number, b: number) => (r << 16) | (g << 8) | b;
@@ -342,6 +346,7 @@ export class Renderer {
     // fixed relationship while panning and the pixel grid doesn't shimmer at non-integer zooms (1.5×).
     ctx.imageSmoothingEnabled = false;
     const camX = Math.round(cam.x * cam.zoom), camY = Math.round(cam.y * cam.zoom);
+    this.drawn = [];
     for (const c of vis) {
       const key = `${s}:${c.cx},${c.cy}`;
       const chn = this.chunks.get(key);
@@ -349,6 +354,7 @@ export class Renderer {
       this.chunks.delete(key);
       this.chunks.set(key, chn); // LRU touch
       const dx = Math.round(chn.ox * k) - camX, dy = Math.round(chn.oy * k) - camY;
+      this.drawn.push({ c: chn, dx, dy, k });
       if (k === 1) ctx.drawImage(chn.canvas, dx, dy);
       else ctx.drawImage(chn.canvas, dx, dy, Math.round(chn.canvas.width * k), Math.round(chn.canvas.height * k));
     }
@@ -356,6 +362,28 @@ export class Renderer {
     this.drawMarks(ctx, cam, marks);
     this.pending = missing;
     return missing > 0;
+  }
+
+  /** the chunks blitted this frame and where (front to back is the end of the list) */
+  private drawn: { c: Chunk; dx: number; dy: number; k: number }[] = [];
+
+  /**
+   * Is a point on the screen covered by something standing in front of tile depth `d` (a building, a plant, a
+   * tree on a tile nearer the viewer)? Looks through this frame's chunks from the front.
+   */
+  occluded(sx: number, sy: number, d: number): boolean {
+    const D = this.drawn;
+    for (let n = D.length - 1; n >= 0; n--) {
+      const e = D[n];
+      const px = Math.floor((sx - e.dx) / e.k), py = Math.floor((sy - e.dy) / e.k);
+      if (px < 0 || py < 0 || px >= e.c.w) continue;
+      const i = py * e.c.w + px;
+      if (i >= e.c.depth.length) continue;
+      const v = e.c.depth[i];
+      if (!v) continue;          // transparent here: a chunk further back may have drawn it
+      return v >= 2 && v - 2 > d;
+    }
+    return false;
   }
 
   invalidateAll() {
@@ -427,6 +455,8 @@ export class Renderer {
     const ey = Math.ceil(((x1 + y1) * HH - ((edge ? skirtBottom : lo) - BASE_M) * ZPX + 12) * s);
     const cw = Math.max(1, ex - ox), ch = Math.max(1, ey - oy);
     const buf = new Uint32Array(cw * ch);
+    const depth = new Uint16Array(cw * ch);
+    let objDepth = 1;
     const year = w.year;
     const pxu = 1 / (HW * s * 1.2); // ~ uv units per pixel
 
@@ -463,6 +493,7 @@ export class Renderer {
           let r = ((c >> 16) & 255) * k, gg = ((c >> 8) & 255) * k, b = (c & 255) * k;
           if (tintA > 0) { r += (tr - r) * tintA; gg += (tg - gg) * tintA; b += (tb - b) * tintA; }
           buf[py * cw + px] = 0xff000000 | (Math.min(255, b) << 16) | (Math.min(255, gg) << 8) | Math.min(255, r);
+          depth[py * cw + px] = 1;
         }
       }
     };
@@ -486,6 +517,7 @@ export class Renderer {
           const p = sb.px[row + xx];
           const al = p >>> 24;
           if (!al) continue;
+          if (al >= 128) depth[drow + bx_] = objDepth;
           if (al === 255 || !sb.soft) { buf[drow + bx_] = p | 0xff000000; continue; }
           const q = buf[drow + bx_], f = al / 255;
           const r = (q & 255) + ((p & 255) - (q & 255)) * f;
@@ -546,7 +578,11 @@ export class Renderer {
         }
 
         // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
-        for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
+        for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) {
+          // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
+          objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
+          blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
+        }
       }
     }
 
@@ -554,7 +590,7 @@ export class Renderer {
     canvas.width = cw; canvas.height = ch;
     const c2 = canvas.getContext("2d")!;
     c2.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer), cw, ch), 0, 0);
-    return { canvas, ox, oy, key: version, px: cw * ch };
+    return { canvas, ox, oy, key: version, px: cw * ch, depth, w: cw };
   }
 
   // ------------------------------------------------------------ ground textures
@@ -641,6 +677,8 @@ export class Renderer {
     if (water) {
       const landMask = rawMask((j) => m.terrain[j] !== Terrain.Water);
       const shoreL = lCorner(landMask, false);
+      // a notch between two wharf tiles is filled with quay paving, so the quay runs on the 45° line too
+      const quay = shoreL && [at(shoreL[0], 0), at(0, shoreL[1])].every((j) => j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf));
       const polluted = Math.min(8, Math.floor(w.pollution[i] * 6)) * 0.05; // stepped, so chunk signatures stay stable
       return (u: number, v: number, _h: number, gx: number, gy: number) => {
         let c = pick(WATER, hash(gx >> 2, gy >> 1, 3));
@@ -652,7 +690,10 @@ export class Renderer {
             // a water tile poking out between two land sides: cut its corner into a 45° bank
             const [a, b] = orient(shoreL, u, v);
             const dc = (1.5 - a - b) * Math.SQRT1_2;
-            if (dc < 0) return dc > -0.06 ? pick(PAL.wet, hash(gx, gy, 25)) : pick(PAL.sand, hash(gx, gy, 26));
+            if (dc < 0) {
+              if (quay) return dc > -0.04 ? 0x4a463e : (gx % 3 === 0 || gy % 2 === 0) ? 0x5c5850 : hash(Math.floor(gx / 3) + ((Math.floor(gy / 2) & 1) ? 1 : 0), gy >> 1, 18) < 0.5 ? 0x8e8a80 : 0x7a766e;
+              return dc > -0.06 ? pick(PAL.wet, hash(gx, gy, 25)) : pick(PAL.sand, hash(gx, gy, 26));
+            }
             dl = Math.min(dl, dc);
           }
           if (dl < 0.05 && hash(gx, gy, 5) < 0.35) c = 0x9cc0d4;
@@ -773,11 +814,19 @@ export class Renderer {
     const creekMask = vec ? (creekSegs.length ? 0 : -1) : m.creek[i] ? mask((j) => m.creek[j] > 0 || m.terrain[j] === Terrain.Water) : -1;
     const waterMask = rawMask((j) => m.terrain[j] === Terrain.Water);
     const wharf = m.special[i] === Special.Wharf;
-    const waterL = !wharf && !w.street[i] && !w.owner[i] && use !== Use.Wharf ? lCorner(waterMask, false) : null;
+    const paved = wharf || use === Use.Wharf;
+    const waterL = paved || (!w.street[i] && !w.owner[i]) ? lCorner(waterMask, false) : null;
 
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
-      if (waterMask && !wharf) {
+      // a paved wharf takes the 45° line along the water too (no sawtooth of square tiles), with a stone edge
+      if (waterMask && paved && waterL) {
+        const [a, b] = orient(waterL, u, v);
+        const dc = (1.5 - a - b) * Math.SQRT1_2;
+        if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
+        if (dc < 0.04) return 0x4a463e;
+      }
+      if (waterMask && !paved) {
         let dw = edgeDist(waterMask, u, v);
         if (waterL) {
           // a point of land between two water sides: the river takes the corner (45° bank)
@@ -791,8 +840,10 @@ export class Renderer {
       }
       if (creekMask >= 0) {
         const [dc] = vec ? nearest(creekSegs, u, v) : lineDist(creekMask, u, v);
-        if (dc < 0.06) c = hash(gx, gy, 27) < 0.15 ? 0x8cb4d4 : 0x467aa0;
-        else if (dc < 0.1) c = 0x5e6a44;
+        // at least a pixel wide when zoomed out, so creeks read as lines rather than dashes
+        const cw = Math.max(0.06, pxu * 0.8);
+        if (dc < cw) c = hash(gx, gy, 27) < 0.15 ? 0x8cb4d4 : 0x467aa0;
+        else if (dc < cw + 0.04) c = 0x5e6a44;
       }
       if (incline >= 0) {
         const [di] = lineDist(incline || 0xff, u, v);
@@ -981,9 +1032,11 @@ export class Renderer {
         const r = n(22);
         const cargo = dockInd === "steel" ? (r < 0.5 ? 0 : r < 0.85 ? 1 : 2) : dockInd === "glass" ? (r < 0.3 ? 0 : 2) : dockInd === "power" ? 0 : dockInd ? (r < 0.6 ? 0 : 2) : r < 0.75 ? 0 : r < 0.9 ? 1 : 2;
         if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
-        else if ((x + 2 * y) % 5 === 0) {
+        else if ((x + y) % 2 === 0 && n(24) < 0.4) {
           // packets at the wharves until the railroads and the Depression end them (~1930); then a moored towboat now and then
-          if (nearWharf && n(20) < 0.3) { if (w.year < 1930) out.push({ key: `boat:steam:${axis}`, u: 0.5, v: 0.5 }); else if (n(23) < 0.35) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 }); }
+          // moored where there's room, not on a lattice, and not quite parallel
+          const ju = 0.35 + n(25) * 0.3, jv = 0.35 + n(26) * 0.3;
+          if (nearWharf && n(20) < 0.3) { if (w.year < 1930) out.push({ key: `boat:steam:${axis}`, u: ju, v: jv }); else if (n(23) < 0.35) out.push({ key: `boat:barge:${axis}:${cargo}`, u: ju, v: jv }); }
           else if (n(21) < 0.006) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         }
       }
@@ -1200,7 +1253,7 @@ export class Renderer {
         const f = k / N;
         const fx = x0 + 0.5 + (x1 - x0) * f, fy = y0 + 0.5 + (y1 - y0) * f;
         const ground = m.elevation[Math.min(m.height - 1, Math.floor(fy)) * m.width + Math.min(m.width - 1, Math.floor(fx))];
-        const h = h0 + (h1 - h0) * f; // a straight grade: cuts through high ground, trestles over low
+        const h = Math.max(h0 + (h1 - h0) * f, ground + 1); // a straight grade on trestles over low ground, never buried in the hill
         return [fx, fy, h, ground, f];
       };
       // trestle bents
@@ -1248,7 +1301,8 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // night sky over the land
     if (night > 0.02) {
-      ctx.fillStyle = `rgba(14,18,44,${(night * 0.62).toFixed(3)})`;
+      // moonlight: dark enough for the windows and lamps to read, light enough to see the town and the rivers
+      ctx.fillStyle = `rgba(22,30,66,${(night * 0.5).toFixed(3)})`;
       ctx.fillRect(0, 0, cw, ch);
       if (z >= 0.375) this.drawLights(ctx, cam, g, night);
     }

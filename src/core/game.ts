@@ -14,7 +14,7 @@ import { calendar, priceLevel, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, type World } from "./town";
 import { HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
-import { growByDesire } from "./growth";
+import { besideWorks, growByDesire } from "./growth";
 import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOption } from "./freight";
 import { placeNamed } from "./places";
 import { hospitals, type PlacedLandmark } from "./landmarks";
@@ -656,6 +656,15 @@ export function claimFootprint(g: GameState, x: number, y: number, fp: number, o
     w.street[i] = 0;
     w.sub[i] = 0;
   }
+  // a works keeps a yard round it: houses against its walls are cleared (streets stay)
+  if (use === Use.Industry || use === Use.Rival) for (let dy = -1; dy <= fp; dy++) for (let dx = -1; dx <= fp; dx++) {
+    if (dx >= 0 && dy >= 0 && dx < fp && dy < fp) continue;
+    if (!inBounds(m, x + dx, y + dy)) continue;
+    const i = (y + dy) * m.width + (x + dx);
+    const u = w.use[i];
+    if (w.owner[i] || w.street[i] || !(u === Use.Houses || u === Use.Rowhouses || u === Use.Cottage)) continue;
+    w.pop[i] = 0; w.use[i] = Use.Empty; w.sub[i] = 0;
+  }
   w.version++;
 }
 
@@ -1062,6 +1071,7 @@ export function settleMigrants(g: GameState, cx: number, cy: number, r: number, 
     if (w.owner[i] || w.street[i] || !habitable(m.terrain[i])) continue;
     const u = w.use[i];
     if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Park || u === Use.Incline || u === Use.Mine) continue;
+    if (!w.pop[i] && besideWorks(m, w, x, y)) continue;
     // prefer lots on today's street grid (where the real town grew)
     const streetBonus = m.road[i] ? 6 : nearStreet(g, x, y) ? -3 : 4;
     cands.push({ i, d: Math.hypot(x - cx, y - cy) + (m.terrain[i] === Terrain.Slope ? 4 : 0) + streetBonus });

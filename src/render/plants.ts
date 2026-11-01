@@ -244,7 +244,7 @@ export interface Emitter { u: number; v: number; z: number; kind: "smoke" | "glo
 
 export function emittersFor(part: string): Emitter[] {
   switch (part) {
-    case "stack": return [{ u: 0.5, v: 0.5, z: 112, kind: "smoke", size: 1.4 }];
+    case "stack": return [{ u: 0.5, v: 0.5, z: 112, kind: "smoke", size: 1.7 }];
     case "furnace_iron": return [{ u: 0.5, v: 0.5, z: 82, kind: "smoke", size: 1 }, { u: 0.6, v: 0.75, z: 6, kind: "glow", size: 1 }];
     case "furnace_stone": return [{ u: 0.5, v: 0.5, z: 34, kind: "flame", size: 0.6 }, { u: 0.55, v: 0.7, z: 4, kind: "glow", size: 0.7 }];
     case "casthouse": return [{ u: 0.5, v: 0.6, z: 6, kind: "glow", size: 0.8 }];
