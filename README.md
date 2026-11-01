@@ -36,7 +36,10 @@ in the terminal running `npm run dev`.
   (before founding, a click picks a site); the **Map** button holds the layers (land, town, business, best sites)
   and view options; the headline strip at the bottom opens the paper, with the ledger (log) beside it; Esc closes
 - Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in ☰
-- ☰ menu: type a seed and press New town to replay a town, or leave it for a fresh one
+- Main menu (at start, and ☰ → Main menu): **Resume last game**, **New game** (blank seed for a fresh town, or a
+  seed to replay one) and **Load game**. Games are saved in the browser (IndexedDB): the autosave every new year,
+  when you leave the page and when you open the menu; ☰ → **Save game** keeps a named save (the newest 12 are
+  kept). A `?seed=` in the address skips the menu and starts that town
 - Browser console: `mt` exposes the game (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`, `mt.fire("Event Name")`)
 
 ## Layout

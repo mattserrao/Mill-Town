@@ -21,9 +21,11 @@
       <div id="gameMenu">
         <button id="gameBtn" title="Game menu">☰</button>
         <div id="gameDrop" hidden>
-          <label class="seed">Seed <input id="seed" type="text" size="8" title="Type a seed to replay a town" /></label>
-          <button id="regen">New town</button>
+          <button id="saveBtn" title="Save this game under a new name (the game also saves itself every new year)">Save game</button>
+          <button id="menuBtn" title="Resume, start or load a game (Esc closes it)">Main menu</button>
           <button id="nextYear" title="Play to next Spring (Shift+Space)">Play to next Spring</button>
+          <label class="seed" hidden>Seed <input id="seed" type="text" size="8" /></label>
+          <button id="regen" hidden>New town</button>
           <div class="menu-h">Sound</div>
           <label class="vol">Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
           <label class="vol">Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
@@ -71,6 +73,7 @@
         <div id="query" hidden></div>
         <div id="placeBar" hidden></div>
         <div id="trends" hidden></div>
+        <div id="menu" hidden></div>
       </div>
       <aside id="right" data-tab="overview">
         <nav id="rightTabs">

@@ -303,6 +303,12 @@ const PARTICIPATION = 0.32;
 
 let fieldsCache: { map: GameMap; fields: SiteFields } | null = null;
 
+/** the site fields of the map as it was loaded (shared by every game on that map) */
+export function fieldsFor(map: GameMap): SiteFields {
+  if (!fieldsCache || fieldsCache.map !== map) fieldsCache = { map, fields: siteFields(map) };
+  return fieldsCache.fields;
+}
+
 export function newGame(map: GameMap, seed: number): GameState {
   registerMapHooks();
   resetMap(map);
@@ -330,6 +336,7 @@ export function fireEvents(g: GameState) {
   const effects = allEffects(), decisions = allDecisions();
   for (const e of g.headlines) {
     const dec = decisions[e.name]?.(g);
+    if (dec) dec.source = e.name;
     if (dec) { if (!g.pendingDecision) g.pendingDecision = dec; else g.moreDecisions.push(dec); }
     log(g, `${e.name}.`); // the story itself is in the newspaper
     const fx = effects[e.name];
