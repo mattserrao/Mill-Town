@@ -830,7 +830,6 @@ function industryNote() {
 /** the game suggests a spot and shows it; the player clicks to move it, then confirms */
 function startPlacing(kind: ProjectKind, ind?: IndustryId) {
   const p = suggestProject(game, kind, ind);
-  stopPlay();
   placing = false; ($<HTMLInputElement>("placing")).checked = false;
   proposal = p ?? { kind, x: game.company!.x, y: game.company!.y, size: 1, ok: false, reason: "No suitable spot found nearby — click the map to try one", cost: 0, industry: ind, displaced: 0 };
   if (p) centerOn(Math.round(p.x + p.size / 2), Math.round(p.y + p.size / 2), Math.max(cam.zoom, 0.75));
@@ -861,7 +860,7 @@ function placeBar() {
 function nextSeason() {
   if (game.over) return;
   // a historical moment is waiting for your answer
-  if (game.pendingDecision) { stopPlay(); decisionCard(game, $("decision"), () => afterChange()); return; }
+  if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   resetBusinessUi(); resetWorksUi();
   if (proposal) stopPlacing();
   advanceTurn(game);
@@ -871,7 +870,7 @@ function nextSeason() {
 function nextYear() {
   if (game.over) return;
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
-  if (game.pendingDecision) { stopPlay(); decisionCard(game, $("decision"), () => afterChange()); return; }
+  if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   resetBusinessUi(); resetWorksUi();
   if (proposal) stopPlacing();
   do advanceTurn(game); while (!game.over && !game.pendingDecision && cal(game).season !== "Spring");
@@ -899,6 +898,11 @@ function setSpeed(k: number) {
     let due = performance.now() + SPEED_MS[speed];
     playTimer = window.setInterval(() => {
       const now = performance.now();
+      // held, not paused: a decision card or a building being placed waits for you, then play goes on at
+      // your speed (the season's full time starts again once you're done)
+      const why = holdReason();
+      showHold(why);
+      if (why) { due = now + SPEED_MS[speed]; return; }
       if (now < due || renderer.pending > 40) return;
       // at the fastest speed, hold a moment on seasons with news so the headline can be read
       if (speed === 4 && game.news[game.news.length - 1]?.turn === game.turn && now - newsAt < 2500) return;
@@ -907,6 +911,7 @@ function setSpeed(k: number) {
     }, 100);
   }
   document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => b.classList.toggle("on", Number(b.dataset.speed) === speed));
+  holdShown = "-"; showHold("");
 }
 
 function toggleTrends(force?: boolean) {
@@ -915,6 +920,24 @@ function toggleTrends(force?: boolean) {
   if (!open) { el.hidden = true; $("trendsBtn").classList.remove("on"); return; }
   trendsView(game, el, setTab);
   $("trendsBtn").classList.add("on");
+}
+
+/** why the clock is waiting for you, if it is */
+function holdReason(): string {
+  if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
+  if (proposal) return "Waiting while you place the building";
+  return "";
+}
+let holdShown = "";
+function showHold(why: string) {
+  if (why === holdShown) return;
+  holdShown = why;
+  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => {
+    const on = Number(b.dataset.speed) === speed && speed > 0;
+    b.classList.toggle("held", on && !!why);
+    b.dataset.t ??= b.title;
+    b.title = on && why ? `${why} — play resumes at this speed` : b.dataset.t;
+  });
 }
 
 function startPlay() { if (!game.over) setSpeed(lastSpeed); }

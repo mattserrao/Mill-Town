@@ -368,3 +368,5 @@ label.chip:hover { background: #353a43; }
 .tr-risks { overflow-y: auto; }
 .tr-empty { padding: 20px; }
 #found { width: 100%; margin-top: 6px; }
+#speeds button.on.held { animation: held 1.2s ease-in-out infinite; }
+@keyframes held { 50% { opacity: 0.45; } }
