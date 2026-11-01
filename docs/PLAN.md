@@ -251,7 +251,7 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      - Valuation (`src/core/value.ts`): a works is worth eight years of its recent profit or its scrap value; rivals
        the same from their simulated profit; buy at value +10%, sell at −10%; net worth on the Overview, in Trends,
        in the Fortune score and the estate tax (works at half; what the holdings can't pay is lent against the works).
-       Businesses return ~10% a year, stakes pay half their share of the rival's profit, shares ~4.5% plus growth
+       Businesses return ~10% a year, stakes pay half their share of the rival's profit, shares ~3.6% plus growth (one order a year in each company)
      - Ownership (`src/core/ownership.ts`): sell the whole company from 1880 (a rival, U.S. Steel, the Mellons, later
        the workers or the Steel Valley Authority) and play on as investors; scrap a closed works or (from 1960) clear
        its land for redevelopment; take the company public from 1890 — outside shareholders, dividends, raiders when
