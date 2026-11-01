@@ -101,6 +101,10 @@ export class Traffic {
   private last = 0;
   private dt = 0;
   private puffs: Puff[] = [];
+  /** set by the app: is a screen point covered by something nearer than tile depth d (renderer.occluded) */
+  occluded?: (sx: number, sy: number, d: number) => boolean;
+  /** set by the app: is this tile inside a works (trains don't run through the mills) */
+  worksTile?: (i: number) => boolean;
   private pickets: PicketSite[] = [];
   private parked: ParkedCut[] = [];
   private sceneKey = "";
@@ -616,6 +620,8 @@ export class Traffic {
       if (night > 0.6 && !carsLit && kind !== "walker" && kind !== "horsecar" && kind !== "streetcar" && rng.chance(0.5)) return false;
       if (slump > 0 && kind !== "walker" && rng.chance(slump * 0.5)) return false; // fewer vehicles in a town out of work
     }
+    // country lanes and side streets take one vehicle to a stretch (no convoys of wagons on a farm road)
+    if (kind !== "walker" && (this.occ.get(i) ?? 0) >= (pike ? 2 : 1)) return false;
     if (kind !== "walker" && this.pickets.some((p) => Math.abs(p.cx - x) < 5 && Math.abs(p.cy - yy) < 5)) return false; // traffic keeps clear of the picket line
     const speed = { walker: 0.45, wagon: 0.8, carriage: 1.1, horsecar: 0.85, streetcar: 1.4, auto: y < 1915 ? 1.5 : 2.4, truck: y < 1930 ? 1.3 : 1.8 }[kind as "walker"];
     const a = this.newAgent(kind, x, yy, speed * (0.8 + rng.next() * 0.4), "");
@@ -1048,6 +1054,8 @@ export class Traffic {
         const h = this.hAt(e.fx, e.fy);
         const [sx, sy] = S(e.fx, e.fy, h);
         if (sx < -60 || sy < -60 || sx > this.cw + 60 || sy > this.ch + 80) continue;
+        // behind a building on a nearer tile: hidden (feet and chest both covered)
+        if (this.occluded && this.occluded(sx, sy - 2 * z, Math.floor(e.fx) + Math.floor(e.fy)) && this.occluded(sx, sy - 7 * z, Math.floor(e.fx) + Math.floor(e.fy))) continue;
         if (e.barrel) {
           blit(barrelFig(), sx, sy);
           const fl = Math.sin(time * 13 + e.fx) * Math.sin(time * 7.3);
@@ -1181,6 +1189,10 @@ export class Traffic {
       const h = this.hAt(it.x, it.y);
       const [sx, sy] = S(it.x, it.y, h);
       if (sx < -80 || sy < -80 || sx > this.cw + 80 || sy > this.ch + 80) continue;
+      // a car inside a works' walls, or behind a building, isn't drawn
+      const ti = Math.floor(it.y) * this.m.width + Math.floor(it.x);
+      if (this.worksTile?.(ti)) continue;
+      if (this.occluded && this.occluded(sx, sy - 2 * k, Math.floor(it.x) + Math.floor(it.y)) && this.occluded(sx, sy - 8 * k, Math.floor(it.x) + Math.floor(it.y))) continue;
       const dx = it.flip && isLoco(it.car.type) ? -it.dx : it.dx, dy = it.flip && isLoco(it.car.type) ? -it.dy : it.dy;
       drawCar(ctx, it.car, sx, sy, k, dx, dy, lit);
       if (isLoco(it.car.type)) {

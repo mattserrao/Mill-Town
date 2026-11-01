@@ -6,7 +6,7 @@ export interface Incline { id: number; name: string; year: number; lower: [numbe
 
 /** [lat, lon] of lower and upper stations */
 export const INCLINES: Incline[] = [
-  { id: 1, name: "Monongahela Incline", year: 1870, lower: [40.4318, -80.0056], upper: [40.4302, -80.0089] },
+  { id: 1, name: "Monongahela Incline", year: 1870, lower: [40.4318, -80.0058], upper: [40.4303, -80.0062] },
   { id: 2, name: "Mount Oliver Incline", year: 1872, lower: [40.4268, -79.9826], upper: [40.4228, -79.9836] },
   { id: 3, name: "Duquesne Incline", year: 1877, lower: [40.4398, -80.0182], upper: [40.4381, -80.0205] },
   { id: 4, name: "Penn Incline", year: 1884, lower: [40.4512, -79.9858], upper: [40.4478, -79.9822] },

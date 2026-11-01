@@ -35,6 +35,7 @@ import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCach
 import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type WorksRef } from "./core/economy";
 import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
 import { esc, fmt } from "./core/text";
+import { Use } from "./core/town";
 import { familyChip, resetStruggleUi, struggleRisks, struggleView, successionCard } from "./ui/struggle";
 import { DYNASTIES, legacy } from "./core/legacy";
 import { FOUNDER_NAMES, fullName, PATHS, SURNAMES } from "./core/family";
@@ -91,6 +92,8 @@ async function start() {
   map = await loadMap("maps/mon-valley.json");
   renderer = new Renderer(map);
   traffic = new Traffic(map);
+  traffic.occluded = (sx, sy, d) => renderer.occluded(sx, sy, d);
+  traffic.worksTile = (i) => { const u = game?.world.use[i]; return u === Use.Industry || u === Use.Rival; };
   setupUI();
   resize();
   newTown(seed);
@@ -585,7 +588,7 @@ function overviewPanel() {
   const c = game.company, el = $("overview");
   if (!c) { el.innerHTML = ""; return; }
   const s = c.totals ?? c.lastSeason;
-  const status = c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : c.status === "lockout" ? "Locked out" : "Idle";
+  const status = c.bankrupt ? "In receivership" : c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : c.status === "lockout" ? "Locked out" : "Idle";
   const hist = game.prices.slice(-40);
   const now = game.prices[game.prices.length - 1];
   const then = game.prices.find((p) => cal({ ...game, turn: p.turn }).year >= cal(game).year - 10 && p.prodInd?.[c.industry]);
@@ -596,7 +599,7 @@ function overviewPanel() {
   const card = (k: string, v: string, sub: string, cls = "") => `<div class="card"><small>${k}</small><b class="${cls}">${v}</b>${sub}</div>`;
   const list = [...struggleRisks(game), ...risks(game)].sort((a, b) => ({ bad: 0, warn: 1, good: 2 }[a.level] - { bad: 0, warn: 1, good: 2 }[b.level]));
   el.innerHTML = `
-    <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" ? "up" : "down"}">● ${status}</span></div>
+    <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" && !c.bankrupt ? "up" : "down"}">● ${status}</span></div>
     <div class="cards">
       ${card("Cash", short(c.cash), spark(hist.map((p) => p.cash), "#e0a243"), c.cash < 0 ? "down" : "")}
       ${card("Profit / season", s ? short(s.profit) : "—", spark(hist.map((p) => p.profit), "#7cc87c"), s && s.profit < 0 ? "down" : "up")}
@@ -1212,7 +1215,7 @@ function showFinal() {
   const pop = totalPopulation(g);
   const rows: [string, string][] = [
     ["Valley population, peak", `${fmt(st.peakPop)} (${st.peakPopYear})`],
-    ["Valley population, 1985", fmt(pop)],
+    [`Valley population, ${cal(g).year}`, fmt(pop)],
   ];
   let verdict: string;
   if (c) {
@@ -1223,7 +1226,7 @@ function showFinal() {
       ["Lifetime output", fmt(c.produced)],
       ["Most workers", `${fmt(st.peakEmployees)} (${st.peakEmployeesYear})`],
       ["Cash, peak", `${money(st.peakCash)} (${st.peakCashYear})`],
-      ["Cash, 1985", money(c.cash)],
+      [`Cash, ${cal(g).year}`, money(c.cash)],
       ["Strikes", fmt(st.strikes)],
       ["Reputation · labour · influence", `${Math.round(c.biz.meters.reputation)} · ${Math.round(c.biz.meters.labour)} · ${Math.round(c.biz.meters.influence)}`],
     );

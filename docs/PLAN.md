@@ -220,6 +220,14 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      demands met halfway, long strikes settled, processes bought, credit instead of receivership) and the player
      arrives at that era's succession with the paths of their faction. The top bar puts the clock beside the date
      and fits from 1,100 px (meters drop their bars, then shorten; brand, population and family chip give way)
+   - Graphics pass (v0.17.1): walkers, vehicles and trains are hidden behind buildings in front of them (the
+     drawn chunks keep a depth per pixel); houses keep a yard's width from the works and trains aren't drawn over
+     the plant; inclines run between stations a few tiles from where history put them (they had stretched to
+     three times their length); wharves and their notches follow the 45° line (no sand pennants); moored boats are
+     scattered, not on a lattice; the downtown skyline centres on Grant Street, the Point keeps warehouses before
+     1950 and pre-1898 offices are Romanesque; more tower tops and crowns; night is lighter; haze thins as you zoom
+     in; bigger stack smoke; one vehicle to a stretch of lane and two on a pike; creeks stay a pixel wide zoomed out;
+     the end screen labels its year
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -241,6 +249,10 @@ routing, environment, growth and neighbourhood style.
   drawn and kept in a 64 MB least-recently-used cache; scaled copies only for the current and last zoom; drawn
   map sections sized to about three screens and dropped for a zoom you've left. ~105–175 MB in all through 1985
   (was ~500 MB at its peaks). Still to do: draw slopes separately so houses don't need a variant per slope
+- Graphics still to do: the map canvas ignores the screen's pixel ratio (scaled up by the browser on HiDPI
+  displays); boats aren't depth-masked; bridges and inclines are drawn over the
+  buildings in front of them; the small "0" marks are street-lamp globes and read oddly when zoomed in; walkers on
+  lanes walk the middle of the road
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
 - Season loop cost (~200–300 ms a season late in the game): the biggest costs are town growth (`growByDesire`,
@@ -251,8 +263,6 @@ routing, environment, growth and neighbourhood style.
   is kept in Autumn 1985 so it appears
 - Left out by design: highways, busways and the Liberty Tubes as travel links (X2; the Tubes act as South Hills
   growth), per-line transit (X1), outbound freight and taxes; Frick Park's land isn't held from growth before 1927
-- The map canvas ignores the screen's pixel ratio: on HiDPI displays it is scaled up by the browser (sharp but uneven pixels)
-- Moving figures and boats draw over buildings that stand in front of them (no per-tile depth yet)
 - Music is generated, not composed: melodies are stylistically right but simple
 - Streets use today's alignments; some modern-only roads appear where towns grow
 - Coal seam is a simplified linear model of the Pittsburgh coal

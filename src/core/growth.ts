@@ -116,6 +116,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
       if (m.road[j] || w.street[j]) { onStreet = true; pike = w.street[j] === Street.Pike; break; }
     }
     if (!onStreet && !w.pop[i]) continue; // houses front onto streets
+    if (!w.pop[i] && besideWorks(m, w, x, y)) continue; // a works keeps a yard and a fence between it and the houses
     if (!w.pop[i] && (t === Terrain.Steep || t === Terrain.Slope) && valueNoise(w.seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) continue; // wooded ravines between terraces
     if (!w.pop[i] && tileNoise(w.seed, x, y, 613) < 0.1) continue; // gardens, vacant lots, alleys
     const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
@@ -202,4 +203,14 @@ function hillBonus(m: GameMap, year: number): Float32Array {
   }
   hillCache = { m, year, f };
   return f;
+}
+
+/** is a tile next to a works (yours or a rival's)? Houses aren't built against the mill walls. */
+export function besideWorks(m: GameMap, w: World, x: number, y: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if ((!dx && !dy) || !inBounds(m, x + dx, y + dy)) continue;
+    const u = w.use[(y + dy) * m.width + x + dx];
+    if (u === Use.Industry || u === Use.Rival) return true;
+  }
+  return false;
 }

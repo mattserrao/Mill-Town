@@ -704,8 +704,10 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
         box(p, u0, v0, u1, v1, 18, { wall: "#b8a888", z0 });
         for (const fc of [face, f.sideFace]) facade(p, b, fc, { n: 8, stories, storyH: 8, style: 2, tall: true });
         cornice(p, b, face, "#8a7a5a"); cornice(p, b, f.sideFace, "#8a7a5a");
-        const tb = box(p, u0 + 0.06, v0 + 0.06, u1 - 0.06, v1 - 0.06, 6, { wall: "#c8b898", z0: z0 + H, top: "#5a5450" });
-        void tb;
+        // three tops: a penthouse, a slate mansard, a pyramid with a flagpole
+        if (s.v % 3 === 0) box(p, u0 + 0.06, v0 + 0.06, u1 - 0.06, v1 - 0.06, 6, { wall: "#c8b898", z0: z0 + H, top: "#5a5450" });
+        else if (s.v % 3 === 1) { const r = box(p, u0 + 0.02, v0 + 0.02, u1 - 0.02, v1 - 0.02, 3, { wall: "#4a4a52", z0: z0 + H, top: "#4a4a52" }); hip(p, r, 10, "#3e3e46"); }
+        else { const r = box(p, u0 + 0.1, v0 + 0.1, u1 - 0.1, v1 - 0.1, 2, { wall: "#8a7a5a", z0: z0 + H, top: "#6a6050" }); hip(p, r, 14, "#5a6a62"); const [tx, ty] = p.P(0.5, 0.5, z0 + H + 14); p.px(tx, ty - 10, "#2a2a2a", 1, 10); p.px(tx + 1, ty - 10, "#b03028", 3, 2); }
       } else if (tier === 2) { // Art Deco: setbacks, vertical piers, lantern top
         let z = z0, w0 = 0.04, k = 0;
         const parts = [0.55, 0.3, 0.15];
@@ -720,7 +722,16 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
           for (const fc of ["left", "right"] as const) facade(p, b, fc, { n: piers, stories: Math.floor(h / 8), storyH: 8, style: 3, tall: true, dark: "#3a4a5a" });
           z += h; w0 += 0.12; k++;
         }
-        const [tx, ty] = p.P(0.5, 0.5, z); p.px(tx - 1, ty - 14, "#c9b26a", 3, 14);
+        // crowns: a lantern mast, a stepped gold pyramid (the Gulf Tower), a gothic spire
+        const [tx, ty] = p.P(0.5, 0.5, z);
+        if (s.v % 3 === 0) p.px(tx - 1, ty - 14, "#c9b26a", 3, 14);
+        else if (s.v % 3 === 1) for (let j = 0; j < 5; j++) p.px(tx - 7 + j * 1.5, ty - 3 - j * 3, j === 4 ? "#e0b84a" : "#c9a84a", 14 - j * 3, 3);
+        else { for (let j = 0; j < 22; j++) p.px(tx - Math.max(0, 4 - j / 5), ty - j, j % 4 === 0 ? "#b8b0a0" : "#a8a090", Math.max(1, 8 - j / 2.6), 1); p.px(tx, ty - 28, "#c9b26a", 1, 6); }
+      } else if (s.v % 2 === 1) { // postwar: aluminium panels with small windows (Alcoa, 1953)
+        const [u0, v0, u1, v1] = f.rect(0.1, 0.9, 0.1, 0.9);
+        const b = box(p, u0, v0, u1, v1, H, { wall: "#9aa0a8", wallR: "#7a8088", z0, foundation: fl, top: "#8a9098" });
+        for (const [a, c] of [[b.D(z0), b.C(z0)], [b.C(z0), b.B(z0)]] as [Pt, Pt][])
+          for (let z = 6; z < H - 2; z += 6) for (let j = 1; j < 8; j++) { const [x, y] = lerp(a, c, j / 8); p.px(x, y - z, (j + z / 6) % 2 ? "#5a6a7a" : "#b8c0c8", 1, 2); }
       } else { // postwar: stainless and glass slab
         const [u0, v0, u1, v1] = f.rect(0.08, 0.92, 0.2, 0.8);
         const b = box(p, u0, v0, u1, v1, H, { wall: "#7a9aaa", wallR: "#5a7a8a", z0, foundation: fl, top: "#8a9098" });

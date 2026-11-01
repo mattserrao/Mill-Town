@@ -292,6 +292,8 @@ export function drawHaze(ctx: CanvasRenderingContext2D, g: GameState, cam: Camer
     hazeDrawn = paintHaze(hazeCv, g, cam, cw, ch, lw, lh, time, hr, hg, hb, tint);
   }
   if (hazeDrawn || tint > 0.01) {
+    // close in, the air between you and the street is thin: the pall thins as you zoom in
+    ctx.globalAlpha = z >= 2 ? 0.45 : z >= 1 ? 0.65 : z >= 0.5 ? 0.85 : 1;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "low";
     ctx.drawImage(hazeCv, 0, 0, lw, lh, 0, 0, lw * HAZE_DS, lh * HAZE_DS);
