@@ -17,6 +17,8 @@ import { trendsView } from "./ui/trends";
 import { resetTownUi, townPanel } from "./ui/town";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { money as short } from "./ui/fx";
+import { loadGame, newSaveId, saveGame } from "./core/save";
+import { mainMenu } from "./ui/menu";
 import { lobbyInfluence, lobbySeasons, orderRoad, type RoadPlan, roadBlocked } from "./core/roads";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
@@ -85,29 +87,40 @@ async function start() {
   resize();
   newTown(seed);
   showNews();
+  homeView();
+  // a seed in the address goes straight into that town (handy for testing); otherwise the main menu
+  if (!params.get("seed")) openMenu(true);
+}
+
+/** the view a new town opens on: the Point */
+function homeView() {
   const p = map.landmarks.find((l) => l.name.startsWith("The Point"))!;
   centerOn(p.x + 25, p.y + 15, 0.5);
 }
 
-function newTown(seed: number) {
+/** clear everything that belongs to the town on screen: placing, open views, panel state, cached flows, traffic */
+function resetUiState() {
   stopPlay();
-  // nothing from the last town carries over: placing, open views, panel state, cached flows and traffic
   if (game) {
     proposal = null; roadPreview = null; placeBar();
-      $("query").hidden = true;
+    $("query").hidden = true;
     toggleTrends(false); openPaper(false);
     resetBusinessUi(); resetWorksUi(); resetTownUi();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
-  game = newGame(map, seed);
+}
+
+/** show a game (new or loaded) */
+function showGame(g: GameState) {
+  game = g;
   paperIdx = -1; paperSeen = 0;
-  ($<HTMLInputElement>("seed")).value = String(seed);
+  ($<HTMLInputElement>("seed")).value = String(g.seed);
   seedEdited = false;
-  ($<HTMLInputElement>("companyName")).value = suggestName(industry, seed);
+  ($<HTMLInputElement>("companyName")).value = suggestName(industry, g.seed);
   setTab("overview");
   siteTried = [];
-  placing = true; ($<HTMLInputElement>("placing")).checked = true;
+  placing = !g.company; ($<HTMLInputElement>("placing")).checked = placing;
   $("final").hidden = true;
   overlayCache.site = undefined;
   renderer.updateHeights();
@@ -115,7 +128,51 @@ function newTown(seed: number) {
   selected = null;
   refreshPanels();
   drawMinimapBase();
+  updateTimeControls();
   requestRender();
+}
+
+function newTown(seed: number) {
+  resetUiState();
+  showGame(newGame(map, seed));
+}
+
+// ---------------------------------------------------------------- saving and the main menu
+let autosaving = false;
+/** save to the autosave slot (only a game with a company is worth resuming) */
+function autosave() {
+  if (!game?.company || autosaving) return;
+  autosaving = true;
+  saveGame(game).catch((e) => console.warn("autosave failed", e)).finally(() => { autosaving = false; });
+}
+
+function openMenu(atStart = false) {
+  if (!atStart) autosave();
+  mainMenu($("menu"), {
+    inGame: !atStart,
+    onResume: () => closeMenu(),
+    onNew: (seed) => { closeMenu(); newTown(seed ?? Math.floor(Math.random() * 1e6)); showNews(); homeView(); },
+    onLoad: async (id) => {
+      const g = await loadGame(id, map);
+      resetUiState();
+      showGame(g);
+      showNews();
+      if (g.company) centerOn(g.company.x + (g.company.footprint >> 1), g.company.y + (g.company.footprint >> 1), 0.75); else homeView();
+      closeMenu();
+      if (g.over) showFinal();
+    },
+  });
+}
+function closeMenu() { $("menu").hidden = true; }
+
+/** save under a new name from the ☰ menu */
+async function saveNamed() {
+  const b = $<HTMLButtonElement>("saveBtn");
+  if (!game.company) { b.textContent = "Found a company first"; setTimeout(() => { b.textContent = "Save game"; }, 1800); return; }
+  b.disabled = true; b.textContent = "Saving…";
+  try { const m = await saveGame(game, newSaveId()); b.textContent = `Saved: ${m.season} ${m.year}`; }
+  catch (e) { b.textContent = "Save failed"; console.warn(e); }
+  setTimeout(() => { b.disabled = false; b.textContent = "Save game"; }, 1800);
 }
 
 /**
@@ -625,7 +682,7 @@ function setupUI() {
   for (const ev of ["pointerdown", "click", "keydown"]) window.addEventListener(ev, wake, true);
   window.addEventListener("keydown", (e) => {
     if (inFormControl(e)) return;
-    if (e.key.toLowerCase() === "m") toggleSound();
+    if (e.key.toLowerCase() === "m" && $("menu").hidden) toggleSound();
   });
   sound.onState = soundUI;
   soundUI();
@@ -671,6 +728,11 @@ function setupUI() {
   $("gameBtn").addEventListener("click", (e) => { e.stopPropagation(); $("gameDrop").hidden = !$("gameDrop").hidden; });
   document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#gameMenu")) $("gameDrop").hidden = true; });
   $("nextYear").addEventListener("click", nextYear);
+  $("saveBtn").addEventListener("click", (e) => { e.stopPropagation(); saveNamed(); });
+  $("menuBtn").addEventListener("click", () => { $("gameDrop").hidden = true; openMenu(); });
+  // leaving the page (or hiding it) saves the game
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autosave(); });
+  window.addEventListener("pagehide", autosave);
   $("bestSite").addEventListener("click", showBestSite);
 
   // mouse: drag to pan, click to select
@@ -735,6 +797,7 @@ function setupUI() {
 
   window.addEventListener("keydown", (e) => {
     if (inFormControl(e)) return;
+    if (!$("menu").hidden && e.key !== "Escape") return; // the menu is up: no game keys
     const step = 160 / cam.zoom;
     const k = e.key.toLowerCase();
     if (k === "arrowleft" || k === "a") cam.x -= step;
@@ -746,7 +809,7 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
+    else if (k === "escape") { if (!$("menu").hidden) { if ($("menu").querySelector("[data-a=back]")) closeMenu(); } else if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
     else if (k === "t") { toggleTrends(); return; }
     else return;
     clampCam();
@@ -931,6 +994,7 @@ function nextYear() {
 
 function afterTurn() {
   afterChange();
+  if (cal(game).season === "Spring" || game.over) autosave();
   if (!$("trends").hidden) trendsView(game, $("trends"), setTab);
   if (selected && !$("query").hidden) { const el = $("query"); el.innerHTML = queryCard({ game, map, renderer }, selected.x, selected.y); }
   showNews();
@@ -976,6 +1040,7 @@ function toggleTrends(force?: boolean) {
 
 /** why the clock is waiting for you, if it is */
 function holdReason(): string {
+  if (!$("menu").hidden) return "Main menu open";
   if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
   if (proposal) return "Waiting while you place the building";
   if (roadPreview) return "Waiting while you look at the road";

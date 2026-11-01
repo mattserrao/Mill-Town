@@ -509,7 +509,7 @@ export function newestGroup(year: number): number {
 // ---------------------------------------------------------------- decisions at historical moments
 
 export interface DecisionOption { label: string; detail: string; apply: (g: GameState, rng: Rng) => string }
-export interface Decision { id: string; title: string; text: string; options: DecisionOption[]; /** what the real owners did (taken if the decision is left open) */ historical: number }
+export interface Decision { id: string; title: string; text: string; options: DecisionOption[]; /** the event that raised it (so a saved game can rebuild it) */ source?: string; /** what the real owners did (taken if the decision is left open) */ historical: number }
 
 const labourIndustry = (g: GameState) => !!g.company && allWorks(g.company).some((w) => w.industry === "steel" || w.industry === "metalworks") && totalEmployees(g.company) >= DECISION_MEN;
 /** men employed before the great labour fights reach your works */

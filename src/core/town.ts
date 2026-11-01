@@ -121,6 +121,8 @@ export interface World {
   inclines: { id: number; name: string; year: number; path: [number, number][] }[];
   /** parks laid out ahead of their year (funded by you): not laid again when the year comes */
   parks?: string[];
+  /** where the next round of community building starts (the zones are visited in turn) */
+  zoneCursor?: number;
   /** bumped whenever tiles change, so renderers can drop caches */
   version: number;
 }
@@ -616,7 +618,6 @@ export function zoneCensus(m: GameMap, w: World): ZoneCensus[] {
   return out;
 }
 
-let zoneCursor = 0;
 export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
   const d = districts(m), NGr = GROUPS.length;
   const census = zoneCensus(m, w);
@@ -641,7 +642,7 @@ export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
   };
   let made = 0;
   for (let n = 0; n < d.zones && made < maxNew; n++) {
-    const z = (zoneCursor + n) % d.zones;
+    const z = ((w.zoneCursor ?? 0) + n) % d.zones;
     const c = census[z];
     if (!c || c.tot < 120) continue;
     for (let gid = 1; gid < NGr && made < maxNew; gid++) {
@@ -679,7 +680,7 @@ export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
       }
     }
   }
-  zoneCursor = (zoneCursor + 7) % Math.max(1, d.zones);
+  w.zoneCursor = ((w.zoneCursor ?? 0) + 7) % Math.max(1, d.zones);
   // succession: a community's buildings in a neighbourhood it has left pass to the newcomers (or close)
   for (let z = 0; z < d.zones; z++) {
     const c = census[z];
