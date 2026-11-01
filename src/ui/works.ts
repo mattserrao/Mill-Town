@@ -6,7 +6,8 @@ import { allWorks, buildIncline, buildSpur, buildSteps, cal, fundLibrary, type G
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "../core/industries";
 import { commission, techBlocked, techCost, techStanding } from "../core/market";
 import { PROJECTS, type ProjectKind, projectBlocked } from "../core/projects";
-import { distance } from "../core/units";
+import { distance, feet } from "../core/units";
+import { lobbyInfluence, lobbySeasons, type RoadPlan, roadPlans } from "../core/roads";
 import { esc, fmt } from "../core/text";
 import { money } from "./fx";
 
@@ -49,7 +50,7 @@ function worksCard(g: GameState, w: Works, many: boolean): string {
   </div>`;
 }
 
-export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, place: (kind: ProjectKind, industry?: IndustryId) => void) {
+export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, place: (kind: ProjectKind, industry?: IndustryId) => void, road?: (p: RoadPlan) => void) {
   const c = g.company;
   if (!c) { el.innerHTML = ""; return; }
   const y = cal(g).year;
@@ -71,6 +72,8 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
       return actRow(PROJECTS[k].name.replace(/^Build (an? )?/, "").replace(/^./, (m) => m.toUpperCase()), `<button data-place="${k}" ${why ? `disabled title="${esc(why)}"` : ""}>Place…</button>`, PROJECT_FX[k], `${PROJECTS[k].blurb} The game suggests a spot: click the map to move it, then confirm.${why ? ` — ${why}` : ""}`, extra);
     }).join("")}
     ${q || c.spur ? actRow("Rail siding", `<button data-town="spur" ${c.spur || !q || c.cash < q.cost ? "disabled" : ""}>${c.spur ? "Built" : money(q!.cost)}</button>`, q ? `<span class="fx">${distance(q.len * g.map.metersPerTile)}</span><span class="fx fx-good">ore & coal by rail</span>` : "", "A siding to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full") : ""}
+    <h4 class="mh">Roads &amp; bridges</h4>
+    ${roadRows(g)}
     <h4 class="mh">For the town</h4>
     ${town.map(([id, name, cost, off, fx, title]) => actRow(name, `<button data-town="${id}" ${off || c.cash < cost ? "disabled" : ""}>${money(cost)}</button>`, fx, title)).join("")}`;
 
@@ -89,6 +92,8 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
     const k = b.dataset.place as ProjectKind;
     place(k, k === "found" ? newIndustry ?? c.industry : undefined);
   }));
+  const plans = roadPlans(g);
+  el.querySelectorAll<HTMLButtonElement>("button[data-road]").forEach((b) => b.addEventListener("click", () => road?.(plans[Number(b.dataset.road)])));
   const TOWN = { library: fundLibrary, steps: buildSteps, incline: buildIncline, spur: buildSpur };
   el.querySelectorAll<HTMLButtonElement>("button[data-town]").forEach((b) => b.addEventListener("click", () => {
     const r = TOWN[b.dataset.town as keyof typeof TOWN](g);
@@ -96,6 +101,16 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
     if (!r.ok) g.log.push({ turn: g.turn, text: r.reason! });
     changed();
   }));
+}
+
+/** the roads worth building, with what each would do; and roads the city is building for you */
+function roadRows(g: GameState): string {
+  const plans = roadPlans(g).slice(0, 5);
+  const pending = (g.publicWorks.roads ?? []).map((r) => `<div class="act"><span class="act-n">Road to ${esc(r.plan.to)}</span><span class="muted">city builds · ${Math.max(0, r.due - g.turn)} seasons</span></div>`).join("");
+  const rows = plans.map((p, k) => actRow(`${p.bridge ? "Bridge to" : "Road to"} ${esc(p.to)}`, `<button data-road="${k}" ${g.company!.biz.actionsLeft <= 0 ? "disabled" : ""}>Plan…</button>`,
+    `<span class="fx fx-good">+${fmt(p.gain)} in reach</span><span class="fx">${Math.round(p.before)} → ${Math.round(p.after)} min</span>${p.bridgeTiles ? `<span class="fx">bridge ${feet(p.bridgeTiles * g.map.metersPerTile)}</span>` : ""}<span class="fx">${money(p.cost)} or Inf ${lobbyInfluence(p)}</span>`,
+    `A main road from the works to ${p.to}${p.bridgeTiles ? `, with a new bridge (${feet(p.bridgeTiles * g.map.metersPerTile)})` : ""}: ${distance(p.path.length * g.map.metersPerTile)}. Horsecars (from 1859) and streetcars (1890–1955) run on it, so the trip drops from ${Math.round(p.before)} to ${Math.round(p.after)} minutes and about ${fmt(p.gain)} more people would take a job at the works; houses settle along it. Pay for it now, or lobby the city to build it (${lobbySeasons(p)} seasons).`)).join("");
+  return pending + (rows || `<p class="hint">No road would bring many more men within reach now.</p>`);
 }
 
 export function worksStatus(text: string) { status = text; }

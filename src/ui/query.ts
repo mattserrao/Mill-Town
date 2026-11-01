@@ -100,7 +100,7 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
   if (rail) add(`${rail.name} track${rail.year > w.year ? ` (opens ${rail.year})` : ""}`);
   const creek = m.creek[i] ? m.creekNames[String(m.creek[i])] : "";
   if (creek) add(creek);
-  for (const sp of m.spans) {
+  for (const sp of [...m.spans, ...(q.game.spans ?? [])]) {
     const st = stageOf(sp, w.year);
     if (!st) continue;
     const dx = sp.b[0] - sp.a[0], dy = sp.b[1] - sp.a[1], L2 = dx * dx + dy * dy;

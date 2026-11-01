@@ -119,6 +119,8 @@ export interface World {
   settlements: { name: string; x: number; y: number; pop: number }[];
   /** inclines in service: tile path from the foot to the head */
   inclines: { id: number; name: string; year: number; path: [number, number][] }[];
+  /** parks laid out ahead of their year (funded by you): not laid again when the year comes */
+  parks?: string[];
   /** bumped whenever tiles change, so renderers can drop caches */
   version: number;
 }
@@ -423,10 +425,9 @@ function snapHeight(m: GameMap, x: number, y: number, r: number, dir: number): [
   return best;
 }
 
-/** Inclines open in their year: track tiles from the river-level station up the bluff. */
-export function activateFeatures(m: GameMap, w: World) {
-  for (const pk of PARKS) {
-    if (pk.year !== w.year) continue;
+/** A park laid out on its ground: open land becomes park (streets, water and big buildings are left). */
+export function layPark(m: GameMap, w: World, pk: (typeof PARKS)[number]) {
+  {
     const [cx, cy] = latLonToTile(m, pk.lat, pk.lon);
     const r = pk.radiusM / m.metersPerTile;
     for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
@@ -438,6 +439,11 @@ export function activateFeatures(m: GameMap, w: World) {
     }
     w.version++;
   }
+}
+
+/** Inclines open in their year: track tiles from the river-level station up the bluff. */
+export function activateFeatures(m: GameMap, w: World) {
+  for (const pk of PARKS) if (pk.year === w.year && !w.parks?.includes(pk.name)) layPark(m, w, pk);
   for (const inc of INCLINES) {
     if (inc.year > w.year) continue;
     if (w.inclines.some((r) => r.id === inc.id)) continue;
@@ -861,7 +867,7 @@ export function carveRoad(m: GameMap, w: World, x0: number, y0: number, x1: numb
       const j = ny * m.width + nx;
       const t = m.terrain[j];
       let c: number;
-      if (t === Terrain.Water) c = activeBridge(m, j, w.year) ? 0.3 : 40; // ferry
+      if (t === Terrain.Water) c = activeBridge(m, j, w.year) || w.street[j] === Street.Bridge ? 0.3 : 40; // ferry
       else if (w.street[j]) c = 0.25;
       else c = TRAVEL_COST[t] * (m.road[j] === 2 ? 0.3 : m.road[j] === 1 ? 0.6 : 1);
       const ng = g[i] + c;

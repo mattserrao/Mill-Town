@@ -130,12 +130,13 @@ export class Traffic {
   }
 
   /** deck heights over water for the bridges standing this year */
-  private updateDecks(year: number) {
-    if (year === this.deckYear) return;
-    this.deckYear = year;
+  private updateDecks(year: number, built: Span[] = []) {
+    // keyed by year and by how many bridges you've built (each adds a span)
+    if (year * 1000 + built.length === this.deckYear) return;
+    this.deckYear = year * 1000 + built.length;
     this.deck.clear(); this.snapCache.clear();
     this.railSpans = [];
-    for (const sp of this.m.spans) {
+    for (const sp of [...this.m.spans, ...built]) {
       const st = stageOf(sp, year);
       if (!st) continue;
       if (sp.kind === "rail") this.railSpans.push(sp);
@@ -229,7 +230,7 @@ export class Traffic {
     this.last = now; this.dt = dt;
     const year = g.world.year;
     this.year = year;
-    this.updateDecks(year);
+    this.updateDecks(year, g.spans ?? []);
     this.cam = cam; this.cw = cw; this.ch = ch;
     this.night = night;
     // shift change: the hour either side of dawn and dusk (only when the day turns)

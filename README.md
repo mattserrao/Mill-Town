@@ -26,8 +26,9 @@ in the terminal running `npm run dev`.
   influence, town morale; hover for the word)
 - Right panel tabs: **Overview** (cash, profit, output, market share, price and cost per unit, a Watch list of
   risks, last season's accounts) · **Works** (processes, commissioning, building on the map, projects for the town,
-  supply chain) · **Policy** (standing policies, three actions a season, the town) · **Rivals** (output against
-  yours, suppliers and customers). Historical decisions appear as cards (the owners' choice is marked and taken if
+  roads and bridges, supply chain) · **Policy** (standing policies, three actions a season) · **Town** (morale,
+  teams, great works to found ahead of history, every landmark standing — click one to go there) · **Rivals**
+  (output against yours, suppliers and customers). Historical decisions appear as cards (the owners' choice is marked and taken if
   you skip)
 - **Trends** (T): cash, profit, price against cost, capacity and men, market share by rival and the risk list ·
   prices, wages and raw materials · population, morale, the jobless and your workforce's health

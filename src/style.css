@@ -226,6 +226,7 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #right[data-tab="overview"] [data-tab]:not([data-tab="overview"]):not(button),
 #right[data-tab="works"] [data-tab]:not([data-tab="works"]):not(button),
 #right[data-tab="policy"] [data-tab]:not([data-tab="policy"]):not(button),
+#right[data-tab="town"] [data-tab]:not([data-tab="town"]):not(button),
 #right[data-tab="rivals"] [data-tab]:not([data-tab="rivals"]):not(button) { display: none; }
 .tab-empty { margin: 10px 2px; }
 [hidden] { display: none !important; }
@@ -370,3 +371,11 @@ label.chip:hover { background: #353a43; }
 #found { width: 100%; margin-top: 6px; }
 #speeds button.on.held { animation: held 1.2s ease-in-out infinite; }
 @keyframes held { 50% { opacity: 0.45; } }
+
+/* town tab: great works */
+.lm-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #2c3038; font-size: 11px; }
+.lm-row > span:last-child { color: var(--muted); white-space: nowrap; }
+.lm-row.later { color: var(--muted); }
+button.link.go { font-size: 12px; color: var(--text); text-align: left; text-decoration: none; border-bottom: 1px dotted #6a6f78; }
+button.link.go:hover:not(:disabled) { color: var(--accent); }
+.lm-row button.link.go { font-size: 11px; }

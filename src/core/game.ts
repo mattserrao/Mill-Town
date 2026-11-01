@@ -3,7 +3,8 @@
 
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { type GameMap, inBounds, recomputeElevation, resetMap, tilesFor } from "./map";
+import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
+import { roadsSeason } from "./roads";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
@@ -204,6 +205,11 @@ export interface GameState {
   jobless: number;
   /** dated landmarks on the map */
   landmarks: PlacedLandmark[];
+  /** bridges you (or the city, for you) built: drawn like the real spans */
+  spans?: Span[];
+  roadsBuilt?: number;
+  /** landmarks and parks you funded ahead of history: id or park name → year */
+  funded?: Record<string, number>;
   /** sports teams (sports.ts) */
   teams: TeamState[];
   /** rival effects waiting for their rival to open */
@@ -393,6 +399,9 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
 // ---------------------------------------------------------------- commuting
 
 const MAX_WALK_MIN = 60;
+
+/** Rebuild the commute model now (after a new road or bridge), not just at the new year. */
+export function buildCommuteNow(g: GameState) { g.commute = buildCommute(g.map, g.world, centersFor(g)); }
 
 /** Recompute walking times from the works (after streets, steps or inclines change). */
 export function updateAccess(g: GameState) {
@@ -677,6 +686,7 @@ export function advanceTurn(g: GameState): void {
   g.world.year = c1.year;
   const s1 = g.turn % 4;
   if (c1.year !== c0.year) g.commute = buildCommute(g.map, g.world, centersFor(g));
+  roadsSeason(g);
   {
     const plants: [number, number][] = g.rivals.map((r) => [Math.round(r.x + r.footprint / 2), Math.round(r.y + r.footprint / 2)]);
     if (g.company) plants.push([Math.round(g.company.x + g.company.footprint / 2), Math.round(g.company.y + g.company.footprint / 2)]);
@@ -696,7 +706,7 @@ export function advanceTurn(g: GameState): void {
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
-    for (const pk of PARKS) if (pk.year === c1.year) log(g, `${pk.name} is laid out as a public park.`);
+    for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     recordHistory(g.map, g.world, g.history);
     updateHealth(g.map, g.world, g.env, hospitals(g));

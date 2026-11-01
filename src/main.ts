@@ -14,12 +14,13 @@ import { queryCard } from "./ui/query";
 import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
 import { trendsView } from "./ui/trends";
+import { resetTownUi, townPanel } from "./ui/town";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { money as short } from "./ui/fx";
+import { lobbyInfluence, lobbySeasons, orderRoad, type RoadPlan, roadBlocked } from "./core/roads";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
 import { drawDistricts } from "./render/districts";
-import { teamGround, teamName } from "./core/sports";
 import { nameNow } from "./core/rivals";
 import { type LandmarkKind, placeLandmark } from "./core/landmarks";
 import { allDecisions, allEffects } from "./core/eventdata";
@@ -60,6 +61,8 @@ let siteTried: { x: number; y: number }[] = [];
 let focusId: string | null = null;
 /** a building project waiting for the player to confirm (or move) it */
 let proposal: Proposal | null = null;
+/** a road being looked at before you pay for it (or lobby for it) */
+let roadPreview: RoadPlan | null = null;
 
 function announceVersion() {
   const v = window.__MT_VERSION__;
@@ -90,10 +93,10 @@ function newTown(seed: number) {
   stopPlay();
   // nothing from the last town carries over: placing, open views, panel state, cached flows and traffic
   if (game) {
-    proposal = null; placeBar();
+    proposal = null; roadPreview = null; placeBar();
       $("query").hidden = true;
     toggleTrends(false); openPaper(false);
-    resetBusinessUi(); resetWorksUi();
+    resetBusinessUi(); resetWorksUi(); resetTownUi();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
@@ -218,6 +221,7 @@ function requestRender() {
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now, night); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
     if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
+    drawRoadPreview();
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t, night);
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
@@ -235,7 +239,7 @@ function requestRender() {
     }
     drawMinimapView();
     $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
-    if (more || animating()) requestRender();
+    if (more || animating() || roadPreview) requestRender();
   });
 }
 
@@ -399,9 +403,8 @@ function refreshPanels() {
   $("standing").innerHTML = (bz ? meterChip("Rep", "Reputation", bz.reputation, true, W.rep(bz.reputation)) + meterChip("Labour", "Labour relations", bz.labour, true, W.lab(bz.labour)) + meterChip("Infl", "Influence", bz.influence, false, W.inf(bz.influence)) : "") +
     meterChip("Morale", "Town morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
-  $("townSection").hidden = !co;
-  townPanel();
-  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
+  townPanel(game, $("town"), () => { afterChange(); }, goTo);
+  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing, startRoad);
   businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
   siteReport();
@@ -414,17 +417,6 @@ function refreshPanels() {
     const lc = cal({ ...game, turn: l.turn });
     return `<li><span>${lc.season.slice(0, 3)} ${lc.year}</span> ${esc(l.text)}</li>`;
   }).join("");
-}
-
-/** morale, the jobless, the teams and their grounds */
-function townPanel() {
-  const g = game, y = g.world.year;
-  const teams = g.teams.filter((t) => t.active);
-  $("town").innerHTML = `<div class="kv">
-    <div class="k">Morale</div><div class="v ${g.morale >= 50 ? "good" : "bad"}">${Math.round(g.morale)}</div>
-    <div class="k">Out of work</div><div class="v ${g.jobless > 500 ? "bad" : ""}">${fmt(g.jobless)}</div>
-    ${teams.map((t) => `<div class="k">${teamName(t.id, y)}</div><div class="v" title="${esc(teamGround(t.id, y))}${t.last ? ` · ${esc(t.last)}` : ""}">${t.titles.length ? `🏆 ${t.titles.slice(-2).join(", ")}${t.titles.length > 2 ? "…" : ""}` : t.last ?? ""}</div>`).join("")}
-  </div>`;
 }
 
 /** before founding: the site report for the selected tile and the chosen industry */
@@ -754,7 +746,7 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
+    else if (k === "escape") { if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
     else if (k === "t") { toggleTrends(); return; }
     else return;
     clampCam();
@@ -837,10 +829,55 @@ function startPlacing(kind: ProjectKind, ind?: IndustryId) {
   requestRender();
 }
 
-function stopPlacing() { proposal = null; placeBar(); requestRender(); }
+function stopPlacing() { proposal = null; roadPreview = null; placeBar(); requestRender(); }
+
+/** fly to a tile and open its card */
+function goTo(x: number, y: number) {
+  x = Math.round(x); y = Math.round(y);
+  centerOn(x, y, Math.max(cam.zoom, 1));
+  selected = { x, y };
+  const [sx, sy] = tileScreen(x, y);
+  showQuery(x, y, sx, sy);
+  requestRender();
+}
+
+/** show a road on the map, with what it costs and does; pay, lobby or cancel */
+function startRoad(p: RoadPlan) {
+  proposal = null;
+  roadPreview = p;
+  const mid = p.path[Math.floor(p.path.length / 2)];
+  const span = Math.max(...p.path.map((i) => Math.hypot((i % map.width) - (mid % map.width), ((i / map.width) | 0) - ((mid / map.width) | 0))));
+  centerOn(mid % map.width, (mid / map.width) | 0, span > 60 ? 0.25 : span > 30 ? 0.5 : 0.75);
+  placeBar();
+  requestRender();
+}
+
+/** the planned road drawn over the map: dashed, with the new bridge in a warmer colour */
+function drawRoadPreview() {
+  const p = roadPreview;
+  if (!p) return;
+  const pt = (i: number) => tileScreen(i % map.width, (i / map.width) | 0);
+  ctx.save();
+  ctx.lineWidth = Math.max(2, 5 * cam.zoom); ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.setLineDash([Math.max(4, 10 * cam.zoom), Math.max(3, 6 * cam.zoom)]);
+  ctx.lineDashOffset = -performance.now() / 60;
+  let water = map.terrain[p.path[0]] === 0;
+  ctx.beginPath(); ctx.moveTo(...pt(p.path[0]));
+  for (let k = 1; k < p.path.length; k++) {
+    const w = map.terrain[p.path[k]] === 0;
+    ctx.lineTo(...pt(p.path[k]));
+    if (w !== water || k === p.path.length - 1) {
+      ctx.strokeStyle = water ? "#ff8a4a" : "#ffd34a"; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(...pt(p.path[k]));
+      water = w;
+    }
+  }
+  ctx.restore();
+}
 
 function placeBar() {
   const el = $("placeBar");
+  if (roadPreview) { roadBar(el, roadPreview); return; }
   if (!proposal) { el.hidden = true; return; }
   const p = proposal;
   const name = PROJECTS[p.kind].name + (p.kind === "found" && p.industry ? `: ${INDUSTRIES[p.industry].name}` : "");
@@ -857,12 +894,27 @@ function placeBar() {
   $("placeCancel").addEventListener("click", stopPlacing);
 }
 
+function roadBar(el: HTMLElement, p: RoadPlan) {
+  const pay = roadBlocked(game, p, "pay"), lobby = roadBlocked(game, p, "lobby");
+  el.innerHTML = `<span><b>${p.bridge ? "Bridge" : "Road"} to ${esc(p.to)}</b> — ${distance(p.path.length * map.metersPerTile)}${p.bridgeTiles ? `, new bridge ${feet(p.bridgeTiles * map.metersPerTile)}` : ""}${p.displaced ? ` · ${fmt(p.displaced)} people moved` : ""}<br><span class="hint">${Math.round(p.before)} → ${Math.round(p.after)} min to the works · about ${fmt(p.gain)} more people in reach</span></span>
+    <button id="roadPay" class="primary" ${pay ? `disabled title="${esc(pay)}"` : ""}>Pay ${short(p.cost)}</button><button id="roadLobby" ${lobby ? `disabled title="${esc(lobby)}"` : `title="Spend influence; the city builds it in ${lobbySeasons(p)} seasons"`}>Lobby (Inf ${lobbyInfluence(p)})</button><button id="placeCancel">Cancel</button>`;
+  el.hidden = false;
+  for (const [id, how] of [["roadPay", "pay"], ["roadLobby", "lobby"]] as const) $(id).addEventListener("click", () => {
+    const r = orderRoad(game, p, how);
+    worksStatus(r.text);
+    if (r.ok) { roadPreview = null; renderer.invalidateAll(); }
+    afterChange();
+    placeBar();
+  });
+  $("placeCancel").addEventListener("click", stopPlacing);
+}
+
 function nextSeason() {
   if (game.over) return;
   // a historical moment is waiting for your answer
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi();
-  if (proposal) stopPlacing();
+  resetBusinessUi(); resetWorksUi(); resetTownUi();
+  if (proposal || roadPreview) stopPlacing();
   advanceTurn(game);
   afterTurn();
 }
@@ -871,8 +923,8 @@ function nextYear() {
   if (game.over) return;
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi();
-  if (proposal) stopPlacing();
+  resetBusinessUi(); resetWorksUi(); resetTownUi();
+  if (proposal || roadPreview) stopPlacing();
   do advanceTurn(game); while (!game.over && !game.pendingDecision && cal(game).season !== "Spring");
   afterTurn();
 }
@@ -926,6 +978,7 @@ function toggleTrends(force?: boolean) {
 function holdReason(): string {
   if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
   if (proposal) return "Waiting while you place the building";
+  if (roadPreview) return "Waiting while you look at the road";
   return "";
 }
 let holdShown = "";

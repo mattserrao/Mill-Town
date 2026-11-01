@@ -9,6 +9,7 @@ import { RIVALS } from "../core/rivals";
 import { calendar } from "../core/time";
 import { esc } from "../core/text";
 import { money } from "./fx";
+import { roadPlans } from "../core/roads";
 
 export type Level = "bad" | "warn" | "good";
 export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" }
@@ -90,6 +91,10 @@ export function risks(g: GameState): Risk[] {
     const lasting = calendar(m.until).year > 1985;
     out.push({ level: good ? "good" : !lasting && Math.abs(m.mult - 1) >= 0.15 ? "bad" : "warn", title: m.source, detail: `${KIND_WORD[m.kind]}${m.good ? ` (${m.good})` : ""} ${m.mult > 1 ? "+" : "−"}${Math.round(Math.abs(m.mult - 1) * 100)}% · ${lasting ? "lasting" : `to ${calendar(m.until).year}`}` });
   }
+
+  // a road that would bring many more men within reach
+  const road = roadPlans(g)[0];
+  if (road && road.gain >= 150) out.push({ level: "good", title: `Road to ${road.to} would help`, detail: `+${road.gain.toLocaleString("en-US")} in reach · ${money(road.cost)} or influence`, go: "works" });
 
   const rank: Record<Level, number> = { bad: 0, warn: 1, good: 2 };
   return out.sort((a, b) => rank[a.level] - rank[b.level]);
