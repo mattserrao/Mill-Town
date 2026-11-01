@@ -11,10 +11,35 @@ import { lobbyInfluence, lobbySeasons, type RoadPlan, roadPlans } from "../core/
 import { esc, fmt } from "../core/text";
 import { money } from "./fx";
 import { complianceOf } from "../core/enviro";
+import { nameNow, RIVALS } from "../core/rivals";
+import { acquisitionQuote } from "../core/rivalai";
+import { buyStake, rivalProfit, rivalValue, stakeBlocked, stakePrice } from "../core/holdings";
+import { takeAction } from "../core/business";
+import { Rng } from "../core/rng";
 
 let open = new Set<string>(["p"]);
 let status = "";
 let newIndustry: IndustryId | null = null;
+let buyIntoOpen = false;
+let buyCount = 0;
+
+/** every rival works you could buy (or take a stake in), by industry, with its price (v0.18.2) */
+function buyIntoRows(g: GameState): string {
+  const c = g.company!;
+  const open = g.rivals.filter((r) => r.active && !r.closed && !r.owned);
+  const rows = industriesIn(cal(g).year).map((ind) => {
+    const list = open.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === ind);
+    if (!list.length) return "";
+    return `<div class="hd-grp">${INDUSTRIES[ind].name}</div>` + list.map((r) => {
+      const d = RIVALS.find((x) => x.id === r.id)!, q = acquisitionQuote(g, r), sw = stakeBlocked(g, r.id);
+      const why = "refused" in q ? q.refused : c.biz.actionsLeft <= 0 ? "No actions left this season" : c.cash < q.price ? `Needs ${money(q.price)}` : null;
+      return actRow(esc(nameNow(d, cal(g).year, r.name, r.nameYear)), `${"price" in q ? `<button data-buyw="${r.id}" ${why ? `disabled title="${esc(why)}"` : ""}>${money(q.price)}</button>` : ""}<button data-stakew="${r.id}" ${sw ? `disabled title="${esc(sw)}"` : ""}>10% ${money(stakePrice(g, r.id))}</button>`,
+        `<span class="fx">worth ${money(rivalValue(g, r.id))}</span><span class="fx ${rivalProfit(g, r.id) < 0 ? "fx-bad" : "fx-good"}">${money(rivalProfit(g, r.id) * 4)}/yr</span>${r.offmap ? `<span class="fx">off the map: ${esc(d.offmap ?? "")}</span>` : ""}${"refused" in q ? `<span class="fx fx-bad">${esc(q.refused)}</span>` : ""}`,
+        `${d.note} Buy the works (its value + 10%) and run it as yours, or take a 10% stake for a share of its profit.`);
+    }).join("");
+  }).join("");
+  return rows || `<p class="hint">No works open to buy.</p>`;
+}
 
 const STATUS: Record<string, string> = { running: "Running", idle: "Idle", strike: "On strike", flooded: "Flooded", lockout: "Locked out" };
 const PROJECT_FX: Record<ProjectKind, string> = {
@@ -80,6 +105,8 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
       return actRow(PROJECTS[k].name.replace(/^Build (an? )?/, "").replace(/^./, (m) => m.toUpperCase()), `<button data-place="${k}" ${why ? `disabled title="${esc(why)}"` : ""}>Place…</button>`, PROJECT_FX[k], `${PROJECTS[k].blurb} The game suggests a spot: click the map to move it, then confirm.${why ? ` — ${why}` : ""}`, extra);
     }).join("")}
     ${q || c.spur ? actRow("Rail siding", `<button data-town="spur" ${c.spur || !q || c.cash < q.cost ? "disabled" : ""}>${c.spur ? "Built" : money(q!.cost)}</button>`, q ? `<span class="fx">${distance(q.len * g.map.metersPerTile)}</span><span class="fx fx-good">ore & coal by rail</span>` : "", "A siding to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full") : ""}
+    <h4 class="mh">Buy into…<button class="link" data-buyinto="1">${buyIntoOpen ? "hide" : "show"}</button></h4>
+    ${buyIntoOpen ? buyIntoRows(g) : ""}
     <h4 class="mh">Roads &amp; bridges</h4>
     ${roadRows(g)}
     <h4 class="mh">For the town</h4>
@@ -100,6 +127,9 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
     const k = b.dataset.place as ProjectKind;
     place(k, k === "found" ? newIndustry ?? c.industry : undefined);
   }));
+  el.querySelector<HTMLButtonElement>("button[data-buyinto]")?.addEventListener("click", () => { buyIntoOpen = !buyIntoOpen; worksPanel(g, el, changed, place, road); });
+  el.querySelectorAll<HTMLButtonElement>("button[data-buyw]").forEach((b) => b.addEventListener("click", () => { status = takeAction(g, "buy", new Rng(`${g.seed}:buyw:${g.turn}:${buyCount++}`), b.dataset.buyw).text; changed(); }));
+  el.querySelectorAll<HTMLButtonElement>("button[data-stakew]").forEach((b) => b.addEventListener("click", () => { status = buyStake(g, b.dataset.stakew!).text; changed(); }));
   const plans = roadPlans(g);
   el.querySelectorAll<HTMLButtonElement>("button[data-road]").forEach((b) => b.addEventListener("click", () => road?.(plans[Number(b.dataset.road)])));
   const TOWN = { library: fundLibrary, steps: buildSteps, incline: buildIncline, spur: buildSpur };

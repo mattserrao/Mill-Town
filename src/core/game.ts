@@ -22,6 +22,10 @@ import { clearRuins, publicHousing, registerMapHooks } from "./mapfx";
 import { civicYear } from "./civic";
 import { hoodBoosts } from "./hood";
 import { closureSeason, idleCost, marketFor, type MarketView } from "./world";
+import { recordProfits } from "./value";
+import { type PublicState, publicSeason } from "./ownership";
+import { companyWorth, type StockState, updateStocks } from "./holdings";
+import { clearMarkets, fuelPriceMult, MARKET_FROM, marketPrice, type MarketState, rivalsAnswer } from "./supply";
 import { type Compliance, controlUpkeep, envSeason } from "./enviro";
 import { sportsSeason, type TeamState } from "./sports";
 import { type Business, businessSeason, type Decision, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
@@ -87,6 +91,12 @@ export interface Works {
   hood?: Record<string, number>;
   /** what the market allowed it last season (src/core/world.ts) */
   market?: MarketView;
+  /** sold out of the family's hands (v0.18.2): it runs on under its buyer, or went for scrap */
+  sold?: { to: string; year: number };
+  /** unsold output in the yards (v0.18.2) */
+  stock?: number;
+  /** profit, the last eight seasons (for its value) */
+  profits?: number[];
   /** shut for good (the 1980s closure card): it stands cold, with a caretaker's upkeep */
   closed?: boolean;
   lossSeasons?: number;
@@ -115,6 +125,8 @@ export interface Company extends Works {
   holdings?: Holdings;
   /** retired men drawing a company pension (from 1950) */
   retirees?: number;
+  /** listed on the exchange (v0.18.2): the outsiders' share and the dividends missed */
+  public?: PublicState;
 }
 
 export interface RivalState {
@@ -149,6 +161,8 @@ export interface RivalState {
   stance?: number;
   /** its works lie off the map (v0.18): it competes, but draws, smokes and ships nothing on the map */
   offmap?: boolean;
+  /** furnaces banked in a glut (v0.18.2): output multiplier */
+  bank?: number;
   /** what it's preparing (shown a season ahead) */
   intent?: Intent;
   /** a defence against your stakes: their price ×this */
@@ -262,6 +276,10 @@ export interface GameState {
   /** the political balance, favours, elections (politics.ts) */
   pol?: PoliticsState;
   laws?: Record<string, LawState>;
+  /** the stock market's state (holdings.ts) */
+  stock?: StockState;
+  /** each industry's market this season (src/core/supply.ts) */
+  markets?: Partial<Record<IndustryId, MarketState>>;
   /** environmental compliance by law and works (src/core/enviro.ts) */
   compliance?: Record<string, Compliance>;
   /** the owners' association and your recent moves the rivals answer (owners.ts) */
@@ -295,6 +313,10 @@ export interface PricePoint {
   rivals?: Record<string, number>;
   /** the valley: population, town morale, men out of work; your workforce's health and unrest (0–1) */
   pop?: number; morale?: number; jobless?: number; health?: number; unrest?: number;
+  /** the family's net worth (v0.18.2) */
+  worth?: number;
+  /** each market: demand and supply (units a season), from 1893 */
+  mkt?: Partial<Record<IndustryId, [number, number]>>;
 }
 
 /** rated capacity of a works: its processes and expansions */
@@ -307,7 +329,7 @@ export function recordPrices(g: GameState) {
   const year = cal(g).year;
   const market = {} as Record<IndustryId, number>;
   for (const id of Object.keys(INDUSTRIES) as IndustryId[])
-    market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price", { industry: id }) * marketFactor(g, id) * 100) / 100;
+    market[id] = Math.round(INDUSTRIES[id].basePrice * (1 + (year - 1850) * PRICE_TREND) * mod(g, "price", { industry: id }) * marketFactor(g, id) * marketPrice(g, id) * 100) / 100;
   const p: PricePoint = { turn: g.turn, market, yours: {}, wage: Math.round(WAGE_PER_SEASON_1850 * priceLevel(year) * mod(g, "wage") * 100) / 100, raw: Math.round(PRICE(year) * mod(g, "input", { good: "coal" }) * 100) / 100 };
   const c = g.company;
   if (c?.totals) {
@@ -337,7 +359,9 @@ export function recordPrices(g: GameState) {
     p.techs = [...new Set(works.flatMap((w) => w.techs))];
     if (p.produced) p.unitCost = Math.round((p.costs / p.produced) * 100) / 100;
     p.health = Math.round(c.health * 100) / 100; p.unrest = Math.round(c.unrest * 100) / 100;
+    p.worth = companyWorth(g).total;
   }
+  if (g.markets) { p.mkt = {}; for (const [k, v] of Object.entries(g.markets)) if (v) p.mkt[k as IndustryId] = [Math.round(v.demand), Math.round(v.supply)]; }
   p.rivals = {};
   for (const r of g.rivals) { const v = rivalOutput(g, r, year); if (v > 0 && !r.owned) p.rivals[r.id] = v; }
   p.pop = totalPopulation(g); p.morale = Math.round(g.morale); p.jobless = g.jobless;
@@ -502,7 +526,8 @@ export function updateWorksAccess(g: GameState, w: Works) {
 }
 
 /** every works you own, the first one first */
-export const allWorks = (c: Company): Works[] => [c, ...c.others];
+/** the works the family still owns (a works sold or scrapped stays on record but leaves this list) */
+export const allWorks = (c: Company): Works[] => [c, ...c.others].filter((w) => !w.sold);
 export const totalEmployees = (c: Company) => allWorks(c).reduce((s, w) => s + w.employees, 0);
 
 /** Share of a tile's working men who'll take a job at the works, by walking time. */
@@ -750,10 +775,12 @@ export function advanceTurn(g: GameState): void {
   careerSeason(g, rng.fork("career"));
   familySeason(g);
   ledgerSeason(g);
+  rivalsAnswer(g);
   const rivals = rivalPlants(g, c0.year);
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk, rivals);
-  else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link }));
+  else { clearMarkets(g, {}, (r) => rivalOutput(g, r)); shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link })); }
   g.plants.push(...rivals);
+  updateStocks(g);
   const season = g.turn % 4;
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"));
   updateRivers(g.map, g.world, g.env, g.plants, mod(g, "riverLoad"));
@@ -841,6 +868,8 @@ export const RECEIVERSHIP = 8;
 interface WorksPlan {
   w: Works; capacity: number; wpu: number; workersWanted: number; workersHired: number;
   output: number; notes: string[]; needs: Shipper["needs"];
+  /** what sells this season (output plus stock drawn down, less what goes into the yards) */
+  sold?: number;
 }
 
 /** Labour, strikes and floods at one works: what it could make this season, and the inputs it needs. */
@@ -929,25 +958,52 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   }
   // wartime orders can push a works past its rated capacity (a little)
   output = Math.floor(output * Math.min(1.2, mod(g, "output", ctx)));
-  // the market: from 1946 orders come only for what the world will buy from a works with these costs; the rest of
-  // the plant stands idle (its upkeep still runs) and the men without work are laid off (src/core/world.ts)
-  const mk = marketFor(g, w);
-  w.market = mk;
-  const sellable = Math.floor(capacity * mk.util);
-  if (output > sellable) {
-    const keep = Math.ceil((sellable * wpu) / (0.75 + 0.25 * w.health));
-    const cut = Math.max(0, workersHired - keep);
-    if (cut > 0) {
-      if (w.employees > keep) g.jobless += w.employees - Math.max(keep, Math.min(w.employees, workersHired - cut));
-      workersHired -= cut;
-      if (w.seasonsOperating % 4 === 0) notes.push(`Orders for only ${Math.round(mk.util * 100)}% of capacity: ${cut.toLocaleString()} men laid off.`);
-    }
-    output = sellable;
-  }
   if (output === 0 && w.status === "running") w.status = "idle";
   const needs: Shipper["needs"] = {};
   for (const [good, per] of Object.entries(ind.inputs)) needs[good as keyof typeof needs] = output * (per ?? 0);
   return { w, capacity, wpu, workersWanted: w.closed ? 0 : workersWanted, workersHired, output, notes, needs };
+}
+
+/**
+ * The market's answer for one works (from 1893; src/core/supply.ts, world.ts): what sells, what goes into the yards,
+ * what's drawn from them, and how many men the works keeps. From 1946 your costs against the world's set your share.
+ */
+function applyMarket(g: GameState, p: WorksPlan) {
+  const w = p.w, y = cal(g).year, ind = INDUSTRIES[w.industry];
+  const view = marketFor(g, w);
+  const m = g.markets?.[w.industry];
+  const offered = p.output;
+  if (y < MARKET_FROM || !m || w.closed) { p.sold = offered; w.market = { ...view, util: 1, comp: 1, price: 1 }; return; }
+  const comp = y >= 1946 ? view.comp : 1;
+  const share = Math.min(1, m.sold * comp);
+  const run = g.company!.biz.policy.run ?? "market";
+  let stock = w.stock ?? 0;
+  // when there's room in the market the yards are drawn down first
+  const room = m.sold >= 1 ? Math.max(0, (m.demand - m.supply) * (offered / Math.max(1, m.supply))) + offered * 0.1 : 0;
+  const fromStock = Math.min(stock, Math.floor(room));
+  stock -= fromStock;
+  const sellable = Math.floor(offered * share);
+  let made = offered, sold = sellable + fromStock;
+  if (run === "banked") { made = 0; sold = fromStock; }
+  else if (run === "market") made = sellable;
+  else stock += offered - sellable;
+  w.stock = Math.round(stock);
+  if (made < offered) {
+    const keep = run === "banked" ? Math.round(p.workersHired * 0.08) : Math.ceil((made * p.wpu) / (0.75 + 0.25 * w.health));
+    const cut = Math.max(0, p.workersHired - keep);
+    if (cut > 0) {
+      if (w.employees > keep) g.jobless += Math.max(0, w.employees - keep);
+      p.workersHired -= cut;
+      if (w.seasonsOperating % 4 === 0) p.notes.push(run === "banked" ? `The furnaces are banked: ${cut.toLocaleString()} men laid off.` : `Orders for only ${Math.round((made / Math.max(1, p.capacity)) * 100)}% of capacity: ${cut.toLocaleString()} men laid off.`);
+    }
+    p.output = made;
+    for (const [good, per] of Object.entries(ind.inputs)) p.needs[good as keyof typeof p.needs] = made * (per ?? 0);
+    if (made === 0 && w.status === "running") w.status = "idle";
+  }
+  if (offered > sellable && run === "full" && w.seasonsOperating % 4 === 0) p.notes.push(`${(offered - sellable).toLocaleString()} units unsold went into the yards (${w.stock.toLocaleString()} there now).`);
+  p.sold = sold;
+  // what stands idle because of the market (its upkeep still runs: src/core/world.ts idleCost)
+  w.market = { ...view, comp, util: Math.max(0, 1 - (offered - made) / Math.max(1, p.capacity)), price: m.price };
 }
 
 /** Sell what the works made with what arrived; the works' own accounts for the season. */
@@ -966,13 +1022,17 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   const era = 1 + (year - 1850) * PRICE_TREND;
   const standing = techStanding(g, w);
   const ctx = { industry: w.industry };
-  const price = ind.basePrice * era * mod(g, "price", ctx) * pe.priceMult * (w.industry === "steel" ? 1 - (g.priceLoss ?? 0) : 1) * standing.factor * marketFactor(g, w.industry);
-  const wage = WAGE_PER_SEASON_1850 * priceLevel(year) * mod(g, "wage", ctx) * pe.wageMult;
-  const revenue = Math.round(output * price);
+  const price = ind.basePrice * era * mod(g, "price", ctx) * pe.priceMult * (w.industry === "steel" ? 1 - (g.priceLoss ?? 0) : 1) * standing.factor * marketFactor(g, w.industry) * marketPrice(g, w.industry);
+  // men are dearer where they're scarce (a works short of hands bids for them)
+  const scarce = p.workersHired < p.workersWanted * 0.9 && year >= MARKET_FROM ? 1.04 : 1;
+  const wage = WAGE_PER_SEASON_1850 * priceLevel(year) * mod(g, "wage", ctx) * pe.wageMult * scarce;
+  const sold = p.sold === undefined ? output : Math.max(0, Math.round(p.sold * (fr ? fr.delivered : 1)));
+  const revenue = Math.round(sold * price);
   // what was bought and hauled, less what better furnaces save (and more if someone has cornered the supply)
   // each good at its own price (Frick's coke, a mine disaster) and each lane at its own haulage rate
   let bought = 0;
-  if (fr) for (const l of fr.lanes) bought += l.delivered * (PRICE(year) * mod(g, "input", { ...ctx, good: l.good }) * inputMult(g, l.good, w.industry) + l.costPerTon * mod(g, "freightCost", { gateway: l.mode === "rail" ? "rail" : l.gateway }) * freightMult(g, l.mode));
+  const fuel = year >= MARKET_FROM ? fuelPriceMult(g) : 1;
+  if (fr) for (const l of fr.lanes) bought += l.delivered * (PRICE(year) * mod(g, "input", { ...ctx, good: l.good }) * inputMult(g, l.good, w.industry) * (l.good === "coal" || l.good === "coke" ? fuel : 1) + l.costPerTon * mod(g, "freightCost", { gateway: l.mode === "rail" ? "rail" : l.gateway }) * freightMult(g, l.mode));
   const inputCost = Math.round(bought * (1 - mods.efficiency) * pe.inputCostMult);
   // no work, no pay: strikers and locked-out men draw nothing from the company
   if (w.status === "strike") g.strikeAt.push([w.x, w.y]);
@@ -982,7 +1042,9 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   // plant the market leaves idle still costs: maintenance crews, the laid-off men's benefits (SUB pay from 1956),
   // property taxes and interest — so a mill broke even only near 70% of capacity (src/core/world.ts)
   const idle = w.closed ? 0 : Math.round(p.capacity * Math.max(0, 1 - (w.market?.util ?? 1)) * ind.basePrice * era * idleCost(w.industry));
-  const profit = revenue - inputCost - wages - upkeep - idle;
+  // stock in the yards: interest, storage and spoilage
+  const carry = Math.round((w.stock ?? 0) * price * 0.015);
+  const profit = revenue - inputCost - wages - upkeep - idle - carry;
   if (idle > 0 && w.seasonsOperating % 4 === 0) p.notes.push(`Idle plant: $${idle.toLocaleString()} a season to keep it ready.`);
   if (standing.behind.length && w.seasonsOperating % 4 === 0) p.notes.push(`Behind the industry (${standing.behind.map((t) => t.name).join(", ")}): prices ${Math.round((1 - standing.factor) * 100)}% under the rivals'.`);
   w.employees = working ? p.workersHired : 0;
@@ -991,7 +1053,7 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   g.plants.push({ x: w.x, y: w.y, fp: w.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution) * pe.pollutionMult * (cond(g, "flag:conference") ? 0.85 : 1), owner: w.id, outfall: pe.outfallMult });
   const done = advanceResearch(g, w);
   if (done) p.notes.push(done);
-  return { produced: output, revenue, inputCost, wages, upkeep: upkeep + idle, other: 0, profit, workersWanted: p.workersWanted, workersHired: p.workersHired, migrants: 0, notes: p.notes };
+  return { produced: output, revenue, inputCost, wages, upkeep: upkeep + idle + carry, other: 0, profit, workersWanted: p.workersWanted, workersHired: p.workersHired, migrants: 0, notes: p.notes };
 }
 
 function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number, rivals: Plant[]) {
@@ -1004,8 +1066,16 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const lockedOut = c.biz.lockout > 0;
   if (lockedOut) c.biz.lockout--;
 
+  // a family with no works of its own (sold up): it lives on its holdings
+  if (!allWorks(c).length) { investorSeason(g, rng, rivals); return; }
   // every works plans its season; then all the inputs ship together with the rivals'
   const plans = allWorks(c).map((w, k) => planWorks(g, w, rng.fork(`works${k}`), pe, floodRisk, lockedOut));
+  // the market clears with what everyone offers (from 1893): then each works learns what sells
+  const yours: Partial<Record<IndustryId, number>> = {};
+  const cap: Partial<Record<IndustryId, number>> = {};
+  for (const p of plans) { yours[p.w.industry] = (yours[p.w.industry] ?? 0) + p.output + (p.w.stock ?? 0) * 0.25; cap[p.w.industry] = (cap[p.w.industry] ?? 0) + (p.w.closed ? 0 : p.capacity * 0.85); }
+  clearMarkets(g, yours, (r) => rivalOutput(g, r), cap);
+  for (const p of plans) applyMarket(g, p);
   const ship = shipSeason(m, year0, riverMult, [
     ...rivalShippers(g, rivals),
     ...plans.map((p) => ({ id: p.w.id, site: { x: p.w.x, y: p.w.y, fp: p.w.footprint, spur: p.w.spur, dock: p.w.dock }, needs: p.needs })),
@@ -1064,10 +1134,29 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
     if (placed) main.notes.push(`${placed} ${GROUPS[gid].name} newcomers arrived for the works.`);
   }
   plans.forEach((p, k) => { p.w.lastSeason = reports[k]; });
+  recordProfits(c);
   c.totals = {
     produced: sum("produced"), revenue: sum("revenue"), inputCost: sum("inputCost"), wages: sum("wages"), upkeep: sum("upkeep"), other: other + bd.total, profit: profit + held, holdings: held, tax: bd.tax, pensions: bd.pensions,
     workersWanted: sum("workersWanted"), workersHired: sum("workersHired"), migrants, notes: main.notes,
   };
+  for (const n of publicSeason(g)) main.notes.push(n);
+}
+
+/** a season for a family that sold its works: the holdings pay, the taxes and the family's costs come out */
+function investorSeason(g: GameState, rng: Rng, rivals: Plant[]) {
+  const c = g.company!;
+  clearMarkets(g, {}, (r) => rivalOutput(g, r));
+  shipSeason(g.map, cal(g).year, 1, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link }));
+  const biz = businessSeason(g, rng.fork("biz"), 0);
+  const held = holdingsSeason(g);
+  const bd = burdens(g, 0, held);
+  const other = Math.round(biz.extraCost + biz.fines + bd.total);
+  c.cash -= other;
+  c.redSeasons = c.cash < 0 ? (c.redSeasons ?? 0) + 1 : 0;
+  if (c.redSeasons >= RECEIVERSHIP) c.bankrupt = true;
+  const notes = ["The family lives on its holdings.", ...biz.notes, ...bd.notes];
+  c.totals = { produced: 0, revenue: 0, inputCost: 0, wages: 0, upkeep: 0, other, profit: held - other, holdings: held, tax: bd.tax, pensions: bd.pensions, workersWanted: 0, workersHired: 0, migrants: 0, notes };
+  c.lastSeason = c.totals;
 }
 
 /** corporate income tax, top rate by year (the federal tax from 1909) */

@@ -26,6 +26,7 @@ import { decisionMarks } from "./branches";
 import { OWNER_ACTIONS, recordMove, type MoveKind } from "./owners";
 import { HOOD_ACTIONS } from "./hood";
 import { ENV_ACTIONS } from "./enviro";
+import { MARKET_ACTIONS } from "./supply";
 
 // ---------------------------------------------------------------- state
 
@@ -49,6 +50,8 @@ export interface Policy {
   police: boolean;
   /** Saturday half-holiday (from 1871) */
   halfHoliday: boolean;
+  /** how hard to run against the market (from 1893): make what sells, run full and stock the rest, or bank the furnaces */
+  run?: "market" | "full" | "banked";
 }
 
 export interface Business {
@@ -262,7 +265,7 @@ export function pushHeadline(g: GameState, name: string, description: string, ca
  */
 let actionList: ActionDef[] | null = null;
 export function allActions(): ActionDef[] {
-  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS, ...HOOD_ACTIONS, ...ENV_ACTIONS]);
+  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS, ...HOOD_ACTIONS, ...ENV_ACTIONS, ...MARKET_ACTIONS]);
 }
 
 const BASE_ACTIONS: ActionDef[] = [

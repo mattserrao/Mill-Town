@@ -11,6 +11,7 @@ import { esc } from "../core/text";
 import { money } from "./fx";
 import { roadPlans } from "../core/roads";
 import { complianceOf } from "../core/enviro";
+import { marginDebt } from "../core/holdings";
 
 export type Level = "bad" | "warn" | "good";
 export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" | "struggle" }
@@ -65,6 +66,16 @@ export function risks(g: GameState): Risk[] {
     out.push({ level: mk.util < 0.7 ? "bad" : "warn", title: `Orders for ${Math.round(mk.util * 100)}% of capacity${works.length > 1 ? ` (${w.name})` : ""}`,
       detail: `${mk.imports !== undefined ? `imports ${Math.round(mk.imports * 100)}% · minimills ${Math.round((mk.minimills ?? 0) * 100)}% · ` : ""}your costs ${mk.comp >= 1 ? "at or under" : "over"} the world's${mk.comp < 1 ? " (modernise or cut costs)" : ""}`, go: "works" });
   }
+  // the market (from 1893): a glut, and stock piling up in the yards
+  for (const ind of new Set(works.map((w) => w.industry))) {
+    const mk = g.markets?.[ind];
+    if (mk && mk.price < 0.9) out.push({ level: mk.price < 0.8 ? "bad" : "warn", title: `Glut: ${INDUSTRIES[ind].name.toLowerCase()} prices ${Math.round((mk.price - 1) * 100)}%`, detail: `${Math.round((mk.supply / Math.max(1, mk.demand)) * 100)}% of demand on offer · run to orders, bank the furnaces, or wait`, go: "policy" });
+  }
+  const yards = works.reduce((s2, w) => s2 + (w.stock ?? 0), 0);
+  if (yards > 0) out.push({ level: "warn", title: `${yards.toLocaleString("en-US")} unsold in the yards`, detail: "it costs 1.5% of its value a season to carry · dump it or wait for the market", go: "policy" });
+  const md = marginDebt(g);
+  if (md > 0) out.push({ level: md > c.cash ? "bad" : "warn", title: "Shares on margin", detail: `${money(md)} borrowed from the brokers · a fall of a quarter brings a call`, go: "holdings" });
+  if (c.public?.missed) out.push({ level: c.public.missed >= 3 ? "bad" : "warn", title: `${c.public.missed} dividend${c.public.missed > 1 ? "s" : ""} missed`, detail: `outsiders hold ${c.public.outside}% · the shares slide, raiders circle`, go: "holdings" });
   // environmental law: decrees and defiance
   for (const w of works) for (const cp of complianceOf(g, w)) out.push({ level: cp.mode === "defy" ? "bad" : "warn", title: cp.mode === "defy" ? `Defying the ${cp.law}` : `Consent decree: ${cp.law}`,
     detail: cp.mode === "decree" && cp.due !== undefined ? `${w.name} · ${Math.max(0, Math.ceil((cp.due - g.turn) / 4))} years left · ${cp.violations} violations` : `${w.name} · fines most seasons`, go: "works" });

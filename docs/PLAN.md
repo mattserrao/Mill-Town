@@ -247,6 +247,23 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
        steel works losing money from 1982. The collapse events no longer cut prices themselves
      - Landmarks (`src/core/civic.ts`): ~60 civic buildings at their real coordinates with open, rename, close and
        demolition dates; seven more parks; new sprites for the downtown towers, research campuses and reactors
+   - What things are worth (v0.18.2, `docs/V0182-PLAN.md`):
+     - Valuation (`src/core/value.ts`): a works is worth eight years of its recent profit or its scrap value; rivals
+       the same from their simulated profit; buy at value +10%, sell at −10%; net worth on the Overview, in Trends,
+       in the Fortune score and the estate tax (works at half; what the holdings can't pay is lent against the works).
+       Businesses return ~10% a year, stakes pay half their share of the rival's profit, shares ~4.5% plus growth
+     - Ownership (`src/core/ownership.ts`): sell the whole company from 1880 (a rival, U.S. Steel, the Mellons, later
+       the workers or the Steel Valley Authority) and play on as investors; scrap a closed works or (from 1960) clear
+       its land for redevelopment; take the company public from 1890 — outside shareholders, dividends, raiders when
+       they're missed, and a board that closes and sells once outsiders hold the majority
+     - The stock market (`holdings.ts`): prices follow the companies' simulated works, the market's mood (this game's
+       crash depth varies) and a seeded random walk; four more listings (J&L, Mesta, Koppers, Dravo); bigger orders
+       push the price; buying costs no action; margin from 1920 to 1934 with broker's calls
+     - Supply and demand from 1893 (`src/core/supply.ts`): demand from the rivals' normal output, room for your works,
+       the business cycle and the wars (from 1946 the world market); the price follows demand over supply; a glut
+       leaves part unsold (run to orders, run full and stock the yards, or bank the furnaces; dump the stock); the
+       rivals expand when prices are high and bank furnaces when low; busy mills make coal and coke dear; a steel
+       slump lowers morale. Works tab "Buy into…" lists every works for sale with its value
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI

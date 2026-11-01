@@ -4,6 +4,7 @@
 // The owners' association shares strikebreakers and blacklists; break ranks and they throw you out. Morgan's
 // 1901 trust can swallow a weak steel company, and later a hostile owner can bid for yours.
 
+import { worksValue } from "./value";
 import { type ActionDef, bump, type Decision, type DecisionOption, pushHeadline } from "./business";
 import { allWorks, cal, type GameState, log, type RivalState } from "./game";
 import { type IndustryId } from "./industries";
@@ -224,9 +225,10 @@ export function mergerOptions(g: GameState): DecisionOption[] {
 }
 
 /** what the whole company would fetch (eight seasons of sales, works by works) */
+/** what the company's works are worth to a buyer (src/core/value.ts) */
 export function companyValue(g: GameState): number {
   const c = g.company!;
-  return Math.max(100000, Math.round((c.totals?.revenue ?? 0) * 8 + Math.max(0, c.cash) * 0.2));
+  return Math.max(100000, allWorks(c).reduce((s, w) => s + worksValue(g, w), 0));
 }
 
 /** paid in U.S. Steel stock: the family's works become a division (or the heir builds something new) */

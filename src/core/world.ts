@@ -6,7 +6,8 @@
 // by how its costs compare with the world's (oxygen furnaces, continuous casting, automation). Unsold capacity
 // idles and its upkeep still runs. Research: docs/V018-RESEARCH.md §5.
 
-import { allWorks, cal, type GameState, type Works } from "./game";
+import { allWorks, cal, type GameState, log, type Works } from "./game";
+import { boardRules } from "./ownership";
 import { bump, type Decision } from "./business";
 import { mark } from "./ledger";
 import type { IndustryId } from "./industries";
@@ -163,7 +164,10 @@ export function closureSeason(g: GameState) {
     if (w.lossSeasons < 4) continue;
     c.biz.flags[`closeAsked_${w.id}`] = y;
     const d = closureDecision(g, w.id);
-    if (d) { if (!g.pendingDecision) g.pendingDecision = d; else g.moreDecisions.push(d); }
+    if (!d) continue;
+    // a board with the majority doesn't ask the family
+    if (boardRules(g)) { const t = d.options[0].apply(g, null as never); log(g, `The board closes ${w.name}. ${t}`); continue; }
+    if (!g.pendingDecision) g.pendingDecision = d; else g.moreDecisions.push(d);
   }
 }
 

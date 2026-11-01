@@ -26,6 +26,7 @@ const POLICY_UI: { key: keyof Policy; label: string; options: [string, string, s
   { key: "companyStore", label: "Company store", options: [["true", "Yes", "Run one, paid in scrip"], ["false", "No", "No"]] },
   { key: "halfHoliday", label: "Half Saturdays", options: [["true", "Yes", "Saturday half-holiday"], ["false", "No", "A full day's work"]], rule: "halfHoliday" },
   { key: "police", label: "Company police", options: [["true", "Yes", "Coal & Iron Police"], ["false", "No", "None"]], rule: "police" },
+  { key: "run", label: "Run", options: [["market", "To orders", "Make what the market will take (the men without work are laid off)"], ["full", "Full", "Run full and stock what doesn't sell (it costs money to carry)"], ["banked", "Banked", "Bank the furnaces: a caretaker crew, the plant kept ready"]] },
 ];
 
 let staged: Partial<Policy> = {};
@@ -45,13 +46,13 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
     rivalTarget = (tl.find((r) => mine.has(RIVALS.find((d) => d.id === r.id)!.industry)) ?? tl[0])?.id ?? "";
   }
   const pips = Array.from({ length: ACTIONS_PER_SEASON }, (_, k) => (k < b.actionsLeft ? "●" : "○")).join("");
-  const val = (k: keyof Policy) => String(staged[k] ?? b.policy[k]);
+  const val = (k: keyof Policy) => String(staged[k] ?? b.policy[k] ?? (k === "run" ? "market" : ""));
   const dirty = Object.keys(staged).some((k) => String(staged[k as keyof Policy]) !== String(b.policy[k as keyof Policy]));
   const groups = inPolitics(g) ? (["Office", "Politics", "Public", "Labour", "Environment", "Rivals"] as const) : (["Labour", "Public", "Politics", "Environment", "Rivals"] as const);
   const pendingLaws = LAWS.filter((l) => lawsOf(g)[l.id].passed === undefined && l.range[1] >= y && lawYear(g, l) <= y + 25);
   const recruitable = GROUPS.filter((gr) => gr.id >= 2 && gr.wave(y) > 0.05);
   // a policy is shown unless the law has taken it away (and you're not already using it)
-  const shown = POLICY_UI.filter((p) => !p.rule || !g.rules[p.rule]?.blocked || String(b.policy[p.key]) !== String(p.options[p.options.length - 1][0]) && p.key !== "union");
+  const shown = POLICY_UI.filter((p) => (p.key !== "run" || y >= 1893) && (!p.rule || !g.rules[p.rule]?.blocked || String(b.policy[p.key]) !== String(p.options[p.options.length - 1][0]) && p.key !== "union"));
   el.innerHTML = `
     <div class="bz-acts"><span>Actions left this season</span><span class="bz-pips" title="${b.actionsLeft} of ${ACTIONS_PER_SEASON}">${pips}</span></div>
     ${strike ? `<div class="bz-strike">Your men are on strike: negotiate, send in the Pinkertons, bring in strikebreakers — or wait.</div>` : ""}

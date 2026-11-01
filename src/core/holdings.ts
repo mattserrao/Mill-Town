@@ -13,8 +13,13 @@
 import { recordMove } from "./owners";
 import { bump } from "./business";
 import { relationOf } from "./economy";
-import { allWorks, cal, type GameState, log, PRICE_TREND, rivalOutput } from "./game";
-import { INDUSTRIES, type Good, type IndustryId } from "./industries";
+import { allWorks, cal, type GameState, log } from "./game";
+import { netWorth, rivalProfit, rivalValue } from "./value";
+import { rivalNominal } from "./supply";
+import { INDUSTRIES as INDUSTRY_DEFS } from "./industries";
+import { PRICE_TREND } from "./game";
+import { Rng } from "./rng";
+import { type Good, type IndustryId } from "./industries";
 import { inBounds } from "./map";
 import { RIVALS } from "./rivals";
 import { acquire, acquisitionQuote } from "./rivalai";
@@ -74,6 +79,8 @@ export interface Holdings {
   stakeYear?: Record<string, number>;
   /** the year you last bought each company's shares */
   shareYear?: Record<string, number>;
+  /** the broker's loan against each holding bought on margin (1920–34) */
+  margin?: Record<string, number>;
   /** last season's income by source */
   last?: { biz: number; stakes: number; dividends: number };
 }
@@ -90,7 +97,8 @@ const lerpCurve = (curve: [number, number][] | undefined, y: number) => {
 // ---------------------------------------------------------------- businesses
 export const bizDef = (id: string) => BUSINESSES.find((b) => b.id === id)!;
 export const bizPrice = (g: GameState, d: BizDef, level = 1) => Math.round((d.cost * priceLevel(year(g)) * (level === 1 ? 1 : 0.6 * level)) / 1000) * 1000;
-export const bizIncome = (g: GameState, d: BizDef, level: number) => Math.round(d.income * priceLevel(year(g)) * lerpCurve(d.curve, year(g)) * (1 + 0.7 * (level - 1)));
+/** a season's income: about 10% a year on the price (v0.18.2: was 24%, which made every business a sure thing) */
+export const bizIncome = (g: GameState, d: BizDef, level: number) => Math.round(d.income * 0.45 * priceLevel(year(g)) * lerpCurve(d.curve, year(g)) * (1 + 0.7 * (level - 1)));
 
 export function bizBlocked(g: GameState, d: BizDef): string | null {
   const c = g.company, y = year(g);
@@ -155,15 +163,17 @@ export function upgradeBiz(g: GameState, id: string): { ok: boolean; text: strin
   g.company!.cash -= p; g.company!.biz.actionsLeft--; b.level++; b.spent += p;
   return { ok: true, text: `${bizDef(id).name} enlarged (level ${b.level}).` };
 }
-export const sellValue = (b: OwnedBiz) => Math.round((b.spent * 0.7) / 1000) * 1000;
+/** what a business fetches: six years of its income, and at least a third of what it cost */
+export const sellValue = (g: GameState, b: OwnedBiz) => Math.round(Math.max(b.spent * 0.33, bizIncome(g, bizDef(b.id), b.level) * 24) / 1000) * 1000;
 export function sellBiz(g: GameState, id: string): { ok: boolean; text: string } {
   const h = holdingsOf(g), k = h.biz.findIndex((x) => x.id === id);
   if (k < 0) return { ok: false, text: "You don't own it" };
   const b = h.biz[k];
-  g.company!.cash += sellValue(b);
+  const got = sellValue(g, b);
+  g.company!.cash += got;
   h.biz.splice(k, 1);
   log(g, `${g.company!.name} sells its ${bizDef(id).name.toLowerCase()}.`);
-  return { ok: true, text: `Sold for $${sellValue(b).toLocaleString("en-US")}.` };
+  return { ok: true, text: `Sold for $${got.toLocaleString("en-US")}.` };
 }
 
 /** what the businesses you own do for your works */
@@ -192,21 +202,8 @@ export function upkeepMult(g: GameState): number {
 // ---------------------------------------------------------------- stakes in the rival works
 const rivalName = (g: GameState, id: string) => { const d = RIVALS.find((r) => r.id === id)!; const st = g.rivals.find((r) => r.id === id); return nameNow(d, year(g), st?.name, st?.nameYear).replace(/ \((.*)\)$/, " — $1"); };
 /** what the whole works is worth on the market (about two years' sales) */
-export function rivalValue(g: GameState, id: string): number {
-  const r = g.rivals.find((x) => x.id === id);
-  const d = RIVALS.find((x) => x.id === id);
-  if (!r || !d || !r.active || r.closed || r.owned) return 0;
-  const ind = INDUSTRIES[d.industry], y = year(g);
-  const out = Math.max(rivalOutput(g, r), ind.baseCapacity * 0.3);
-  return out * ind.basePrice * (1 + (y - 1850) * PRICE_TREND) * 8 * (y >= 1975 ? 0.4 : 1);
-}
-/** their profit per season (a steady 12% of sales), of which you get your share */
-export const rivalProfit = (g: GameState, id: string) => {
-  const r = g.rivals.find((x) => x.id === id), d = RIVALS.find((x) => x.id === id);
-  if (!r || !d || !r.active || r.closed || r.owned) return 0;
-  const ind = INDUSTRIES[d.industry];
-  return rivalOutput(g, r) * ind.basePrice * (1 + (year(g) - 1850) * PRICE_TREND) * 0.05;
-};
+// rivals' value and profit live in value.ts (earnings-based, from the simulated market)
+export { rivalProfit, rivalValue } from "./value";
 export const stakePrice = (g: GameState, id: string) => Math.round((rivalValue(g, id) * 0.1 * (g.rivals.find((r) => r.id === id)?.defence ?? 1)) / 1000) * 1000;
 export function stakeBlocked(g: GameState, id: string): string | null {
   const c = g.company;
@@ -279,61 +276,126 @@ export const friendly = (g: GameState, id: string) => (g.company?.holdings?.stak
 export const relationTo = (g: GameState, id: string) => { const d = RIVALS.find((r) => r.id === id)!; return g.company ? relationOf(g.company.industry, d.industry, id) : "other"; };
 
 // ---------------------------------------------------------------- shares in the region's companies
-export interface Listed { id: string; name: string; from: number; until?: number; /** price per share by year, before the market's moods */ path: [number, number][]; note: string; payout?: number }
+export interface Listed {
+  id: string; name: string; from: number; until?: number;
+  /** price per share by year, before the market's moods and the company's own fortunes */
+  path: [number, number][]; note: string; payout?: number;
+  /** the rival works whose simulated profit moves the price (v0.18.2) */
+  rivals?: string[];
+}
 export const LISTED: Listed[] = [
   { id: "heinz", name: "H. J. Heinz Co.", from: 1888, path: [[1888, 20], [1929, 90], [1950, 140], [1985, 320]], note: "Pickles and ketchup: steady through every panic." },
   { id: "wab", name: "Westinghouse Air Brake", from: 1869, path: [[1869, 20], [1900, 70], [1930, 110], [1968, 160]], until: 1968, payout: 1.2, note: "Air brakes on every train. Bought by American Standard in 1968, at a premium." },
-  { id: "wec", name: "Westinghouse Electric", from: 1886, path: [[1886, 30], [1906, 110], [1908, 40], [1929, 190], [1964, 260], [1975, 120], [1985, 210]], note: "Alternating current, radio, turbines, reactors: big swings." },
-  { id: "ppg", name: "Pittsburgh Plate Glass", from: 1883, path: [[1883, 25], [1900, 90], [1929, 150], [1968, 260], [1985, 330]], note: "Plate glass and paint." },
-  { id: "alcoa", name: "Aluminum Co. of America", from: 1888, path: [[1888, 10], [1907, 60], [1929, 260], [1945, 300], [1985, 520]], note: "From $5 a pound to pots and pans and airplanes: the great grower." },
+  { id: "wec", name: "Westinghouse Electric", from: 1886, rivals: ["westinghouse", "wresearch", "bettis", "astro"], path: [[1886, 30], [1906, 110], [1908, 40], [1929, 190], [1964, 260], [1975, 120], [1985, 210]], note: "Alternating current, radio, turbines, reactors: big swings." },
+  { id: "ppg", name: "Pittsburgh Plate Glass", from: 1883, rivals: ["ppg"], path: [[1883, 25], [1900, 90], [1929, 150], [1968, 260], [1985, 330]], note: "Plate glass and paint." },
+  { id: "alcoa", name: "Aluminum Co. of America", from: 1888, rivals: ["alcoa"], path: [[1888, 10], [1907, 60], [1929, 260], [1945, 300], [1985, 520]], note: "From $5 a pound to pots and pans and airplanes: the great grower." },
   { id: "gulf", name: "Gulf Oil", from: 1901, until: 1984, payout: 1.6, path: [[1901, 20], [1929, 160], [1960, 380], [1975, 300], [1984, 420]], note: "The Mellons' oil company. Bought by Chevron in 1984 at a big premium." },
-  { id: "uss", name: "U.S. Steel", from: 1901, path: [[1901, 50], [1916, 120], [1929, 250], [1950, 200], [1960, 180], [1985, 60]], note: "The first billion-dollar company, and the long decline." },
+  { id: "uss", name: "U.S. Steel", from: 1901, rivals: ["carnegie", "ussduq", "clairton", "ntube", "carrie"], path: [[1901, 50], [1916, 120], [1929, 250], [1950, 200], [1960, 180], [1985, 60]], note: "The first billion-dollar company, and the long decline." },
   { id: "mellon", name: "Mellon National Bank", from: 1869, path: [[1869, 20], [1902, 120], [1929, 300], [1950, 320], [1985, 420]], note: "The bank behind half the valley." },
+  { id: "jl", name: "Jones & Laughlin Steel", from: 1902, until: 1968, payout: 1.3, rivals: ["jl"], path: [[1902, 40], [1916, 90], [1929, 120], [1932, 15], [1950, 60], [1968, 70]], note: "The independent steelmaker on both banks; bought by LTV in 1968, at a premium." },
+  { id: "mesta", name: "Mesta Machine", from: 1920, until: 1983, payout: 0.02, rivals: ["mesta"], path: [[1920, 30], [1929, 70], [1950, 60], [1970, 40], [1980, 12], [1983, 1]], note: "Rolling mills and presses for the steel industry: as good as the mills' orders. Bankrupt in 1983." },
+  { id: "koppers", name: "Koppers Company", from: 1929, rivals: ["koppers"], path: [[1929, 40], [1932, 10], [1950, 50], [1970, 70], [1985, 90]], note: "Coke ovens, tar, chemicals and wood treating." },
+  { id: "dravo", name: "Dravo Corporation", from: 1930, rivals: ["dravo"], path: [[1930, 15], [1945, 40], [1960, 35], [1980, 40], [1985, 18]], note: "Barges, towboats, river contracting; the LST yard in the war." },
 ];
 /** the market's mood: panics, booms, the Crash and the long climb back */
 const MARKET: [number, number][] = [[1850, 1], [1857, 1], [1858, 0.75], [1861, 1], [1866, 1.15], [1873, 1.1], [1874, 0.75], [1879, 1], [1893, 1.05], [1894, 0.75], [1899, 1.1], [1906, 1.15], [1907, 0.8], [1912, 1], [1920, 1], [1921, 0.8], [1929, 1.6], [1932, 0.35], [1937, 0.7], [1942, 0.5], [1950, 0.8], [1966, 1.1], [1973, 1], [1974, 0.65], [1982, 0.7], [1985, 1]];
+
+/** the market's own state (v0.18.2): each company's fortunes and noise, and this game's depth of the crashes */
+export interface StockState { perf: Record<string, number>; noise: Record<string, number>; impact: Record<string, number>; crash: number; price: Record<string, number>; turn: number }
+
+const stockOf = (g: GameState): StockState => (g.stock ??= { perf: {}, noise: {}, impact: {}, crash: 0.75 + ((g.seed * 7919) % 1000) / 1000 * 0.6, price: {}, turn: -1 });
+
+/** the price a share would have from history alone (trend × the market's mood, this game's depth of the crashes) */
+function basePrice(g: GameState, L: Listed, y: number): number {
+  const mood = lerpCurve(MARKET, y), crash = stockOf(g).crash;
+  return lerpCurve(L.path, y) * (1 + (mood - 1) * (mood < 1 ? crash : 1));
+}
+
+/** how the company's works are doing against a normal year (their simulated profit), smoothed */
+function fortunes(g: GameState, L: Listed): number {
+  if (!L.rivals?.length) return 1;
+  let now = 0, normal = 0;
+  for (const id of L.rivals) {
+    const r = g.rivals.find((x) => x.id === id), d = RIVALS.find((x) => x.id === id);
+    if (!r || !d || !r.active || r.closed) continue;
+    now += rivalProfit(g, id);
+    normal += Math.max(1, rivalNominal(g, r) * INDUSTRIES_PRICE(d.industry, year(g)) * 0.12);
+  }
+  return normal ? Math.max(0.35, Math.min(1.8, 0.4 + 0.6 * (now / normal))) : 1;
+}
+
+/** each season: the market moves (the company's fortunes, a random walk, the buying you did) */
+export function updateStocks(g: GameState) {
+  const S = stockOf(g), c = cal(g), y = c.year + (["Spring", "Summer", "Autumn", "Winter"].indexOf(c.season)) / 4;
+  if (S.turn === g.turn) return;
+  S.turn = g.turn;
+  const rng = new Rng(`${g.seed}:stocks:${g.turn}`);
+  for (const L of LISTED) {
+    if (y < L.from) continue;
+    S.perf[L.id] = (S.perf[L.id] ?? 1) + (fortunes(g, L) - (S.perf[L.id] ?? 1)) * 0.3;
+    // a random walk that drifts back to history: moderate (about ±25% at most, most of the time)
+    const shock = (rng.next() + rng.next() + rng.next() - 1.5) * 0.09;
+    S.noise[L.id] = (S.noise[L.id] ?? 0) * 0.9 + shock;
+    S.impact[L.id] = (S.impact[L.id] ?? 0) * 0.5;
+    S.price[L.id] = Math.round(basePrice(g, L, y) * S.perf[L.id] * Math.exp(S.noise[L.id]) * (1 + S.impact[L.id]) * 100) / 100;
+  }
+}
 
 export function sharePrice(g: GameState, id: string): number {
   const L = LISTED.find((l) => l.id === id)!;
   const c = cal(g), y = c.year + (["Spring", "Summer", "Autumn", "Winter"].indexOf(c.season)) / 4;
   if (y < L.from) return 0;
-  const base = lerpCurve(L.path, y), mood = lerpCurve(MARKET, y);
-  return Math.round(base * mood * priceLevel(1850) * 100) / 100;
+  const S = stockOf(g);
+  return S.price[id] ?? Math.round(basePrice(g, L, y) * 100) / 100;
 }
+
+/** the trend price of a unit of an industry's output (for the companies' normal profit) */
+const INDUSTRIES_PRICE = (ind: IndustryId, y: number) => INDUSTRY_DEFS[ind].basePrice * (1 + (y - 1850) * PRICE_TREND);
 export const listedOpen = (g: GameState, L: Listed) => year(g) >= L.from && !(L.until && year(g) >= L.until);
 export const LOT = 100;
-/** the most lots one purchase can find sellers for */
-export const MAX_LOTS = 5;
+/** the most lots one purchase can find sellers for: more as the market grows (v0.18.2) */
+export const maxLots = (y: number) => Math.round(10 * priceLevel(y) * (y >= 1920 ? 2 : 1));
+/** buying on margin (the call-loan market, 1920 until the Securities Exchange Act of 1934): 10% down */
+export const marginOpen = (y: number) => y >= 1920 && y < 1934;
+export const MARGIN_RATE = 0.015; // a season (about 6% a year)
+export const marginDebt = (g: GameState) => Object.values(g.company?.holdings?.margin ?? {}).reduce((s, v) => s + v, 0);
 /** tax on the gain when shares are sold or bought out (from 1913) */
 export const capitalGainsRate = (y: number) => (y < 1913 ? 0 : y < 1922 ? 0.1 : y < 1934 ? 0.125 : y < 1942 ? 0.3 : y < 1979 ? 0.25 : 0.28);
 function gainsTax(g: GameState, id: string, value: number): number {
   const h = holdingsOf(g), gain = value - (h.shareCost[id] ?? 0);
   return gain > 0 ? Math.round(gain * capitalGainsRate(year(g))) : 0;
 }
-export function buyShares(g: GameState, id: string, lots = 1): { ok: boolean; text: string } {
+export function buyShares(g: GameState, id: string, lots = 1, onMargin = false): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "Found your company first" };
   const L = LISTED.find((l) => l.id === id)!;
   if (!listedOpen(g, L)) return { ok: false, text: "Not listed" };
-  lots = Math.max(1, Math.min(MAX_LOTS, lots));
-  const cost = Math.round(sharePrice(g, id) * LOT * lots);
-  if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString("en-US")}` };
+  const y = year(g);
+  lots = Math.max(1, Math.min(maxLots(y), lots));
+  // a big order pushes the price up as the brokers find sellers (about 1% a lot)
+  const p = sharePrice(g, id), cost = Math.round(p * LOT * lots * (1 + 0.005 * (lots - 1)));
+  const margin = onMargin && marginOpen(y);
+  const down = margin ? Math.round(cost * 0.1) : cost;
+  if (c.cash < down) return { ok: false, text: `Needs $${down.toLocaleString("en-US")}` };
   const h = holdingsOf(g);
-  if (h.shareYear?.[id] === year(g)) return { ok: false, text: "One purchase a year in each company: the brokers can only find so many sellers" };
-  if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
-  c.cash -= cost; c.biz.actionsLeft--;
-  (h.shareYear ??= {})[id] = year(g);
+  if (h.shareYear?.[id] === y) return { ok: false, text: "One order a year in each company: the brokers can only find so many sellers" };
+  (h.shareYear ??= {})[id] = y;
+  c.cash -= down;
+  if (margin) (h.margin ??= {})[id] = (h.margin[id] ?? 0) + (cost - down);
   h.shares[id] = (h.shares[id] ?? 0) + LOT * lots;
   h.shareCost[id] = (h.shareCost[id] ?? 0) + cost;
-  return { ok: true, text: `Bought ${LOT * lots} shares of ${L.name}.` };
+  const S = stockOf(g);
+  S.impact[id] = (S.impact[id] ?? 0) + 0.01 * lots;
+  if (S.price[id]) S.price[id] = Math.round(S.price[id] * (1 + 0.005 * lots) * 100) / 100;
+  return { ok: true, text: `Bought ${(LOT * lots).toLocaleString("en-US")} shares of ${L.name}${margin ? ` on margin ($${down.toLocaleString("en-US")} down, $${(cost - down).toLocaleString("en-US")} borrowed)` : ""}.` };
 }
 export function sellShares(g: GameState, id: string): { ok: boolean; text: string } {
   const h = holdingsOf(g), n = h.shares[id] ?? 0;
   if (!n) return { ok: false, text: "You hold none" };
-  const v = Math.round(n * sharePrice(g, id)), tax = gainsTax(g, id, v);
-  g.company!.cash += v - tax;
-  delete h.shares[id]; delete h.shareCost[id];
-  return { ok: true, text: `Sold for $${v.toLocaleString("en-US")}${tax ? ` ($${tax.toLocaleString("en-US")} tax on the gain)` : ""}.` };
+  const v = Math.round(n * sharePrice(g, id)), tax = gainsTax(g, id, v), loan = Math.round(h.margin?.[id] ?? 0);
+  g.company!.cash += v - tax - loan;
+  delete h.shares[id]; delete h.shareCost[id]; if (h.margin) delete h.margin[id];
+  return { ok: true, text: `Sold for $${v.toLocaleString("en-US")}${loan ? `, $${loan.toLocaleString("en-US")} of it to the broker's loan` : ""}${tax ? ` ($${tax.toLocaleString("en-US")} tax on the gain)` : ""}.` };
 }
 
 // ---------------------------------------------------------------- the season
@@ -368,7 +430,8 @@ export function holdingsSeason(g: GameState): number {
       delete h.stakes[id]; delete h.stakeCost[id];
       continue;
     }
-    stakes += rivalProfit(g, id) * (pct / 100);
+    // a minority holder gets the dividend: about half the earnings (the rest goes back into the works)
+    stakes += Math.max(0, rivalProfit(g, id)) * 0.5 * (pct / 100);
   }
   // dividends: about 5% a year of the share price; companies bought out pay out at a premium
   for (const [id, n] of Object.entries(h.shares)) {
@@ -380,8 +443,22 @@ export function holdingsSeason(g: GameState): number {
       log(g, `${L.name} is bought out: your ${n.toLocaleString("en-US")} shares are paid $${pay.toLocaleString("en-US")}.`);
       continue;
     }
-    dividends += n * sharePrice(g, id) * 0.0075;
+    dividends += n * sharePrice(g, id) * 0.009; // about 3.6% a year
   }
+  // the broker's loans: interest, and a call when the shares no longer cover them (equity under a quarter)
+  let interest = 0;
+  for (const [id, loan] of Object.entries(h.margin ?? {})) {
+    if (!loan) continue;
+    interest += loan * MARGIN_RATE;
+    const value = (h.shares[id] ?? 0) * sharePrice(g, id);
+    if (value < loan * 1.33) {
+      const L = LISTED.find((l) => l.id === id)!;
+      const r = sellShares(g, id);
+      log(g, `Margin call on ${L.name}: the broker sells you out. ${r.text}`);
+      if (!c.biz.flags[`marginCall${y}`]) { c.biz.flags[`marginCall${y}`] = true; g.headlines.push({ year: y, season: cal(g).season, name: `Margin Call for ${c.name}`, description: `The broker's loan on ${L.name} no longer covered: the shares are sold at the bottom, and the loan paid from the company's cash.`, category: "Industry" }); }
+    }
+  }
+  dividends -= interest;
   h.last = { biz: Math.round(biz), stakes: Math.round(stakes), dividends: Math.round(dividends) };
   const total = Math.round(biz + stakes + dividends);
   c.cash += total;
@@ -393,10 +470,16 @@ export function holdingsValue(g: GameState): { biz: number; stakes: number; shar
   const h = g.company?.holdings;
   if (!h) return { biz: 0, stakes: 0, shares: 0 };
   return {
-    biz: h.biz.reduce((s, b) => s + sellValue(b), 0),
+    biz: h.biz.reduce((s, b) => s + sellValue(g, b), 0),
     stakes: Object.entries(h.stakes).reduce((s, [id, pct]) => s + (rivalValue(g, id) * pct) / 100, 0),
     shares: Object.entries(h.shares).reduce((s, [id, n]) => s + n * sharePrice(g, id), 0),
   };
 }
 
 export { allWorks, rivalName as stakeName };
+
+/** the whole concern's net worth (works, holdings, cash, less debts and margin loans) */
+export function companyWorth(g: GameState) {
+  const v = holdingsValue(g);
+  return netWorth(g, v.biz + v.stakes + v.shares, marginDebt(g));
+}

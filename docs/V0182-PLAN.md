@@ -107,3 +107,16 @@ Follows the v0.18 review (1 Nov 2026). Three problems:
 3. **C:** share prices tied to the game, more stocks, margin, going public.
 4. **D:** demand and supply, stock, rival reactions, knock-on effects.
 5. **Rebalance and test:** the review harness for each industry and owner style, plus a "seller" and a "speculator" owner. Then docs and the PR.
+
+## Build results (v0.18.2)
+
+Harness, seed 11, 1850–1985, net worth at the end:
+
+| Owner | Steel | Glass |
+|---|---|---|
+| Invests (runs the works) | $6.1M | $6.2M |
+| Seller (sells 1955, buys shares) | $7.4M | $8.8M |
+| Speculator (margin in the 1920s) | $6.1M | $6.2M |
+| Tycoon (buys everything) | $170M | $114M |
+
+Tuning made during the build: stakes pay half their share of rival profit; market room only counts the player's real capacity; one share order a year per company; dividends ~3.6% a year. No bankruptcies in any run.

@@ -5,6 +5,7 @@
 // into politics, give the works to the men, or sell up and live as a financier. A merger or a takeover can force
 // the succession early.
 
+import { worksValue } from "./value";
 import { bump, pushHeadline } from "./business";
 import { allWorks, cal, type GameState, log, updateAccess, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, industriesIn, type IndustryId } from "./industries";
@@ -179,8 +180,10 @@ export function estateRate(y: number): number {
 }
 export function estateTax(g: GameState, foundation: boolean): number {
   const c = g.company!, y = cal(g).year, hv = holdingsValue(g);
-  // the estate is the cash and everything held beyond the works (the works themselves pass in the company)
-  const base = Math.max(0, c.cash + hv.biz + hv.stakes + hv.shares - 60000 * priceLevel(y));
+  // the estate is the cash, the holdings, and the family's part of its works (valued at half: a family firm
+  // that can't be sold without selling the family's living — v0.18.2)
+  const works = allWorks(c).reduce((s, w) => s + worksValue(g, w), 0) * 0.5 * (1 - (c.public?.outside ?? 0) / 100);
+  const base = Math.max(0, c.cash + hv.biz + hv.stakes + hv.shares + works - 60000 * priceLevel(y));
   return Math.round(base * estateRate(y) * 0.5 * (foundation ? 0.5 : 1));
 }
 /** what a family foundation takes from the fortune (a fifth) */
@@ -211,6 +214,8 @@ export function resolveSuccession(g: GameState, ch: SuccessionChoice): string {
     parts.push(`Estate tax: $${tax.toLocaleString("en-US")}.`);
     // the executors sell what they must to pay it: shares first, then stakes, then the businesses
     if (c.cash < 0) parts.push(payFromHoldings(g));
+    // what the holdings can't cover, the bank lends against the works
+    if (c.cash < 0) { c.debt += -c.cash; parts.push(`The bank lends $${Math.round(-c.cash).toLocaleString("en-US")} against the works to settle the estate.`); c.cash = 0; }
   }
   inheritLedger(g);
   const h: Head = { ...heir, from: y, path, cashFrom: Math.round(c.cash), offices: [] };

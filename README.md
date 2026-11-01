@@ -75,6 +75,12 @@ in the terminal running `npm run dev`.
   minimills, and your costs against Japan's and Europe's (oxygen furnaces, continuous casting, automation, wages).
   Unsold plant idles, its upkeep still runs, and the men are laid off. From 1982 a steel works losing money faces
   the board's closure card: almost no steel works survives without the family's other businesses
+- **What things are worth** (v0.18.2): every works has a value (eight years of profit, or its scrap); net worth on
+  the Overview and Holdings. Sell the whole company from 1880 and live as investors, scrap or redevelop a closed
+  works, list the company on the exchange (shareholders want dividends; a majority of outsiders means the board
+  decides). Share prices follow the companies' works in the valley and the market's mood; margin buying 1920–34
+- **Supply and demand** (from 1893): prices follow demand against everyone's output; a glut leaves goods unsold
+  (run to orders, run full and fill the yards, or bank the furnaces) and the rivals expand or cut back with prices
 - **Landmarks** fill in on their real dates and places: ~60 more hospitals, high schools, colleges and libraries,
   ballparks and arenas, memorials and the downtown towers (the Frick, Koppers, Gulf, Alcoa and U.S. Steel
   buildings, PPG Place), with renames (Duquesne University, Chatham, Carnegie Mellon) and demolitions

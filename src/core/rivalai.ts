@@ -8,8 +8,9 @@
 //
 // And your moves against them: undercut, poach, rumours, espionage, sabotage — and buying their works outright.
 
+import { rivalValue, sellPrice } from "./value";
 import { type ActionDef, bump, pushHeadline } from "./business";
-import { allWorks, cal, PRICE_TREND, type Company, type GameState, log, nextWorksId, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
+import { allWorks, cal, type Company, type GameState, log, nextWorksId, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { rivalMult, rivalTechs } from "./market";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
@@ -132,14 +133,10 @@ export function acquisitionQuote(g: GameState, r: RivalState): { price: number }
   if (def.industry === "medicine" || def.id === "mellon_inst") return { refused: "A hospital or an institute isn't for sale" };
   const same = sameIndustry(g, r);
   if (y < (same ? 1880 : 1890)) return { refused: same ? "Buying rival works begins in the 1880s" : "Buying into another industry opens in 1890" };
-  const ind = INDUSTRIES[def.industry];
-  let cap = 1;
-  for (const id of rivalTechs(def.industry, def.id, y, r.style)) cap += ind.tech.find((t) => t.id === id)?.effects.capacity ?? 0;
-  const out = ind.baseCapacity * cap * (1 + r.expand);
-  let price = out * ind.basePrice * (1 + (y - 1850) * PRICE_TREND) * 8;
-  if ((r.style ?? def.style) === "financier") price *= 1.5;
-  if (rivalMult(g, r) < 1 + r.expand - 0.01) price *= 0.75; // in trouble: they'll take less
-  if (y >= 1975) price *= 0.4;
+  // what the works is worth (eight years of its profit, or its scrap: src/core/value.ts), plus 10% to the seller
+  let price = rivalValue(g, r.id) * 1.1;
+  if ((r.style ?? def.style) === "financier") price *= 1.2 / 1.1;
+  if (rivalMult(g, r) < (1 + r.expand) * (r.bank ?? 1) - 0.01 || (r.strikeUntil ?? 0) > g.turn) price *= 0.75; // in trouble: they'll take less
   price *= g.rules.buy?.cost ?? 1; // antitrust scrutiny raises the price
   return { price: Math.round(price / 1000) * 1000 };
 }
@@ -256,13 +253,9 @@ export const RIVAL_ACTIONS: ActionDef[] = [
 ];
 
 /** what a buyer would pay for one of your works (none of them will take the first works: that's the company) */
+/** what a buyer pays for one of your works: its value less 10% (src/core/value.ts) */
 export function saleQuote(g: GameState, w: Works): number {
-  const ind = INDUSTRIES[w.industry], y = year(g);
-  let cap = 1;
-  for (const t of ind.tech) if (w.techs.includes(t.id)) cap += t.effects.capacity ?? 0;
-  let price = ind.baseCapacity * cap * ind.basePrice * (1 + (y - 1850) * PRICE_TREND) * 5;
-  if (y >= 1975) price *= 0.3; // who buys a mill in the collapse?
-  return Math.round(price / 1000) * 1000;
+  return sellPrice(g, w);
 }
 
 /** sell one of your works: back to its old owners if you bought it, otherwise to whoever will run it */
