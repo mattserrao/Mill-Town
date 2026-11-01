@@ -5,7 +5,7 @@
 
 import { actionBlocked, actionCost, allActions, takeAction } from "../core/business";
 import { cal, type GameState } from "../core/game";
-import { INDUSTRIES, type IndustryId } from "../core/industries";
+import { INDUSTRIES, industriesIn, type IndustryId } from "../core/industries";
 import { age, estateRate, estateTax, foundationGift, fullName, head, managed, PATH_SHORT, PATHS, type Path, resolveSuccession, TRAITS } from "../core/family";
 import { leaderOf, sieges, type Union, unionName } from "../core/labour";
 import { generation, standing, topMarks, whoDid } from "../core/ledger";
@@ -133,7 +133,7 @@ export function successionCard(g: GameState, el: HTMLElement, done: () => void) 
   if (!f || !s || !c) { el.hidden = true; return; }
   if (pickFor !== s.year) { pick = { heir: 0, path: s.paths.includes("business") ? "business" : s.paths[0], industry: "", sellOld: true, foundation: false, side: standing(g, "labour") > 10 ? "reform" : "business" }; pickFor = s.year; }
   const y = cal(g).year, h = head(g)!;
-  const others = (Object.keys(INDUSTRIES) as IndustryId[]).filter((i) => i !== c.industry);
+  const others = industriesIn(cal(g).year).filter((i) => i !== c.industry);
   if (!pick.industry || !others.includes(pick.industry as IndustryId)) pick.industry = others[0];
   const tax = estateTax(g, pick.foundation), gift = pick.foundation ? foundationGift(g) : 0;
   el.innerHTML = `<div class="paper succ">

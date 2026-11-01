@@ -128,6 +128,8 @@ export function acquisitionQuote(g: GameState, r: RivalState): { price: number }
   const def = defOf(r), y = year(g);
   if (def.id === "carnegie") return { refused: "Carnegie sells to no one but J. P. Morgan" };
   if (def.id === "frick") return { refused: "Frick will not sell his coke works" };
+  if (r.offmap) return { refused: `Its works are off the map (${def.offmap}): buy a stake instead` };
+  if (def.industry === "medicine" || def.id === "mellon_inst") return { refused: "A hospital or an institute isn't for sale" };
   const same = sameIndustry(g, r);
   if (y < (same ? 1880 : 1890)) return { refused: same ? "Buying rival works begins in the 1880s" : "Buying into another industry opens in 1890" };
   const ind = INDUSTRIES[def.industry];

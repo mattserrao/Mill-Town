@@ -10,7 +10,7 @@
 | Turns | Turn-based, 1 turn = 1 season |
 | Eras | Four, one head of the family each (v0.16): I Iron and the Founders (1850–92) · II Steel and the Trusts (1893–1919) · III Depression, New Deal and War (1920–46) · IV Renaissance and Collapse (1947–85) |
 | End | Collapse is the final test |
-| Industries | Steel, Power, Glass, Metalworking/Shipbuilding. Start with one; buy into others from Era II |
+| Industries | Steel, Power, Glass, Metalworking/Shipbuilding from 1850; Aluminium (1893), Coal chemicals and Research (1915), Medicine (1947), Nuclear (1949) (v0.18). Start with one; buy into others from Era II |
 | Generations | A named family (v0.16): the founder, then an heir at each new era who chooses the family's path — the business, a new industry, politics, the co-op, or finance |
 | Rivals | AI rivals, real figures (Carnegie, Frick, Jones & Laughlin, Westinghouse, PPG, Mellon, Dravo) |
 | Town | Grows on its own in response to the mill; the player doesn't zone |
@@ -27,7 +27,7 @@
 | Trust buy-out | Morgan's 1901 trust can buy (or swallow) a steel company for stock; a hostile owner can bid for an overdrawn one. Either forces an early succession; play goes on to 1985 |
 | Historical moments | Decisions when they touch your works (e.g. Homestead 1892 at your mill); elsewhere history plays out as written |
 | Rival AI | Rivals take the same actions, by personality (Carnegie integrates and cuts prices, Frick corners coke and breaks strikes, Mellon finances and buys) |
-| Collapse | Hard but possible to survive: modernise, diversify, keep labour peace |
+| Collapse | Almost no steel works survives (v0.18): the world market, the Clean Air Act and idle-plant costs close even a modernised mill unless the family has diversified |
 | Historical event actions | See `docs/EVENTS-PLAN.md` §6: no trust buy-out (1901 card instead); separate rivals; Frick stays at Homestead; add Mesta, National Tube, U.S. Steel Duquesne, Carrie Furnaces, Duquesne Light (Westinghouse → East Pittsburgh equipment maker); off-map places get stand-in sites on the map; streetcars still end 1955; coke = coal price for steel; build sell-a-works, layoffs, strike contagion, a morale meter and sports teams |
 
 ## Core loop
@@ -228,6 +228,25 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      1950 and pre-1898 offices are Romanesque; more tower tops and crowns; night is lighter; haze thins as you zoom
      in; bigger stack smoke; one vehicle to a stretch of lane and two on a pike; creeks stay a pixel wide zoomed out;
      the end screen labels its year
+   - The modern valley (v0.18.1, `docs/V018-PLAN.md`, research in `docs/V018-RESEARCH.md`):
+     - Five new industries with real rivals: aluminium (`alcoa`, 1893), coal chemicals (Koppers, Neville, Pittsburgh
+       Coke & Chemical, Mobay; 1915), industrial research (Mellon Institute, Westinghouse Research, Gulf R&D, USS
+       Research; 1915), medicine (Presbyterian, the Oakland hospitals; 1947) and nuclear (Bettis, Astronuclear,
+       NUMEC; 1949), with process trees, plant layouts and campuses; works off the map compete from its edge
+       (`offmap`), their towers stand downtown
+     - Your neighbourhood (`src/core/hood.ts`): five measures within a third of a mile of each works and eleven
+       investments in their windows (water mains to community development corporations) that act through health and
+       unrest and show on the map
+     - Environmental law (`src/core/enviro.ts`): eight laws with `env` levels; pollution-control equipment in every
+       process tree (cost rising steeply with each level); install, decree or defy; decrees accumulate violations and
+       can collapse; GASP from 1969; curtailment plans for inversions (1948, 1975); offsets after 1977; the 1981
+       stretch-out
+     - The world market (`src/core/world.ts`): from 1946 orders follow U.S. utilisation by industry (steel 48% in
+       1982), imports, minimills, trade policy and your cost competitiveness; idle plant keeps its upkeep and the men
+       are laid off; steel's list price holds to 1981 then falls; aluminium on the LME from 1978; a closure card for
+       steel works losing money from 1982. The collapse events no longer cut prices themselves
+     - Landmarks (`src/core/civic.ts`): ~60 civic buildings at their real coordinates with open, rename, close and
+       demolition dates; seven more parks; new sprites for the downtown towers, research campuses and reactors
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -249,6 +268,8 @@ routing, environment, growth and neighbourhood style.
   drawn and kept in a 64 MB least-recently-used cache; scaled copies only for the current and last zoom; drawn
   map sections sized to about three screens and dropped for a zoom you've left. ~105–175 MB in all through 1985
   (was ~500 MB at its peaks). Still to do: draw slopes separately so houses don't need a variant per slope
+- v0.18 balance: glass, power and metalworking come through the 1980s diminished; steel is meant to fail without
+  diversification (see the review harness). The new industries' prices and men per unit are first-pass values
 - Graphics still to do: the map canvas ignores the screen's pixel ratio (scaled up by the browser on HiDPI
   displays); boats aren't depth-masked; bridges and inclines are drawn over the
   buildings in front of them; the small "0" marks are street-lamp globes and read oddly when zoomed in; walkers on

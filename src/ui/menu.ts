@@ -4,7 +4,7 @@
 import { AUTOSAVE, deleteSave, listSaves, type SaveMeta } from "../core/save";
 import { esc } from "../core/text";
 import { money } from "./fx";
-import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "../core/industries";
+import { INDUSTRIES, industriesIn, type IndustryId } from "../core/industries";
 
 let typed = { seed: "", first: "", last: "" };
 
@@ -65,7 +65,7 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
         <label class="${pick.faction === "industrialist" ? "on" : ""}"><input type="radio" name="mmFaction" value="industrialist" ${pick.faction === "industrialist" ? "checked" : ""}/><b>Industrialist</b><span>Run the family company</span></label>
         <label class="${pick.faction === "politician" ? "on" : ""}"><input type="radio" name="mmFaction" value="politician" ${pick.faction === "politician" ? "checked" : ""}/><b>Politician</b><span>A manager runs the works; you run for office</span></label>
       </div>
-      <label class="mm-seed">Family business <select id="mmInd">${INDUSTRY_IDS.map((i) => `<option value="${i}" ${pick.industry === i ? "selected" : ""}>${INDUSTRIES[i].name}</option>`).join("")}</select></label>
+      <label class="mm-seed">Family business <select id="mmInd">${industriesIn(1850).map((i) => `<option value="${i}" ${pick.industry === i ? "selected" : ""}>${INDUSTRIES[i].name}</option>`).join("")}</select></label>
       <label class="mm-seed">Family <input id="mmFirst" type="text" maxlength="20" placeholder="founder" /> <input id="mmLast" type="text" maxlength="24" placeholder="surname" /></label>` : ""}
       ${auto && !h.inGame ? `<p class="mm-p mm-warn">Your last game stays saved: resume or load it any time.</p>` : ""}
       <div class="mm-row"><button data-a="main">Back</button><button class="primary" data-a="start">Start</button></div>`;

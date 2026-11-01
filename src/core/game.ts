@@ -19,6 +19,10 @@ import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOptio
 import { placeNamed } from "./places";
 import { hospitals, type PlacedLandmark } from "./landmarks";
 import { clearRuins, publicHousing, registerMapHooks } from "./mapfx";
+import { civicYear } from "./civic";
+import { hoodBoosts } from "./hood";
+import { closureSeason, idleCost, marketFor, type MarketView } from "./world";
+import { type Compliance, controlUpkeep, envSeason } from "./enviro";
 import { sportsSeason, type TeamState } from "./sports";
 import { type Business, businessSeason, type Decision, newBusiness, policyEffects, type PolicyEffects, type PublicWorks, resolveDecision } from "./business";
 import { applyEffects, cond, applyPendingRivalFx, type PoliticalEra, type Rule } from "./effects";
@@ -79,6 +83,13 @@ export interface Works {
   /** minutes from this works to every block (the first works uses g.access) */
   access?: Float32Array;
   founded: number;
+  /** investments in the neighbourhood around it (src/core/hood.ts): id -> year */
+  hood?: Record<string, number>;
+  /** what the market allowed it last season (src/core/world.ts) */
+  market?: MarketView;
+  /** shut for good (the 1980s closure card): it stands cold, with a caretaker's upkeep */
+  closed?: boolean;
+  lossSeasons?: number;
 }
 
 export interface Company extends Works {
@@ -136,6 +147,8 @@ export interface RivalState {
   nameYear?: number;
   /** −100 hostile … +100 ally, toward your family (owners.ts) */
   stance?: number;
+  /** its works lie off the map (v0.18): it competes, but draws, smokes and ships nothing on the map */
+  offmap?: boolean;
   /** what it's preparing (shown a season ahead) */
   intent?: Intent;
   /** a defence against your stakes: their price ×this */
@@ -249,6 +262,8 @@ export interface GameState {
   /** the political balance, favours, elections (politics.ts) */
   pol?: PoliticsState;
   laws?: Record<string, LawState>;
+  /** environmental compliance by law and works (src/core/enviro.ts) */
+  compliance?: Record<string, Compliance>;
   /** the owners' association and your recent moves the rivals answer (owners.ts) */
   owners?: OwnersState;
   moves?: Move[];
@@ -360,6 +375,7 @@ export function newGame(map: GameMap, seed: number): GameState {
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
     history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [],
     moreDecisions: [], morale: 50, flags: {}, pressures: [], dryShops: [], ruins: [], burnt: [], rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
+  civicYear(g, 1850, true);
   g.commute = buildCommute(map, world, centersFor(g));
   recordHistory(map, world, g.history);
   warmEnvironment(g);
@@ -408,10 +424,17 @@ export function cal(g: GameState): Calendar {
 }
 
 export interface Founder { first: string; surname: string; sex?: "m" | "f" }
+/** what a new company starts with: $100,000 in 1850; later (and in the dearer modern industries) more */
+export function foundingCapital(industry: IndustryId, year: number): number {
+  return Math.round(Math.max(STARTING_CASH, INDUSTRIES[industry].startCost * 1.6) * priceLevel(year) / 1000) * 1000;
+}
+
 export function foundCompany(g: GameState, industry: IndustryId, x: number, y: number, name?: string, founder?: Founder): { ok: boolean; reason?: string } {
   if (g.company) return { ok: false, reason: "Company already founded" };
+  if ((INDUSTRIES[industry].from ?? 1850) > cal(g).year) return { ok: false, reason: `${INDUSTRIES[industry].name} from ${INDUSTRIES[industry].from}` };
   const rep = evaluateSite(g.map, g.world, g.fields, industry, x, y);
   if (!rep.ok) return { ok: false, reason: rep.reasons.join("; ") };
+  const STARTING_CASH = foundingCapital(industry, cal(g).year);
   if (rep.cost > STARTING_CASH) return { ok: false, reason: `Costs $${rep.cost.toLocaleString()}, you have $${STARTING_CASH.toLocaleString()}` };
   const ind = INDUSTRIES[industry];
   claimFootprint(g, x, y, rep.footprint, 1, Use.Industry);
@@ -722,6 +745,8 @@ export function advanceTurn(g: GameState): void {
   // the union organises, the politicians count votes, the heirs grow up, memories fade
   if (g.company) labourSeason(g, rng.fork("labour"));
   { const pr = rng.fork("politics"); politicsSeason(g, () => pr.next()); }
+  envSeason(g, rng.fork("env"));
+  closureSeason(g);
   careerSeason(g, rng.fork("career"));
   familySeason(g);
   ledgerSeason(g);
@@ -760,7 +785,7 @@ export function advanceTurn(g: GameState): void {
   if (c1.year !== c0.year) g.commute = buildCommute(g.map, g.world, centersFor(g));
   roadsSeason(g);
   {
-    const plants: [number, number][] = g.rivals.map((r) => [Math.round(r.x + r.footprint / 2), Math.round(r.y + r.footprint / 2)]);
+    const plants: [number, number][] = g.rivals.filter((r) => !r.offmap).map((r) => [Math.round(r.x + r.footprint / 2), Math.round(r.y + r.footprint / 2)]);
     if (g.company) plants.push([Math.round(g.company.x + g.company.footprint / 2), Math.round(g.company.y + g.company.footprint / 2)]);
     {
       // the census curve sets how many arrive this season; desirability sets where
@@ -779,10 +804,11 @@ export function advanceTurn(g: GameState): void {
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
     for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
+    civicYear(g, c1.year);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     recordHistory(g.map, g.world, g.history);
     returningUnion(g);
-    updateHealth(g.map, g.world, g.env, hospitals(g));
+    updateHealth(g.map, g.world, g.env, hospitals(g), hoodBoosts(g));
     updateAccess(g);
     if (g.company) for (const w of g.company.others) updateWorksAccess(g, w);
   }
@@ -824,7 +850,8 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   const mods = techMods(w);
   const cx = w.x + (w.footprint >> 1), cy = w.y + (w.footprint >> 1);
   const notes: string[] = [];
-  const capacity = ind.baseCapacity * (1 + mods.capacity);
+  // a unit retired for offsets (after the 1977 amendments) takes a share of the first works for good
+  const capacity = ind.baseCapacity * (1 + mods.capacity) * (w === g.company && g.company.biz.flags.offsets ? 0.85 : 1);
   // bigger plant needs fewer men per ton (the Bessemer converter, the open hearth): men grow with capacity^0.8;
   // labour-saving processes each cut the men per ton by their share; long shifts need fewer men
   const wpu = Math.max(0.02, ind.workersPerUnit * mods.labour) * pe.wpuMult * Math.pow(1 + mods.capacity, -0.2);
@@ -860,10 +887,14 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   w.unrest = Math.max(0, Math.min(1, w.unrest - (g.morale - 50) / 500));
   const ctx = { industry: w.industry };
   const laidOff = g.company!.biz.layoffUntil > g.turn ? 0.75 : 1;
-  const workersHired = Math.round(laidOff * Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult * mod(g, "labour", ctx) * (main ? 1 : 0.8)));
+  let workersHired = Math.round(laidOff * Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult * mod(g, "labour", ctx) * (main ? 1 : 0.8)));
   let output = Math.min(capacity, workersHired / wpu);
   w.status = "running";
-  if (lockedOut) {
+  if (w.closed) {
+    output = 0; workersHired = 0;
+    w.status = "idle";
+    notes.push(`${w.name} stands cold.`);
+  } else if (lockedOut) {
     output = 0;
     w.status = "lockout";
     notes.push("The gates are locked. The works is dark.");
@@ -872,7 +903,7 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
     output = 0;
     w.status = "strike";
     notes.push("The men are out on strike. The works stand cold.");
-  } else if (unorganisedStrikeChance(g, w) > 0 && rng.chance(unorganisedStrikeChance(g, w) * (0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike", ctx) * (0.4 + 1.6 * w.unrest) * pe.strikeMult * strikeContagion(g, w))) {
+  } else if (unorganisedStrikeChance(g, w) > 0 && rng.chance(unorganisedStrikeChance(g, w) * (0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike", ctx) * (0.4 + 1.6 * w.unrest) * pe.strikeMult * strikeContagion(g, w) * (ind.quiet ? 0.3 : 1))) {
     w.strikeTurns = rng.int(1, 3); // long enough to negotiate, call the Pinkertons or bring in strikebreakers
     g.stats.strikes++;
     output = 0;
@@ -898,10 +929,25 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   }
   // wartime orders can push a works past its rated capacity (a little)
   output = Math.floor(output * Math.min(1.2, mod(g, "output", ctx)));
+  // the market: from 1946 orders come only for what the world will buy from a works with these costs; the rest of
+  // the plant stands idle (its upkeep still runs) and the men without work are laid off (src/core/world.ts)
+  const mk = marketFor(g, w);
+  w.market = mk;
+  const sellable = Math.floor(capacity * mk.util);
+  if (output > sellable) {
+    const keep = Math.ceil((sellable * wpu) / (0.75 + 0.25 * w.health));
+    const cut = Math.max(0, workersHired - keep);
+    if (cut > 0) {
+      if (w.employees > keep) g.jobless += w.employees - Math.max(keep, Math.min(w.employees, workersHired - cut));
+      workersHired -= cut;
+      if (w.seasonsOperating % 4 === 0) notes.push(`Orders for only ${Math.round(mk.util * 100)}% of capacity: ${cut.toLocaleString()} men laid off.`);
+    }
+    output = sellable;
+  }
   if (output === 0 && w.status === "running") w.status = "idle";
   const needs: Shipper["needs"] = {};
   for (const [good, per] of Object.entries(ind.inputs)) needs[good as keyof typeof needs] = output * (per ?? 0);
-  return { w, capacity, wpu, workersWanted, workersHired, output, notes, needs };
+  return { w, capacity, wpu, workersWanted: w.closed ? 0 : workersWanted, workersHired, output, notes, needs };
 }
 
 /** Sell what the works made with what arrived; the works' own accounts for the season. */
@@ -932,8 +978,12 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   if (w.status === "strike") g.strikeAt.push([w.x, w.y]);
   const working = w.status !== "lockout" && w.status !== "strike";
   const wages = working ? Math.round(p.workersHired * wage) : 0;
-  const upkeep = Math.round(p.capacity * ind.basePrice * UPKEEP * (1 + (year - 1850) * 0.008) * upkeepMult(g));
-  const profit = revenue - inputCost - wages - upkeep;
+  const upkeep = Math.round(p.capacity * ind.basePrice * UPKEEP * (1 + (year - 1850) * 0.008) * upkeepMult(g) * (1 + controlUpkeep(w)) * (w.closed ? 0.1 : 1));
+  // plant the market leaves idle still costs: maintenance crews, the laid-off men's benefits (SUB pay from 1956),
+  // property taxes and interest — so a mill broke even only near 70% of capacity (src/core/world.ts)
+  const idle = w.closed ? 0 : Math.round(p.capacity * Math.max(0, 1 - (w.market?.util ?? 1)) * ind.basePrice * era * idleCost(w.industry));
+  const profit = revenue - inputCost - wages - upkeep - idle;
+  if (idle > 0 && w.seasonsOperating % 4 === 0) p.notes.push(`Idle plant: $${idle.toLocaleString()} a season to keep it ready.`);
   if (standing.behind.length && w.seasonsOperating % 4 === 0) p.notes.push(`Behind the industry (${standing.behind.map((t) => t.name).join(", ")}): prices ${Math.round((1 - standing.factor) * 100)}% under the rivals'.`);
   w.employees = working ? p.workersHired : 0;
   w.produced += output;
@@ -941,7 +991,7 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   g.plants.push({ x: w.x, y: w.y, fp: w.footprint, output, pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, 1 + mods.pollution) * pe.pollutionMult * (cond(g, "flag:conference") ? 0.85 : 1), owner: w.id, outfall: pe.outfallMult });
   const done = advanceResearch(g, w);
   if (done) p.notes.push(done);
-  return { produced: output, revenue, inputCost, wages, upkeep, other: 0, profit, workersWanted: p.workersWanted, workersHired: p.workersHired, migrants: 0, notes: p.notes };
+  return { produced: output, revenue, inputCost, wages, upkeep: upkeep + idle, other: 0, profit, workersWanted: p.workersWanted, workersHired: p.workersHired, migrants: 0, notes: p.notes };
 }
 
 function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number, rivals: Plant[]) {
@@ -1211,7 +1261,7 @@ function rivalPlants(g: GameState, year: number): Plant[] {
   const out: Plant[] = [];
   for (const r of g.rivals) {
     const def = RIVALS.find((d) => d.id === r.id);
-    if (!def || !r.active || r.closed) continue;
+    if (!def || !r.active || r.closed || r.offmap) continue;
     const ind = INDUSTRIES[def.industry];
     let pol = 1;
     for (const id of rivalTechs(def.industry, def.id, year, r.style)) pol += ind.tech.find((x) => x.id === id)?.effects.pollution ?? 0;
@@ -1260,6 +1310,15 @@ function spawnRivals(g: GameState, year: number) {
   for (const def of RIVALS) {
     // a rival that found no room on its entry year keeps looking, further out, for ten years
     if (year < def.entryYear || year > def.entryYear + 10 || g.rivals.some((r) => r.id === def.id)) continue;
+    if (def.offmap) {
+      // a works beyond the map's edge: it competes from there (marked at the edge toward it)
+      const [ex, ey] = latLonToTile(g.map, def.at![0], def.at![1]);
+      const x = Math.max(1, Math.min(g.map.width - 2, ex)), y = Math.max(1, Math.min(g.map.height - 2, ey));
+      g.rivals.push({ id: def.id, ownerId: 2 + g.rivals.length, x, y, footprint: 0, active: true, riverSide: "N", expand: 0, damage: [], grudge: 0, offmap: true });
+      log(g, `${def.figures.join(" & ")} open ${def.company} at ${def.offmap}.`);
+      applyPendingRivalFx(g);
+      continue;
+    }
     const named = g.map.landmarks.find((l) => l.name === def.site);
     const lm = def.at ? (() => { const [x, y] = latLonToTile(g.map, def.at![0], def.at![1]); return { x: Math.max(4, Math.min(g.map.width - 12, x)), y: Math.max(4, Math.min(g.map.height - 12, y)) }; })() : named;
     if (!lm) continue;

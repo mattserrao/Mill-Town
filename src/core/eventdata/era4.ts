@@ -141,7 +141,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   "J&L Takes Youngstown Sheet & Tube": [{ rival: "jl", damage: [0.9, 12] }],
   "City of Champions": [{ team: "pirates", act: "title" }, { team: "steelers", act: "title" }, { meters: { morale: 3 } }],
   "Closures Announced": [
-    { mods: [["price", 0.85, 30]], scope: { industry: "steel" } },
+    // the volume collapse itself is the world market (src/core/world.ts)
     { place: "Mon Valley", unrest: 0.08, seasons: 8 },
     { meters: { morale: -5 } },
   ],
@@ -149,8 +149,8 @@ export const EFFECTS: Record<string, Effect[]> = {
   // ---- the 1980s
   "City Shrinks to 424,000": [{ meters: { morale: -2 } }],
   "The Bottom Falls Out": [
-    { mods: [["price", 0.75, 20], ["output", 0.7, 20]], scope: { industry: ["steel", "metalworks"] } },
-    { mods: [["price", 0.92, 8]], scope: { industry: ["glass", "power"] } },
+    // the 1982 trough (48% utilisation) is in the world market; here the jobless and the mood
+    { mods: [["price", 0.95, 8]], scope: { industry: ["glass", "power"] } },
     { meters: { morale: -6 } },
   ],
   "National Tube Curtailed": [

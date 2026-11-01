@@ -16,7 +16,7 @@ interface Series {
 }
 interface ChartOpts { fmt?: (n: number) => string; axis?: (n: number) => string; stacked?: boolean; marks?: { k: number; label: string }[]; max?: number }
 
-const IND_COLOUR: Record<IndustryId, string> = { steel: "#e07a4a", power: "#e8d050", glass: "#7ac8e0", metalworks: "#a8a0e0" };
+const IND_COLOUR: Record<IndustryId, string> = { steel: "#e07a4a", power: "#e8d050", glass: "#7ac8e0", metalworks: "#a8a0e0", aluminium: "#c8ccd4", chemicals: "#8ac06a", research: "#e0a0d0", nuclear: "#60d0b0", medicine: "#f08080" };
 const money = (n: number) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; return a >= 1e6 ? `${s}$${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${s}$${Math.round(a / 1000)}k` : a >= 100 ? `${s}$${Math.round(a).toLocaleString()}` : `${s}$${a.toFixed(2)}`; };
 const moneyAxis = (n: number) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; return a >= 1e6 ? `${s}$${+(a / 1e6).toFixed(1)}M` : a >= 1000 ? `${s}$${+(a / 1000).toFixed(1)}k` : a >= 10 ? `${s}$${Math.round(a)}` : `${s}$${a.toFixed(2)}`; };
 const count = (n: number) => (Math.abs(n) >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e4 ? `${Math.round(n / 1000)}k` : Math.round(n).toLocaleString());

@@ -89,12 +89,12 @@ function play(ind: IndustryId, who: Owner, seed: number) {
     if (sieges(g).length && strikeYears[strikeYears.length - 1] !== y) strikeYears.push(y);
     if (c.cash > peak.cash) peak = { cash: Math.round(c.cash), year: y };
     if (c.bankrupt && bankrupt === null) bankrupt = y;
-    if (cal(g).season === "Spring" && y % 5 === 0) yearly[y] = { cash: Math.round(c.cash), profit: c.totals?.profit ?? 0, men: c.totals?.workersHired ?? 0, tax: c.totals?.tax, pensions: c.totals?.pensions };
+    if (cal(g).season === "Spring" && (y % 5 === 0 || y >= 1975)) yearly[y] = { cash: Math.round(c.cash), profit: c.totals?.profit ?? 0, men: c.totals?.workersHired ?? 0, tax: c.totals?.tax, pensions: c.totals?.pensions };
   }
   const hv = holdingsValue(g);
   const L = lawsOf(g);
   return {
-    ind, who, seed, bankrupt, peak, endCash: Math.round(c.cash), endYear: cal(g).year, endIndustry: c.industry, keptPct: peak.cash ? Math.round((c.cash / peak.cash) * 100) : 0,
+    ind, who, seed, bankrupt, peak, closed: allWorks(c).filter((w) => w.closed).map((w) => w.name), util: c.market?.util, endCash: Math.round(c.cash), endYear: cal(g).year, endIndustry: c.industry, keptPct: peak.cash ? Math.round((c.cash / peak.cash) * 100) : 0,
     strikes: g.stats.strikes, strikeYears, demands, decisions, moves, answers, msPerSeason: Math.round((Date.now() - t0) / seasons), slowestMs: slowest,
     rep: Math.round(c.biz.meters.reputation), lab: Math.round(c.biz.meters.labour), infl: Math.round(c.biz.meters.influence), morale: Math.round(g.morale),
     unions: Object.fromEntries(Object.entries(g.unions ?? {}).map(([k, u]) => [k, { mem: +u!.membership.toFixed(2), mil: Math.round(u!.militancy), rec: u!.recognised, won: u!.won, lost: u!.lost }])),

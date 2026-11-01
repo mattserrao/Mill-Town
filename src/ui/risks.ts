@@ -10,6 +10,7 @@ import { calendar } from "../core/time";
 import { esc } from "../core/text";
 import { money } from "./fx";
 import { roadPlans } from "../core/roads";
+import { complianceOf } from "../core/enviro";
 
 export type Level = "bad" | "warn" | "good";
 export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" | "struggle" }
@@ -56,6 +57,17 @@ export function risks(g: GameState): Risk[] {
     const st = techStanding(g, w);
     if (st.behind.length) out.push({ level: st.behind.length >= 2 ? "bad" : "warn", title: `${st.behind.length} process${st.behind.length > 1 ? "es" : ""} behind${works.length > 1 ? ` (${w.name})` : ""}`, detail: `price −${Math.round((1 - st.factor) * 100)}% · ${st.behind.map((t) => t.name).join(", ")}`, go: "works" });
   }
+
+  // the world market: orders for only part of the plant (from 1946)
+  for (const w of works) {
+    const mk = w.market;
+    if (!mk || mk.util >= 0.85) continue;
+    out.push({ level: mk.util < 0.7 ? "bad" : "warn", title: `Orders for ${Math.round(mk.util * 100)}% of capacity${works.length > 1 ? ` (${w.name})` : ""}`,
+      detail: `${mk.imports !== undefined ? `imports ${Math.round(mk.imports * 100)}% · minimills ${Math.round((mk.minimills ?? 0) * 100)}% · ` : ""}your costs ${mk.comp >= 1 ? "at or under" : "over"} the world's${mk.comp < 1 ? " (modernise or cut costs)" : ""}`, go: "works" });
+  }
+  // environmental law: decrees and defiance
+  for (const w of works) for (const cp of complianceOf(g, w)) out.push({ level: cp.mode === "defy" ? "bad" : "warn", title: cp.mode === "defy" ? `Defying the ${cp.law}` : `Consent decree: ${cp.law}`,
+    detail: cp.mode === "decree" && cp.due !== undefined ? `${w.name} · ${Math.max(0, Math.ceil((cp.due - g.turn) / 4))} years left · ${cp.violations} violations` : `${w.name} · fines most seasons`, go: "works" });
 
   // the men
   if (c.unrest >= 0.35) out.push({ level: c.unrest >= 0.5 ? "bad" : "warn", title: `Unrest: ${c.unrest >= 0.5 ? "angry" : "restless"}`, detail: "strike risk up", go: "policy" });

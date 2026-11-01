@@ -56,7 +56,9 @@ export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitenti
   // dated landmarks (src/core/landmarks.ts): one sprite per kind, struct:<kind>
   "hospital", "library", "college", "tower", "museum", "conservatory", "ballpark", "stadium", "arena", "terminal", "chapel",
   "school", "theatre", "observatory", "zoo", "amusement", "airport", "plant", "office", "housing", "fountain", "factory",
-  "shipyard", "planetarium", "church", "hall", "ruin1", "ruin2", "ruin3", "ruin4"] as const;
+  "shipyard", "planetarium", "church", "hall", "ruin1", "ruin2", "ruin3", "ruin4",
+  // v0.18 (appended so saved structure indices keep their meaning)
+  "skyscraper", "skytower", "glasstower", "lab", "reactor"] as const;
 export type StructureKind = (typeof STRUCTURES)[number];
 const STRUCTURE_SIZE: Record<string, number> = { blockhouse: 1, courthouse: 2, arsenal: 3, penitentiary: 3 };
 

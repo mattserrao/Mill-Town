@@ -1,6 +1,6 @@
 import { distance, feet } from "./core/units";
-import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
-import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
+import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, foundingCapital, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
+import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
 import { loadMap, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
@@ -125,6 +125,7 @@ function resetUiState() {
 /** show a game (new or loaded) */
 function showGame(g: GameState) {
   game = g;
+  { const sel = $<HTMLSelectElement>("industry"); sel.innerHTML = ""; if (!industriesIn(cal(g).year).includes(industry)) industry = "steel"; industryOptions(); }
   paperIdx = -1; paperSeen = 0;
   ($<HTMLInputElement>("seed")).value = String(g.seed);
   seedEdited = false;
@@ -448,7 +449,7 @@ function setTab(tab: string) {
 function suggestName(ind: IndustryId, seed: number): string {
   const S = ["Shoenberger", "Lyon", "Bakewell", "Zug", "Painter", "Moorhead", "McKnight", "Singer", "Spang", "Graff", "Hussey", "Lewis", "Wood", "Brown", "Park", "Oliver", "Byers", "Laughlin", "Shorb", "Black", "Everson"];
   const a = S[Math.abs(seed) % S.length], b = S[(Math.abs(seed) * 7 + 3) % S.length];
-  const tail = { steel: "Iron Works", glass: "Glass Works", power: "Gas Light Company", metalworks: "Boat & Engine Works" }[ind];
+  const tail = { steel: "Iron Works", glass: "Glass Works", power: "Gas Light Company", metalworks: "Boat & Engine Works", aluminium: "Reduction Company", chemicals: "Chemical Company", research: "Research Laboratories", nuclear: "Atomic Laboratories", medicine: "Medical Center" }[ind];
   return (seed % 3 === 0 && a !== b ? `${a}, ${b} & Co.` : seed % 3 === 1 ? `${a} Brothers` : `${a} & Co.`) + ` ${tail}`;
 }
 function row(k: string, v: string, cls = "") {
@@ -516,7 +517,7 @@ function refreshPanels() {
   const c = cal(game), co = game.company;
   $("calendar").innerHTML = `<small>Era ${c.era.id}</small><b>${c.season} ${c.year}</b>`;
   $("calendar").title = `Era ${c.era.id}: ${c.era.name}`;
-  $("cash").innerHTML = `<small>${co ? "Cash" : "Capital"}</small><b>${co ? short(co.cash) : "$100,000"}</b>`;
+  $("cash").innerHTML = `<small>${co ? "Cash" : "Capital"}</small><b>${co ? short(co.cash) : short(foundingCapital(industry, cal(game).year))}</b>`;
   const p = co?.totals?.profit;
   $("profit").hidden = !co;
   $("profit").innerHTML = `<small>Last season</small><b class="${(p ?? 0) >= 0 ? "up" : "down"}">${p === undefined ? "—" : `${p >= 0 ? "+" : ""}${short(p)}`}</b>`;
@@ -559,13 +560,13 @@ function siteReport() {
   site.hidden = false; $("siteHint").hidden = true;
   site.innerHTML = [
     row("Score", `${rep.score} / 100`, rep.ok ? "good" : "bad"),
-    row("Cost", money(rep.cost), rep.cost > 100000 ? "bad" : ""),
+    row("Cost", money(rep.cost), rep.cost > foundingCapital(industry, cal(game).year) ? "bad" : ""),
     row("Men nearby", fmt(rep.labor)),
     row("River", rep.riverM > 60000 ? "—" : distance(rep.riverM)),
     rep.ok ? "" : `<div class="full bad">${rep.reasons.join(" · ")}</div>`,
   ].join("");
   site.title = rep.reasons.join(" · ");
-  ($<HTMLButtonElement>("found")).disabled = !rep.ok || rep.cost > 100000;
+  ($<HTMLButtonElement>("found")).disabled = !rep.ok || rep.cost > foundingCapital(industry, cal(game).year);
 }
 
 /** what the works is now, from its newest process ("Bessemer steel", not 1850's "iron furnace" in 1985) */
@@ -716,7 +717,7 @@ function setupUI() {
   });
   $("trendsBtn").addEventListener("click", () => toggleTrends());
   const sel = $<HTMLSelectElement>("industry");
-  sel.innerHTML = INDUSTRY_IDS.map((k) => `<option value="${k}">${INDUSTRIES[k].name}</option>`).join("");
+  sel.innerHTML = industriesIn(1850).map((k) => `<option value="${k}">${INDUSTRIES[k].name}</option>`).join("");
   sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); siteReport(); rivalsPanel(); requestRender(); });
   industryNote();
   // supply chain and competitor lists: hover highlights on the map, click flies there
@@ -1106,7 +1107,14 @@ function nextYear() {
   afterTurn();
 }
 
+/** the industries a company can be founded in (the modern ones open as the years go by) */
+function industryOptions() {
+  const sel = $<HTMLSelectElement>("industry"), list = industriesIn(game ? cal(game).year : 1850);
+  if (sel.options.length === list.length) return;
+  sel.innerHTML = list.map((k) => `<option value="${k}"${k === industry ? " selected" : ""}>${INDUSTRIES[k].name}</option>`).join("");
+}
 function afterTurn() {
+  if (!game.company) industryOptions();
   afterChange();
   if (cal(game).season === "Spring" || game.over) autosave();
   if (!$("trends").hidden) trendsView(game, $("trends"), setTab);
@@ -1198,7 +1206,7 @@ function showBestSite() {
   const cands: { x: number; y: number; score: number }[] = [];
   for (let y = 4; y < map.height - fp - 4; y += 5) for (let x = 4; x < map.width - fp - 4; x += 5) {
     const r = evaluateSite(map, game.world, game.fields, industry, x, y, pSat);
-    if (r.ok && r.cost <= 100000) cands.push({ x, y, score: r.score });
+    if (r.ok && r.cost <= foundingCapital(industry, cal(game).year)) cands.push({ x, y, score: r.score });
   }
   cands.sort((a, b) => b.score - a.score);
   const pick = cands.find((c) => siteTried.every((t) => Math.hypot(t.x - c.x, t.y - c.y) > 30));

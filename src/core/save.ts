@@ -8,6 +8,8 @@
 // Slots: "autosave" (written every new year, when you leave the page and when you go to the main menu) and up to
 // MAX_SAVES named saves.
 
+import { envDecision } from "./enviro";
+import { closureDecision } from "./world";
 import { allDecisions } from "./eventdata";
 import { complyDecision, lawById } from "./politics";
 import { demandDecision } from "./labour";
@@ -124,7 +126,9 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
     const src = (d as { $dec?: string } | undefined)?.$dec;
     if (!src) return undefined;
     // the decisions v0.16 raises from the state rather than from an event
-    const made = src.startsWith("law:") ? (lawById(src.slice(4)) ? complyDecision(lawById(src.slice(4))!) : undefined)
+    const made = src.startsWith("closure:") ? closureDecision(g, src.slice(8)) ?? undefined
+      : src.startsWith("env:") ? envDecision(g, src.split(":")[1], src.split(":").slice(2).join(":")) ?? undefined
+      : src.startsWith("law:") ? (lawById(src.slice(4)) ? complyDecision(lawById(src.slice(4))!) : undefined)
       : src.startsWith("demand:") ? demandDecision(g, src.slice(7) as IndustryId) ?? undefined
         : src === "takeover" ? takeoverDecision(g) ?? undefined
           : decs[src]?.(g) ?? undefined;

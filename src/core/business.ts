@@ -24,6 +24,8 @@ import { earnFavour, illegal, lawPassed, POLITICS_ACTIONS } from "./politics";
 import { OFFICE_ACTIONS } from "./career";
 import { decisionMarks } from "./branches";
 import { OWNER_ACTIONS, recordMove, type MoveKind } from "./owners";
+import { HOOD_ACTIONS } from "./hood";
+import { ENV_ACTIONS } from "./enviro";
 
 // ---------------------------------------------------------------- state
 
@@ -230,7 +232,7 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
 
 export interface ActionDef {
   id: string;
-  group: "Labour" | "Public" | "Politics" | "Rivals" | "Office";
+  group: "Labour" | "Public" | "Politics" | "Rivals" | "Office" | "Neighbourhood" | "Environment";
   name: string;
   /** one line on what it does and what it costs you */
   blurb: string;
@@ -260,7 +262,7 @@ export function pushHeadline(g: GameState, name: string, description: string, ca
  */
 let actionList: ActionDef[] | null = null;
 export function allActions(): ActionDef[] {
-  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS]);
+  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS, ...HOOD_ACTIONS, ...ENV_ACTIONS]);
 }
 
 const BASE_ACTIONS: ActionDef[] = [
@@ -475,7 +477,7 @@ const BASE_ACTIONS: ActionDef[] = [
     id: "ura", group: "Politics", name: "Clear a block by your works (redevelopment)",
     blurb: "Spend influence (20): the Redevelopment Authority clears the worst housing next to your works for parking and expansion. The families are moved. Reputation −4, morale −3.",
     cost: (g) => Math.round(30000 * era(year(g))), blocked: (g) => (g.company!.biz.meters.influence < 20 ? "Needs 20 influence" : null),
-    run: (g) => { bump(g, "influence", -20); g.morale = Math.max(0, g.morale - 3); return HOOKS.ura?.(g) ?? "Nothing to clear."; },
+    run: (g) => { bump(g, "influence", -20); g.morale = Math.max(0, g.morale - 3); const f = g.company!.biz.flags; f.uraCount = Number(f.uraCount ?? 0) + 1; return HOOKS.ura?.(g) ?? "Nothing to clear."; },
   },
   {
     id: "tariff", group: "Politics", name: "Lobby for a higher tariff",

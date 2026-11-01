@@ -13,6 +13,7 @@ import { recordMove } from "./owners";
 import { INDUSTRIES, type IndustryId, type Tech } from "./industries";
 import { cal, type GameState, log, type RivalState, techsForYear, type Works } from "./game";
 import { RIVALS } from "./rivals";
+import { worldPrice } from "./world";
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -34,7 +35,7 @@ export function rivalTechs(ind: IndustryId, id: string, year: number, style?: st
 export function standardTechs(g: GameState, ind: IndustryId): string[] {
   const year = cal(g).year;
   const innovator = g.rivals.some((r) => { const d = RIVALS.find((x) => x.id === r.id && x.industry === ind); return r.active && !r.closed && d && (r.style ?? d.style) === "innovator"; });
-  return INDUSTRIES[ind].tech.filter((t) => t.cost > 0 && t.year <= (innovator ? year : year - 4)).map((t) => t.id);
+  return INDUSTRIES[ind].tech.filter((t) => t.cost > 0 && !t.control && !t.water && t.year <= (innovator ? year : year - 4)).map((t) => t.id);
 }
 
 export interface TechStanding { behind: Tech[]; ahead: Tech[]; factor: number }
@@ -45,7 +46,7 @@ export function techStanding(g: GameState, w: Works): TechStanding {
   const std = new Set(standardTechs(g, w.industry));
   const common = new Set(techsForYear(w.industry, year));
   const behind = ind.tech.filter((t) => std.has(t.id) && !w.techs.includes(t.id));
-  const ahead = ind.tech.filter((t) => t.cost > 0 && w.techs.includes(t.id) && !common.has(t.id));
+  const ahead = ind.tech.filter((t) => t.cost > 0 && !t.control && !t.water && w.techs.includes(t.id) && !common.has(t.id));
   return { behind, ahead, factor: clamp((1 - 0.1 * behind.length) * (1 + 0.04 * ahead.length), 0.4, 1.2) };
 }
 
@@ -62,13 +63,8 @@ export function marketFactor(g: GameState, ind: IndustryId): number {
   }
   const mine = g.company ? [g.company, ...g.company.others].filter((w) => w.industry === ind).length : 0;
   const share = nominal ? lost / (nominal + mine) : 0;
-  return clamp(1 + 0.3 * share + 0.03 * owned, 0.8, 1.25) * imports(ind, cal(g).year);
-}
-
-/** from 1960, Japanese and European steel (and then everything else) undercuts the valley */
-export function imports(ind: IndustryId, year: number): number {
-  const per = ind === "steel" ? 0.025 : ind === "metalworks" ? 0.015 : ind === "glass" ? 0.01 : 0;
-  return Math.max(0.45, 1 - per * Math.max(0, year - 1960));
+  // the world price (src/core/world.ts): the administered steel price holds to 1981; aluminium follows the LME
+  return clamp(1 + 0.3 * share + 0.03 * owned, 0.8, 1.25) * worldPrice(ind, cal(g).year);
 }
 
 // ---------------------------------------------------------------- research
