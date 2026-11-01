@@ -80,7 +80,7 @@ Follows the v0.18 review (1 Nov 2026). Three problems:
 ## D. A market that can be flooded (from 1893)
 1. **Demand by industry**, in tons a season by year:
    - the national market for the valley's products, grown along the century;
-   - shaped by the panics (1893, 1907), the depressions (1921, 1930–33), the wars (1861–65, 1917–18, 1941–45) and the postwar boom;
+   - shaped by the panics (1893, 1907), the depressions (1921, 1930–33), the wars (1898, 1917–18, 1941–45) and the postwar boom;
    - from 1946 the world market feeds in as imports and the demand curve, replacing the percentage cap.
 2. **Supply** = your output + every rival's + imports.
 3. **Price follows supply against demand**, with a slow drift; it doesn't jump every season.
