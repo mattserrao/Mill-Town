@@ -101,7 +101,7 @@ function play(ind: IndustryId, who: Owner, seed: number) {
     laws: Object.fromEntries(LAWS.map((l) => [l.id, L[l.id].passed ?? null])),
     elections: polOf(g).results.length, marks: ledgerOf(g).length, martyrs: martyrsOf(g), top: topMarks(g, 5).map((m) => `${m.year} ${m.text} (${Math.round(m.weight)})`),
     family: g.family?.heads.map((h) => `${h.first} ${h.from}-${h.to ?? ""} ${h.path} [${h.traits.join(",")}]`), successions, career: g.career?.record,
-    pop: totalPopulation(g), holdings: Math.round(hv.biz + hv.stakes + hv.shares), behind: techStanding(g, c).behind.length, yearly,
+    pop: totalPopulation(g), holdings: Math.round(hv.biz + hv.stakes + hv.shares), holdingsBy: { biz: Math.round(hv.biz), stakes: Math.round(hv.stakes), shares: Math.round(hv.shares) }, behind: techStanding(g, c).behind.length, yearly,
   };
 }
 

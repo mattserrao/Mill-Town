@@ -13,6 +13,43 @@ on the map; the 1901 merger can swallow you; elections use real names and partie
 
 ---
 
+## Status: built in v0.16.0 (1 Nov 2026)
+
+All eight phases are in, on the branch `v0.16-struggle`:
+
+| Phase | Where | State |
+|---|---|---|
+| A. Foundations | `ledger.ts`, `game.ts` (taxes, pensions, cleanup), `holdings.ts` | done |
+| B. Eras and the family | `time.ts` (four eras), `family.ts`, `ui/struggle.ts` (succession card) | done |
+| C. Labour | `labour.ts`, `render/traffic.ts` (guards and troops at the gate), memorials | done |
+| D. Politics | `politics.ts` (office-holders 1850–1985, elections, nine movable laws, favours) | done |
+| E. Owners | `owners.ts` (stance, answers, intents, association, 1901 offer, takeover bids) | done |
+| F. Politics as a career | `career.ts` (council → Senate; bills, police, tariff, contracts, mediation) | done |
+| G. Branch cards | `branches.ts`: marks on ~40 existing decisions, "because" lines on 12, 12 new cards | done |
+| H. Interface and score | the Struggle view (S), top bar, Watch, laws on policies, `legacy.ts` and the end paper | done |
+
+Review harness (`tests/review.test.ts`, seed 11):
+
+| Industry | Never invests | Invests (peak → 1985, kept) | Tycoon (cash + holdings, 1985) |
+|---|---|---|---|
+| Steel | receivership 1928 | $13.7M → $5.2M (37%) | $31M + $92M |
+| Glass | receivership 1967 | $10.4M → $6.4M (61%) | $45M + $88M (before the last cap) |
+| Power | receivership 1965 | $8.9M → $4.0M (45%) | $27M + $86M (before the last cap) |
+| Metalworks | receivership 1967 | $12.5M → $7.4M (60%) | $69M + $128M (before the last cap) |
+
+- Labour play diverges: recognising the union (steel, seed 12) gave 1 strike in 135 years and laws a few years
+  early (the Wagner Act 1927); crushing it gave 10 strikes, a broken union, the Wagner Act in 1932 and
+  Taft-Hartley in 1952. Refusing every demand gives ~20 strikes a game, in every industry.
+- Rivals gave 28 answers to an investing steel owner's 18 major moves (several rivals can answer one move).
+- Paths: a politics heir (1893) reached governor in 1918; a co-op had no strikes after 1893; a new-industry heir
+  moved the company from steel to glass and kept 54% of its peak.
+- Season time ~120–150 ms (slowest ~450 ms).
+- **Not met:** the tycoon target (≤ 2× an operator). Holdings went from ~$1B (v0.15) to ~$125M, but a portfolio of
+  the region's shares bought every year from the 1880s still ends ~20× richer than a works-only owner. Further
+  levers if wanted: one share purchase a season in all, a holding cap per company, or market risk (bankruptcies).
+
+---
+
 ## 0. Eras and generations (new)
 
 **Today the game has no eras as a mechanic.** The events are grouped into four files by period (1850–92,

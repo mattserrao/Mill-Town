@@ -138,7 +138,7 @@ input[type=range] { width: 120px; vertical-align: middle; }
 .bz-strike { background: #5a1e18; border: 1px solid #c8503a; color: #f4d8d0; padding: 4px 6px; margin: 4px 0; font-size: 12px; }
 .bz-status { background: #2a2f37; border-left: 3px solid var(--accent); padding: 3px 6px; margin: 4px 0; font-size: 11px; }
 .bz-rec { margin: 0; padding-left: 16px; font-size: 10px; color: #9aa0a8; }
-#decision { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 10, 12, 0.55); z-index: 6; }
+#decision { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 10, 12, 0.55); z-index: 9; }
 #decision[hidden] { display: none; }
 #decision .paper { width: min(640px, 88%); background: #efe6cf; color: #1e1a14; border: 2px solid #1e1a14; box-shadow: 6px 6px 0 rgba(0,0,0,0.5); padding: 12px 18px 14px; font-family: Georgia, "Times New Roman", serif; }
 #decision .mast { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; border-bottom: 2px solid #1e1a14; padding-bottom: 3px; margin-bottom: 8px; display: flex; justify-content: space-between; }

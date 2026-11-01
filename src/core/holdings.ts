@@ -213,6 +213,8 @@ export function stakeBlocked(g: GameState, id: string): string | null {
   if (!c) return "Found your company first";
   if (year(g) < 1865) return "From 1865 (the joint-stock companies)";
   if ((holdingsOf(g).stakes[id] ?? 0) >= 50) return "You hold half: buy the rest or stop here";
+  // the Clayton Act (1914): no buying up a competitor's stock — unless Washington looks the other way
+  if (clayton(g, id) && (holdingsOf(g).stakes[id] ?? 0) >= 10) return "The Clayton Act forbids buying more of a competitor (from 1914)";
   if (!rivalValue(g, id)) return "Not open";
   if (c.biz.actionsLeft <= 0) return "No actions left this season";
   if (holdingsOf(g).stakeYear?.[id] === year(g)) return "One purchase a year: their owners are watching";
@@ -266,6 +268,12 @@ export function takeover(g: GameState, id: string): { ok: boolean; text: string 
   log(g, `${c.name} buys out the other owners of ${name}.`);
   return { ok: true, text: `${w.name} is one of your works now.` };
 }
+/** the Clayton Act applies: a competitor's stock, from 1914, unless a business-minded Washington won't enforce it */
+export function clayton(g: GameState, id: string): boolean {
+  if (year(g) < 1914 || !g.company) return false;
+  if ((g.pol?.balance.federal ?? 0) < -30) return false;
+  return relationTo(g, id) === "competitor";
+}
 /** at 20% or more a rival's owners won't move against you */
 export const friendly = (g: GameState, id: string) => (g.company?.holdings?.stakes[id] ?? 0) >= 20;
 export const relationTo = (g: GameState, id: string) => { const d = RIVALS.find((r) => r.id === id)!; return g.company ? relationOf(g.company.industry, d.industry, id) : "other"; };
@@ -295,7 +303,13 @@ export function sharePrice(g: GameState, id: string): number {
 export const listedOpen = (g: GameState, L: Listed) => year(g) >= L.from && !(L.until && year(g) >= L.until);
 export const LOT = 100;
 /** the most lots one purchase can find sellers for */
-export const MAX_LOTS = 10;
+export const MAX_LOTS = 5;
+/** tax on the gain when shares are sold or bought out (from 1913) */
+export const capitalGainsRate = (y: number) => (y < 1913 ? 0 : y < 1922 ? 0.1 : y < 1934 ? 0.125 : y < 1942 ? 0.3 : y < 1979 ? 0.25 : 0.28);
+function gainsTax(g: GameState, id: string, value: number): number {
+  const h = holdingsOf(g), gain = value - (h.shareCost[id] ?? 0);
+  return gain > 0 ? Math.round(gain * capitalGainsRate(year(g))) : 0;
+}
 export function buyShares(g: GameState, id: string, lots = 1): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "Found your company first" };
@@ -316,10 +330,10 @@ export function buyShares(g: GameState, id: string, lots = 1): { ok: boolean; te
 export function sellShares(g: GameState, id: string): { ok: boolean; text: string } {
   const h = holdingsOf(g), n = h.shares[id] ?? 0;
   if (!n) return { ok: false, text: "You hold none" };
-  const v = Math.round(n * sharePrice(g, id));
-  g.company!.cash += v;
+  const v = Math.round(n * sharePrice(g, id)), tax = gainsTax(g, id, v);
+  g.company!.cash += v - tax;
   delete h.shares[id]; delete h.shareCost[id];
-  return { ok: true, text: `Sold for $${v.toLocaleString("en-US")}.` };
+  return { ok: true, text: `Sold for $${v.toLocaleString("en-US")}${tax ? ` ($${tax.toLocaleString("en-US")} tax on the gain)` : ""}.` };
 }
 
 // ---------------------------------------------------------------- the season
@@ -342,6 +356,11 @@ export function holdingsSeason(g: GameState): number {
     biz += bizIncome(g, d, b.level);
   }
   // stakes: a share of their profit; a closed works takes the stake with it
+  // the trust-busters: under a reform Washington, stakes over 10% in a competitor are ordered sold, a tenth a year
+  if (cal(g).season === "Spring") for (const [id, pct] of Object.entries(h.stakes)) if (pct > 10 && clayton(g, id) && (g.pol?.balance.federal ?? 0) > 0) {
+    sellStake(g, id);
+    log(g, `The Federal Trade Commission orders ${c.name} to sell part of its stake in ${rivalName(g, id)} (Clayton Act).`);
+  }
   for (const [id, pct] of Object.entries(h.stakes)) {
     const r = g.rivals.find((x) => x.id === id);
     if (!r || r.closed || !r.active) {
@@ -356,7 +375,7 @@ export function holdingsSeason(g: GameState): number {
     const L = LISTED.find((l) => l.id === id)!;
     if (L.until && y >= L.until) {
       const pay = Math.round(n * lerpCurve(L.path, L.until) * (L.payout ?? 1));
-      c.cash += pay;
+      c.cash += pay - gainsTax(g, id, pay);
       delete h.shares[id]; delete h.shareCost[id];
       log(g, `${L.name} is bought out: your ${n.toLocaleString("en-US")} shares are paid $${pay.toLocaleString("en-US")}.`);
       continue;
