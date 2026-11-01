@@ -56,7 +56,9 @@ describe("rng + time", () => {
   });
   it("maps turns to seasons and eras", () => {
     expect(calendar(0)).toMatchObject({ year: 1850, season: "Spring" });
-    expect(calendar(4 * 40).era.id).toBe("II");
+    expect(calendar(4 * 40).era.id).toBe("I");
+    expect(calendar(4 * 43).era.id).toBe("II");
+    expect(calendar(4 * 100).era.id).toBe("IV");
     expect(calendar(TOTAL_TURNS - 1)).toMatchObject({ year: 1985, season: "Winter" });
   });
 });

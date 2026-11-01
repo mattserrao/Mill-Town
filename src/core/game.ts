@@ -31,6 +31,14 @@ import { GROUPS, immigrationPressure, pickGroup } from "./ancestry";
 import { type History, newHistory, recordHistory } from "./neighbourhood";
 import { type Env, newEnv, type Plant, SOOT_SCALE, updateAir, updateHealth, updateRivers } from "./environment";
 import { blockGrid, blockOf } from "./blocks";
+import { ledgerSeason, type Mark } from "./ledger";
+import { beginSuccession, defaultSuccession, type Family, familySeason, FOUNDER_NAMES, hasTrait, managerSeason, startFamily, successionDue, SURNAMES } from "./family";
+import { labourSeason, sieges, settle, unorganisedStrikeChance, type Union } from "./labour";
+import { type LawState, lawsOf, politicsSeason, type PoliticsState, suppressEvent } from "./politics";
+import { type Move, type OwnersState, ownersSeason, ownersSuccession, type Intent } from "./owners";
+import { type Career, careerSeason } from "./career";
+import { commission } from "./market";
+import { readLedger, returningUnion } from "./branches";
 
 export type RiverSide = "N" | "S" | "E" | "W";
 export type PlantStatus = "running" | "idle" | "strike" | "flooded" | "lockout";
@@ -94,6 +102,8 @@ export interface Company extends Works {
   bankrupt?: boolean;
   /** businesses, stakes and shares beyond the works (holdings.ts) */
   holdings?: Holdings;
+  /** retired men drawing a company pension (from 1950) */
+  retirees?: number;
 }
 
 export interface RivalState {
@@ -124,6 +134,14 @@ export interface RivalState {
   /** name, if it has changed (J&L → LTV Steel) */
   name?: string;
   nameYear?: number;
+  /** −100 hostile … +100 ally, toward your family (owners.ts) */
+  stance?: number;
+  /** what it's preparing (shown a season ahead) */
+  intent?: Intent;
+  /** a defence against your stakes: their price ×this */
+  defence?: number;
+  /** the last answer it made to one of your moves */
+  answered?: string;
 }
 
 export interface SeasonReport {
@@ -142,6 +160,9 @@ export interface SeasonReport {
   notes: string[];
   /** income from businesses, stakes and shares (company totals only) */
   holdings?: number;
+  /** corporate income tax, pensions and other burdens of the later years (company totals only) */
+  tax?: number;
+  pensions?: number;
 }
 
 export interface GameState {
@@ -219,6 +240,22 @@ export interface GameState {
   teams: TeamState[];
   /** rival effects waiting for their rival to open */
   pendingRivalFx: { source: string; ef: unknown }[];
+  /** what the valley remembers about your family (ledger.ts) */
+  ledger?: Mark[];
+  /** the founder, the heads and the heirs (family.ts) */
+  family?: Family;
+  /** the unions at your works, by industry (labour.ts) */
+  unions?: Partial<Record<IndustryId, Union>>;
+  /** the political balance, favours, elections (politics.ts) */
+  pol?: PoliticsState;
+  laws?: Record<string, LawState>;
+  /** the owners' association and your recent moves the rivals answer (owners.ts) */
+  owners?: OwnersState;
+  moves?: Move[];
+  /** where strikers were killed: a memorial on the map */
+  memorials?: { x: number; y: number; year: number; dead: number; text: string }[];
+  /** the family member in politics (career.ts) */
+  career?: Career;
 }
 
 export interface PricePoint {
@@ -335,13 +372,14 @@ export function newGame(map: GameMap, seed: number): GameState {
 /** Fire the historical events for the current season (headline, log, effects). */
 export function fireEvents(g: GameState) {
   const c = cal(g);
-  g.headlines = eventsFor(c.year, c.season);
+  // a law's events wait for the law (politics can move it earlier or later than history)
+  g.headlines = eventsFor(c.year, c.season).filter((e) => !suppressEvent(g, e.name));
   if (g.headlines.length) fileNews(g);
   g.floodNow = undefined;
   const effects = allEffects(), decisions = allDecisions();
   for (const e of g.headlines) {
     const dec = decisions[e.name]?.(g);
-    if (dec) dec.source = e.name;
+    if (dec) { dec.source = e.name; readLedger(g, dec); }
     if (dec) { if (!g.pendingDecision) g.pendingDecision = dec; else g.moreDecisions.push(dec); }
     log(g, `${e.name}.`); // the story itself is in the newspaper
     const fx = effects[e.name];
@@ -369,7 +407,8 @@ export function cal(g: GameState): Calendar {
   return calendar(g.turn);
 }
 
-export function foundCompany(g: GameState, industry: IndustryId, x: number, y: number, name?: string): { ok: boolean; reason?: string } {
+export interface Founder { first: string; surname: string; sex?: "m" | "f" }
+export function foundCompany(g: GameState, industry: IndustryId, x: number, y: number, name?: string, founder?: Founder): { ok: boolean; reason?: string } {
   if (g.company) return { ok: false, reason: "Company already founded" };
   const rep = evaluateSite(g.map, g.world, g.fields, industry, x, y);
   if (!rep.ok) return { ok: false, reason: rep.reasons.join("; ") };
@@ -401,6 +440,9 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
     founded: cal(g).year,
   };
   g.stats.foundedYear = cal(g).year;
+  const f = founder ?? { first: FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length], surname: SURNAMES[(g.seed * 7) % SURNAMES.length] };
+  startFamily(g, f.first, f.surname, f.sex ?? "m");
+  lawsOf(g);
   g.commute = buildCommute(g.map, g.world, centersFor(g));
   log(g, `Founded ${g.company.name} (${ind.startsAs}) for $${rep.cost.toLocaleString()}.`);
   recomputeLandValue(g.map, g.world);
@@ -646,6 +688,8 @@ export function advanceTurn(g: GameState): void {
 
   // a decision left open takes the course history took
   for (let k = 0; g.pendingDecision && k < 10; k++) resolveDecision(g, rng.fork(`decision${k}`));
+  // a succession left open: the eldest stays in the business
+  if (g.family?.succession) defaultSuccession(g);
   g.morale += (50 - g.morale) * 0.05;
   // the jobless find other work, or leave; while they're many, the town is low
   g.jobless = Math.round(g.jobless * 0.93);
@@ -664,7 +708,14 @@ export function advanceTurn(g: GameState): void {
   }
   applyPendingRivalFx(g);
   // the rivals make their moves (by personality) before the season's work
+  ownersSeason(g, rng.fork("owners"));
   rivalSeason(g, rng.fork("rivals"));
+  // the union organises, the politicians count votes, the heirs grow up, memories fade
+  if (g.company) labourSeason(g, rng.fork("labour"));
+  { const pr = rng.fork("politics"); politicsSeason(g, () => pr.next()); }
+  careerSeason(g, rng.fork("career"));
+  familySeason(g);
+  ledgerSeason(g);
   const rivals = rivalPlants(g, c0.year);
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk, rivals);
   else shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link }));
@@ -721,11 +772,14 @@ export function advanceTurn(g: GameState): void {
     for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     recordHistory(g.map, g.world, g.history);
+    returningUnion(g);
     updateHealth(g.map, g.world, g.env, hospitals(g));
     updateAccess(g);
     if (g.company) for (const w of g.company.others) updateWorksAccess(g, w);
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
+  // the first spring of a new era: the head of the family steps down; the rivals' heirs take over too
+  if (successionDue(g)) { beginSuccession(g); ownersSuccession(g); }
   fireEvents(g);
   updateStats(g, c1.year);
   g.world.version++;
@@ -799,7 +853,6 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
   const laidOff = g.company!.biz.layoffUntil > g.turn ? 0.75 : 1;
   const workersHired = Math.round(laidOff * Math.min(workersWanted, pool * PARTICIPATION * pe.participationMult * mod(g, "labour", ctx) * (main ? 1 : 0.8)));
   let output = Math.min(capacity, workersHired / wpu);
-  const year = cal(g).year;
   w.status = "running";
   if (lockedOut) {
     output = 0;
@@ -810,7 +863,7 @@ function planWorks(g: GameState, w: Works, rng: Rng, pe: PolicyEffects, floodRis
     output = 0;
     w.status = "strike";
     notes.push("The men are out on strike. The works stand cold.");
-  } else if (year >= 1877 && w.employees > 300 && rng.chance((0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike", ctx) * (0.4 + 1.6 * w.unrest) * pe.strikeMult * strikeContagion(g, w))) {
+  } else if (unorganisedStrikeChance(g, w) > 0 && rng.chance(unorganisedStrikeChance(g, w) * (0.02 + Math.min(0.04, w.employees / 60000)) * mod(g, "strike", ctx) * (0.4 + 1.6 * w.unrest) * pe.strikeMult * strikeContagion(g, w))) {
     w.strikeTurns = rng.int(1, 3); // long enough to negotiate, call the Pinkertons or bring in strikebreakers
     g.stats.strikes++;
     output = 0;
@@ -910,13 +963,17 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   c.debt -= repay;
   const other = Math.round(biz.extraCost + biz.fines - sum("wages") * pe.storeIncomeShare + repay);
   const held = holdingsSeason(g); // paid into cash there
-  const profit = before - other;
+  // the later burdens: the income tax, pensions, cleaning up, the co-op's members, the trust's share, the manager
+  const bd = burdens(g, before - other, held);
+  const profit = before - other - bd.total;
   c.cash += profit;
   const main = reports[0];
   main.other = other;
   main.profit -= other;
   for (const n of biz.notes) main.notes.push(n);
   if (repay) main.notes.push(`$${repay.toLocaleString()} repaid to the bank.`);
+  main.other += bd.total; main.profit -= bd.total;
+  for (const n of bd.notes) main.notes.push(n);
   // in the red too long and the bank sends in the receivers
   c.redSeasons = c.cash < 0 ? (c.redSeasons ?? 0) + 1 : 0;
   if (c.redSeasons >= RECEIVERSHIP / 2 && c.redSeasons < RECEIVERSHIP) main.notes.push(`Overdrawn for ${c.redSeasons} seasons: the bank will take the works after ${RECEIVERSHIP}.`);
@@ -949,9 +1006,49 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   }
   plans.forEach((p, k) => { p.w.lastSeason = reports[k]; });
   c.totals = {
-    produced: sum("produced"), revenue: sum("revenue"), inputCost: sum("inputCost"), wages: sum("wages"), upkeep: sum("upkeep"), other, profit: profit + held, holdings: held,
+    produced: sum("produced"), revenue: sum("revenue"), inputCost: sum("inputCost"), wages: sum("wages"), upkeep: sum("upkeep"), other: other + bd.total, profit: profit + held, holdings: held, tax: bd.tax, pensions: bd.pensions,
     workersWanted: sum("workersWanted"), workersHired: sum("workersHired"), migrants, notes: main.notes,
   };
+}
+
+/** corporate income tax, top rate by year (the federal tax from 1909) */
+export function corporateTax(y: number): number {
+  return y < 1909 ? 0 : y < 1916 ? 0.01 : y < 1917 ? 0.02 : y < 1918 ? 0.06 : y < 1919 ? 0.12 : y < 1922 ? 0.1 : y < 1925 ? 0.125 : y < 1928 ? 0.13 : y < 1932 ? 0.12 : y < 1936 ? 0.1375 : y < 1940 ? 0.15
+    : y < 1941 ? 0.24 : y < 1942 ? 0.31 : y < 1946 ? 0.4 : y < 1950 ? 0.38 : y < 1951 ? 0.42 : y < 1964 ? 0.52 : y < 1965 ? 0.5 : y < 1979 ? 0.48 : 0.46;
+}
+
+/**
+ * What the later years cost a company: the income tax on profits (from 1909), pensions and health care for the
+ * men who retire (won in the 1949 strike), cleaning up the slag and acid it dumped (Superfund, 1980), the
+ * members' share in a co-operative, U.S. Steel's share of a division, and a hired manager's fee.
+ */
+function burdens(g: GameState, operating: number, held: number): { total: number; tax: number; pensions: number; notes: string[] } {
+  const c = g.company!, y = cal(g).year, f = c.biz.flags, notes: string[] = [];
+  let total = 0, pensions = 0;
+  // pensions: every man who retires draws one for the rest of his life, whether the works still runs or not
+  if (y >= 1950) {
+    c.retirees = (c.retirees ?? g.stats.peakEmployees * 0.25) * 0.988 + totalEmployees(c) * 0.008;
+    const wage = WAGE_PER_SEASON_1850 * priceLevel(y) * mod(g, "wage");
+    pensions = Math.round(c.retirees * wage * (0.3 + (y >= 1960 ? 0.15 : 0)) * (c.biz.policy.union === "recognise" || f.coop ? 1 : 0.6));
+    total += pensions;
+    if (pensions) notes.push(`Pensions and health care for ${Math.round(c.retirees).toLocaleString()} retired men: $${pensions.toLocaleString()}.`);
+  }
+  // the river remembers: from 1980 the government bills the dumping of the decades before
+  if (y >= 1980 && Number(f.dumped ?? 0) > 0) {
+    const liability = Number(f.dumped) * 4000 * priceLevel(y), paid = Number(f.cleanupPaid ?? 0);
+    const bill = Math.round(Math.min(Math.max(0, liability - paid), liability * 0.05));
+    if (bill > 0) { f.cleanupPaid = paid + bill; total += bill; notes.push(`Superfund cleanup of the slag and acid dumped in the river: $${bill.toLocaleString()}.`); }
+  }
+  const pre = operating - total;
+  if (f.division && pre > 0) { const share = Math.round(pre * 0.55); total += share; notes.push(`U.S. Steel's share of the division's profit: $${share.toLocaleString()}.`); }
+  if (f.coop && pre > 0) { const share = Math.round(pre * 0.3); total += share; notes.push(`The members' share of the profit: $${share.toLocaleString()}.`); }
+  if (hasTrait(g, "spoiled")) notes.push("The family's houses and yachts are not cheap.");
+  // a manager runs the works: buys the processes the industry has, settles long strikes, takes his fee
+  const fee = managerSeason(g, (w, id) => { commission(g, w, id, true); }, () => { for (const u of sieges(g)) settle(g, u, true); });
+  if (fee) { total += fee; notes.push(`The manager's fee: $${fee.toLocaleString()}.`); }
+  const tax = Math.round(Math.max(0, operating - total + held) * corporateTax(y));
+  if (tax) { total += tax; notes.push(`Income tax: $${tax.toLocaleString()}.`); }
+  return { total, tax, pensions, notes };
 }
 
 /** Add people near (cx,cy): fill existing homes first, then new lots beside streets. */

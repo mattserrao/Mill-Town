@@ -9,6 +9,7 @@
     <header id="topbar">
       <div class="brand" id="brand">MILL TOWN</div>
       <div id="calendar" class="kpi"></div>
+      <div id="familyKpi" class="kpi" title="The head of the family (S: the Struggle)" hidden></div>
       <i class="sep"></i>
       <div id="cash" class="kpi"></div>
       <div id="profit" class="kpi"></div>
@@ -16,6 +17,7 @@
       <i class="sep"></i>
       <div id="standing"></div>
       <div class="spacer"></div>
+      <button id="struggleBtn" title="Labour, politics and the other owners (S)">Struggle</button>
       <button id="trendsBtn" title="Cash, profit, prices, market share, risks and the town over time (T)">Trends</button>
       <button id="soundTop" title="Sound (M)"></button>
       <div id="gameMenu">
@@ -70,6 +72,8 @@
         </div>
         <div id="final" hidden></div>
         <div id="decision" hidden></div>
+        <div id="succession" hidden></div>
+        <div id="struggle" hidden></div>
         <div id="query" hidden></div>
         <div id="placeBar" hidden></div>
         <div id="trends" hidden></div>
@@ -85,6 +89,7 @@
           <label class="namebox">Industry <select id="industry"></select></label>
           <p class="hint" id="industryNote"></p>
           <label class="namebox">Name <input id="companyName" type="text" maxlength="40" /></label>
+          <label class="namebox">Founder <input id="founderFirst" type="text" maxlength="20" size="9" /> <input id="founderLast" type="text" maxlength="24" size="10" /></label>
           <button id="bestSite" title="Jump to the best-scoring site you can afford (press again for the next)">Show me a good site</button>
           <p class="hint" id="siteHint">Click the map to pick a site.</p>
           <div id="site" class="kv" hidden></div>

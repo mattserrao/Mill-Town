@@ -10,6 +10,7 @@
 // Oakland Land, University of Pittsburgh Named, Wabash Railroad Fails, The Hump Cut, Votes for Women Defeated, Air
 // Brake Buys Union Switch.
 
+import { mergerOptions } from "../owners";
 import type { DecisionOption } from "../business";
 import type { Effect } from "../effects";
 import { cal, type GameState } from "../game";
@@ -188,6 +189,8 @@ export const DECISIONS: Record<string, DecisionFn> = {
           return `${w.name} goes to U.S. Steel.`;
         }));
     }
+    // a steel company can be swallowed: sold for stock (and if weak, refusing may not save it)
+    opts.push(...mergerOptions(g));
     return decision("ussteel1901", "Morgan's billion-dollar trust",
       "J. P. Morgan has bought Carnegie out and formed the United States Steel Corporation. His men call on you: join the trust's price arrangements, sell them a works, or go your own way.",
       opts, 0);

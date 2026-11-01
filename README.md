@@ -22,8 +22,18 @@ in the terminal running `npm run dev`.
 - Found a company: pick an industry, click a tile (or "Show me a good site"), check the site report, press **Found company here**
 - Time: Space = next season, Shift+Space = next year; speeds pause / 1× / 2× / 4× / 8× in the top bar (P pauses,
   keys 1–4 pick a speed; at 1× a game takes about two hours). The game ends after Winter 1985
-- Top bar: date, cash, last season's profit, valley population, and four meters (reputation, labour relations,
-  influence, town morale; hover for the word)
+- Top bar: date, the head of the family, cash, last season's profit, valley population, and four meters
+  (Opinion, Union, Capital and town Morale; hover for the word)
+- **The Struggle** (S): the union at your works (members, militancy, strike fund, demands; a strike's four fronts —
+  money, men, force, opinion — and what you can do about each), who holds office at City Hall, Harrisburg and
+  Washington, the balance behind them, the next elections (fund either side) and the laws in play (back or block
+  them; their dates move with the balance); each rival owner's stance toward your family, what it's preparing and
+  how it last answered you; and the family ledger — what the valley remembers, and who did it
+- The family: name the founder when you found the company. At the first spring of 1893, 1920 and 1947 the head
+  steps down; choose the heir (their traits grew from what the family did) and the family's course: stay in the
+  business, buy into a new industry (the new works becomes the company's main works), go into politics (a manager
+  runs the works; run for council, mayor, the legislature, governor, Congress), give the works to the men, or sell
+  up and invest. Estate tax from 1916, or endow a family foundation
 - **Holdings** tab: every works, small businesses to buy (coal mine, coke ovens, ore boats, quarry, sand pit, barge
   line, short-line railroad, trucking, gas, water and electric companies, company stores, machine shop, brickworks:
   income plus cheaper inputs, freight or upkeep), 10% stakes in the rival and supplier works (dividends; at 20% they

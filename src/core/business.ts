@@ -17,6 +17,13 @@ import type { Rng } from "./rng";
 import { priceLevel } from "./time";
 import { RIVAL_ACTIONS, SELL_ACTIONS } from "./rivalai";
 import { SPORTS_ACTIONS } from "./sports";
+import { mark, standing } from "./ledger";
+import { hasTrait, managed } from "./family";
+import { killed, sendGuards, sendStrikebreakers, settle, sieges } from "./labour";
+import { earnFavour, illegal, lawPassed, POLITICS_ACTIONS } from "./politics";
+import { OFFICE_ACTIONS } from "./career";
+import { decisionMarks } from "./branches";
+import { OWNER_ACTIONS, recordMove, type MoveKind } from "./owners";
 
 // ---------------------------------------------------------------- state
 
@@ -149,7 +156,10 @@ function targets(g: GameState): Meters {
     + (p.police ? -8 : 0) + (p.halfHoliday ? 6 : 0) + (p.wages === "scale" ? 5 : 0)
     + (g.morale - 50) / 10
     + 4 * c.annexes.filter((a) => a.kind === "housing").length
-    - c.unrest * 30;
+    - c.unrest * 30
+    // what the men remember of the family, and the head's own character
+    + clamp(standing(g, "labour") * 0.25, -35, 30)
+    + (hasTrait(g, "works") ? 10 : 0) + (hasTrait(g, "iron") ? -8 : 0) + (c.biz.flags.coop ? 30 : 0);
   // what decent opinion expects keeps rising: child labour and dumping look worse every decade
   const reputation =
     (p.childLabour ? (year < 1880 ? -3 : year < 1908 ? -12 : -30) : 0)
@@ -157,7 +167,9 @@ function targets(g: GameState): Meters {
     + (p.safety === "programme" ? 8 : p.safety === "none" && year >= 1908 ? -6 : 0)
     + (p.wages === "high" ? 5 : 0) + (p.union === "recognise" && year >= 1937 ? 5 : 0)
     + (p.hours === "twelve" && year >= 1908 ? -8 : 0)
-    + (c.library ? 10 : 0) + (p.police ? -3 : 0) + (p.halfHoliday ? 2 : 0);
+    + (c.library ? 10 : 0) + (p.police ? -3 : 0) + (p.halfHoliday ? 2 : 0)
+    + clamp(standing(g, "public") * 0.25, -30, 30)
+    + (hasTrait(g, "reformer") ? 8 : 0) + (hasTrait(g, "spoiled") ? -5 : 0) + (c.biz.flags.coop ? 10 : 0);
   // lasting public pressure from events (Donora: every smoky works is suspect for years)
   const press = (k: keyof Meters) => g.pressures.filter((x) => x.meter === k && x.until > g.turn).reduce((s, x) => s + x.amount, 0);
   return { labour: labour + press("labour"), reputation: reputation + press("reputation"), influence: 0 };
@@ -174,9 +186,10 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
   const out: SeasonReport = { notes: [], extraCost: 0, fines: 0, deaths: 0 };
   b.actionsLeft = ACTIONS_PER_SEASON;
   const t = targets(g);
-  b.meters.labour += (t.labour - b.meters.labour) * 0.15;
-  b.meters.reputation += (t.reputation - b.meters.reputation) * 0.06;
-  b.meters.influence *= 0.97;
+  b.meters.labour = clamp(b.meters.labour + (t.labour - b.meters.labour) * 0.15, -100, 100);
+  b.meters.reputation = clamp(b.meters.reputation + (t.reputation - b.meters.reputation) * 0.06, -100, 100);
+  b.meters.influence *= hasTrait(g, "orator") ? 0.985 : 0.97;
+  if (p.waste === "dump") b.flags.dumped = Number(b.flags.dumped ?? 0) + 1;
 
   // accidents: the twelve-hour day and no safety men kill workers (the Pittsburgh Survey counted 195 in a year)
   const rate = (p.hours === "twelve" ? 1.6 : p.hours === "ten" ? 1 : 0.7) * (p.safety === "none" ? 1.4 : p.safety === "basic" ? 1 : 0.5) * (year < 1910 ? 1.5 : year < 1950 ? 1 : 0.4) * (p.childLabour ? 1.2 : 1);
@@ -189,12 +202,15 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
     bump(g, "reputation", -(deaths >= 3 ? 2 * deaths : deaths * 0.5));
     out.notes.push(deaths === 1 ? "A man was killed at the works." : `${deaths} men were killed at the works.`);
     if (deaths >= 3) { log(g, `Disaster at ${c.name}: ${deaths} dead.`); pushHeadline(g, `${deaths} Killed at ${c.name}`, `An accident at the works kills ${deaths} men. The coroner's jury finds no one at fault; the men's lodges bury them.`); }
+    mark(g, { id: `deaths${Math.floor(year / 10) * 10}`, side: "labour", kind: "grievance", weight: deaths * (p.safety === "none" ? 1.5 : 0.7), text: `let men die in the furnaces in the ${Math.floor(year / 10) * 10}s` });
+    // workmen's compensation: the owner pays for every man killed
+    if (lawPassed(g, "workcomp")) { const comp = Math.round(deaths * 3000 * era(year)); out.fines += comp; out.notes.push(`Compensation to the families: $${comp.toLocaleString()}.`); }
   }
   // company police on a picket line: sometimes they shoot
   if (p.police && allWorks(c).some((w) => w.status === "strike") && rng.chance(0.3)) {
     const dead = rng.int(1, 4);
-    bump(g, "reputation", -10); bump(g, "labour", -10); g.morale = Math.max(0, g.morale - 4);
-    pushHeadline(g, `Company Police Fire on Strikers`, `Coal & Iron Police at ${c.name} open fire on a picket line; ${dead} ${dead === 1 ? "man is" : "men are"} killed.`);
+    bump(g, "labour", -10);
+    killed(g, dead, "by the Coal and Iron Police");
   }
   // the law catches up: child labour (Pennsylvania 1905/1915), river dumping (1965 / Clean Water Act 1972)
   if (p.childLabour && year >= 1915 && rng.chance(0.25)) {
@@ -214,7 +230,7 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
 
 export interface ActionDef {
   id: string;
-  group: "Labour" | "Public" | "Politics" | "Rivals";
+  group: "Labour" | "Public" | "Politics" | "Rivals" | "Office";
   name: string;
   /** one line on what it does and what it costs you */
   blurb: string;
@@ -244,7 +260,7 @@ export function pushHeadline(g: GameState, name: string, description: string, ca
  */
 let actionList: ActionDef[] | null = null;
 export function allActions(): ActionDef[] {
-  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS]);
+  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS]);
 }
 
 const BASE_ACTIONS: ActionDef[] = [
@@ -255,9 +271,13 @@ const BASE_ACTIONS: ActionDef[] = [
     cost: () => 0, blocked: needStrike,
     run: (g) => {
       const c = g.company!, p = c.biz.policy;
+      // a union strike: you give them what they walked out for
+      const S = sieges(g);
+      if (S.length) { bump(g, "reputation", 5); return S.map((u) => settle(g, u)).join(" "); }
       if (p.wages !== "high") p.wages = p.wages === "low" ? "market" : "high";
       else if (p.hours !== "eight") p.hours = p.hours === "twelve" ? "ten" : "eight";
       endStrikes(g); bump(g, "labour", 15); bump(g, "reputation", 5);
+      mark(g, { id: "settledEarly", side: "labour", kind: "trust", weight: 6, text: "settled with the men" });
       return "Settled with the men. The fires are relit.";
     },
   },
@@ -267,11 +287,15 @@ const BASE_ACTIONS: ActionDef[] = [
     cost: (g) => Math.round(8000 * era(year(g))), blocked: needStrike,
     run: (g, rng) => {
       const c = g.company!;
+      if (sieges(g).length) return sendGuards(g, rng, "pinkertons");
+      mark(g, { id: "pinkertons", side: "labour", kind: "grievance", weight: 12, text: "sent the Pinkertons" });
       const violence = rng.chance(0.4);
       if (violence) {
         const dead = rng.int(3, 10);
         bump(g, "reputation", -25); bump(g, "labour", -30); bump(g, "influence", -5);
         pushHeadline(g, `Battle at ${c.name}`, `Pinkerton guards and strikers exchange fire at the works; ${dead} are dead. The governor sends the militia.`);
+        mark(g, { id: `martyrs${year(g)}`, side: "labour", kind: "grievance", weight: 10 * dead, text: `had strikers shot at the gates in ${year(g)}`, martyrs: dead });
+        (g.memorials ??= []).push({ x: c.x + c.footprint + 1, y: c.y + (c.footprint >> 1), year: year(g), dead, text: `${dead} killed by Pinkertons` });
         log(g, `Pinkertons and strikers fight at ${c.name}: ${dead} dead.`);
       }
       if (rng.chance(0.6)) { endStrikes(g); bump(g, "labour", -15); c.biz.policy.union = "fight"; return violence ? "The strike is broken, at a price in blood." : "The guards hold the gates; the strike collapses."; }
@@ -284,6 +308,8 @@ const BASE_ACTIONS: ActionDef[] = [
     cost: (g) => Math.round(4000 * era(year(g))), blocked: needStrike,
     run: (g, _rng) => {
       const c = g.company!, y = year(g);
+      if (sieges(g).length) return sendStrikebreakers(g);
+      mark(g, { id: "scabs", side: "labour", kind: "grievance", weight: 8, text: "brought in strikebreakers" });
       // whom the agents bring: the newest arrivals of the day; from 1916, Black workers from the South
       const group = y >= 1916 && y < 1930 ? 4 : newestGroup(y);
       c.biz.recruits.push([group, 250]);
@@ -299,6 +325,9 @@ const BASE_ACTIONS: ActionDef[] = [
       const b = g.company!.biz;
       b.lockout = 1; b.policy.union = "fight"; b.blacklistUntil = g.turn + 16;
       bump(g, "labour", -25); bump(g, "reputation", -10);
+      for (const u of Object.values(g.unions ?? {})) if (u && !u.coop) { u.membership *= 0.4; u.recognised = false; }
+      mark(g, { id: "lockout", side: "labour", kind: "grievance", weight: 15, text: "locked the union men out" });
+      recordMove(g, "crush");
       return "The gates are locked. When they reopen, no union man will pass them.";
     },
   },
@@ -306,7 +335,12 @@ const BASE_ACTIONS: ActionDef[] = [
     id: "blacklist", group: "Labour", name: "Blacklist the organisers",
     blurb: "Spies in the lodges; known union men are fired. Strike chance ×0.6 for two years; labour −10.",
     cost: (g) => Math.round(1000 * era(year(g))), blocked: (g) => (g.company!.biz.policy.union === "recognise" ? "You have recognised the union" : null),
-    run: (g) => { g.company!.biz.blacklistUntil = g.turn + 8; bump(g, "labour", -10); bump(g, "reputation", -3); return "The superintendent's spies take names."; },
+    run: (g) => {
+      g.company!.biz.blacklistUntil = g.turn + 8; bump(g, "labour", -10); bump(g, "reputation", -3);
+      for (const u of Object.values(g.unions ?? {})) if (u && !u.coop) u.membership *= 0.75;
+      mark(g, { id: "blacklist", side: "labour", kind: "grievance", weight: 8, text: "blacklisted the organisers" });
+      return "The superintendent's spies take names.";
+    },
   },
   {
     id: "recruit", group: "Labour", name: "Send recruiting agents",
@@ -379,6 +413,7 @@ const BASE_ACTIONS: ActionDef[] = [
     cost: (g) => Math.round(5000 * era(year(g))), blocked: () => null,
     run: (g) => {
       bump(g, "influence", 12 * (1 + g.company!.biz.meters.reputation / 200) * (g.rules.lobby?.yield ?? 1));
+      earnFavour(g, "city");
       return g.politics === "machine" ? "The Magee–Flinn organisation counts you a friend." : g.politics === "newdeal" ? "The Democrats at City Hall take your money, and your measure." : g.politics === "renaissance" ? "Mayor Lawrence and the Mellon men welcome you to the table." : "The Republican organisation counts you a friend.";
     },
   },
@@ -389,6 +424,9 @@ const BASE_ACTIONS: ActionDef[] = [
     run: (g, rng) => {
       bump(g, "influence", 20 * (g.rules.bribe?.yield ?? 1));
       g.company!.biz.flags.bribed = year(g);
+      earnFavour(g, "city", 2);
+      mark(g, { id: "bribed", side: "politics", kind: "precedent", weight: 10, text: "bought a councilman" });
+      recordMove(g, "bribe");
       if (rng.chance(g.rules.bribe?.risk ?? 0.2)) {
         const fine = Math.round(10000 * era(year(g)));
         g.company!.cash -= fine; bump(g, "reputation", -20); bump(g, "influence", -15);
@@ -447,6 +485,23 @@ const BASE_ACTIONS: ActionDef[] = [
   },
 ];
 
+/** what a manager runs and the family can't touch: the labour and rival dirty work (stakes and buying still allowed) */
+const MANAGER_RUNS = new Set(["Labour", "Rivals"]);
+const MANAGER_ALLOWS = new Set(["buy", "loan", "sell", "sell_workers", "sell_authority"]);
+/** actions the rival owners notice */
+const MOVES: Record<string, MoveKind> = { undercut: "undercut", poach: "poach", rumour: "rumour", espionage: "espionage", buy: "buy", fund_reform: "fund_reform", fund_business: "fund_business", pinkertons: "crush", strikebreakers: "crush" };
+/** actions the valley remembers */
+const MARKS: Record<string, Parameters<typeof mark>[1]> = {
+  picnic: { id: "picnic", side: "labour", kind: "trust", weight: 2, text: "gave the men picnics and Christmas turkeys" },
+  donate: { id: "donate", side: "public", kind: "trust", weight: 4, text: "endowed hospitals and churches" },
+  relief: { id: "relief", side: "public", kind: "trust", weight: 8, text: "fed the jobless in hard times" },
+  retrain: { id: "retrain", side: "labour", kind: "trust", weight: 6, text: "paid to retrain the men laid off" },
+  endow: { id: "endow", side: "public", kind: "trust", weight: 8, text: "endowed the university" },
+  layoff: { id: "layoff", side: "labour", kind: "grievance", weight: 6, text: "laid off a quarter of the men" },
+  ura: { id: "ura", side: "public", kind: "grievance", weight: 6, text: "had families cleared for parking" },
+  recall: { id: "recall", side: "labour", kind: "trust", weight: 3, text: "called the men back early" },
+};
+
 /** the meter changes that are simple constants */
 const SIMPLE: Record<string, Partial<Meters>> = { picnic: { labour: 8, reputation: 2 }, donate: { reputation: 8, labour: 4 }, press: { reputation: 5 }, relief: { reputation: 6, labour: 4 }, retrain: { labour: 4, reputation: 4 }, endow: { reputation: 6, influence: 4 }, ura: { reputation: -4 } };
 
@@ -466,6 +521,7 @@ export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { 
   const a = allActions().find((x) => x.id === id);
   if (!a) return { ok: false, text: "Unknown action" };
   if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
+  if (managed(g) && MANAGER_RUNS.has(a.group) && !MANAGER_ALLOWS.has(a.id)) return { ok: false, text: "A manager runs the works: the family can't do that from here" };
   const why = actionBlocked(g, a, arg);
   if (why) return { ok: false, text: why };
   const cost = actionCost(g, a, arg);
@@ -474,6 +530,10 @@ export function takeAction(g: GameState, id: string, rng: Rng, arg?: string): { 
   c.biz.actionsLeft--;
   for (const [k, v] of Object.entries(SIMPLE[id] ?? {})) bump(g, k as keyof Meters, v);
   const text = a.run(g, rng, arg);
+  const mv = MOVES[id];
+  if (mv) recordMove(g, mv, a.target ? arg : undefined);
+  const mk = MARKS[id];
+  if (mk) mark(g, mk);
   c.biz.record.push(`${cal(g).season} ${cal(g).year}: ${a.name}`);
   log(g, `${a.name}: ${text}`);
   return { ok: true, text };
@@ -485,13 +545,24 @@ export function setPolicy(g: GameState, next: Partial<Policy>): { ok: boolean; t
   if (!c) return { ok: false, text: "No company" };
   const changed = (Object.keys(next) as (keyof Policy)[]).filter((k) => next[k] !== undefined && next[k] !== c.biz.policy[k]);
   if (!changed.length) return { ok: true, text: "No change" };
-  if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
+  if (managed(g)) return { ok: false, text: "A manager runs the works" };
+  const fresh = (g.family?.freshUntil ?? 0) > g.turn;
+  if (!fresh && c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
+  const law = illegal(g, next);
+  if (law) return { ok: false, text: law };
   if (next.union && next.union !== "tolerate" && g.rules.union?.blocked) return { ok: false, text: g.rules.union.blocked };
   if (next.police && g.rules.police?.blocked) return { ok: false, text: g.rules.police.blocked };
   if (next.halfHoliday && g.rules.halfHoliday?.blocked) return { ok: false, text: g.rules.halfHoliday.blocked };
   if (next.wages === "scale" && g.rules.scale?.blocked) return { ok: false, text: g.rules.scale.blocked };
-  c.biz.actionsLeft--;
+  if (!fresh) c.biz.actionsLeft--;
+  const wasUnion = c.biz.policy.union;
   Object.assign(c.biz.policy, next);
+  if (next.union === "recognise" && wasUnion !== "recognise") {
+    for (const u of Object.values(g.unions ?? {})) if (u) { u.recognised = true; u.contractUntil = g.turn + 12; u.militancy -= 15; }
+    mark(g, { id: "recognised", side: "labour", kind: "trust", weight: 15, text: "recognised the union" });
+    recordMove(g, "recognise");
+  }
+  if (next.union === "fight" && wasUnion !== "fight") mark(g, { id: "fought", side: "labour", kind: "grievance", weight: 8, text: "declared war on the union" });
   // a change of heart is felt at once, a little
   if (next.wages) bump(g, "labour", next.wages === "high" ? 6 : next.wages === "low" ? -8 : 0);
   if (next.union === "recognise") { bump(g, "labour", 15); bump(g, "influence", -5); }
@@ -569,6 +640,7 @@ export function resolveDecision(g: GameState, rng: Rng, k?: number): string {
   if (!d) return "";
   const opt = d.options[k ?? d.historical] ?? d.options[d.historical];
   const text = opt.apply(g, rng);
+  if (g.company) decisionMarks(g, d.id, opt.label);
   g.company?.biz.record.push(`${cal(g).year}: ${d.title} — ${opt.label}`);
   log(g, `${d.title}: ${opt.label}. ${text}`);
   // the next decision waiting this season, if any
