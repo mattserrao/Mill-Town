@@ -324,11 +324,14 @@ export class Traffic {
   /** strikes, closures, floods and job centres: recomputed when the season or a works' status changes */
   private updateScene(g: GameState) {
     const mine = g.company ? allWorks(g.company) : [];
-    const striking: { id: string; x: number; y: number; fp: number; side: string }[] = [];
-    for (const w of mine) if (w.status === "strike" || w.status === "lockout") striking.push({ id: w.id, x: w.x, y: w.y, fp: w.footprint, side: w.riverSide });
+    const striking: { id: string; x: number; y: number; fp: number; side: string; force?: number }[] = [];
+    // guards or troops on your side of the picket line (the strike's force front)
+    const force = Math.max(0, ...Object.values(g.unions ?? {}).map((u) => u?.siege?.force ?? 0));
+    const forceLevel = force >= 0.9 ? 2 : force >= 0.3 ? 1 : 0;
+    for (const w of mine) if (w.status === "strike" || w.status === "lockout") striking.push({ id: w.id, x: w.x, y: w.y, fp: w.footprint, side: w.riverSide, force: forceLevel });
     for (const r of g.rivals) if (r.active && !r.closed && !r.owned && (r.strikeUntil ?? 0) > g.turn) striking.push({ id: r.id, x: r.x, y: r.y, fp: r.footprint, side: r.riverSide });
     const flooded = mine.filter((w) => w.status === "flooded");
-    const key = `${g.seed}|${g.turn}|${striking.map((s) => s.id).join(",")}|${flooded.length}|${g.floodNow ?? "-"}|${g.commute.year}|${g.jobless}`;
+    const key = `${g.seed}|${g.turn}|${striking.map((s) => `${s.id}${s.force ?? ""}`).join(",")}|${flooded.length}|${g.floodNow ?? "-"}|${g.commute.year}|${g.jobless}`;
     if (key === this.sceneKey) return;
     this.sceneKey = key;
     // floods
@@ -356,7 +359,7 @@ export class Traffic {
     // picket lines
     this.blocked.clear();
     const keep = new Map(this.pickets.map((p) => [p.key, p]));
-    this.pickets = striking.map((s) => keep.get(`${s.id}@${s.x},${s.y}`) ?? this.makePicket(g.world, `${s.id}@${s.x},${s.y}`, s.x, s.y, s.fp, s.side, g.world.year)).filter((p): p is PicketSite => !!p);
+    this.pickets = striking.map((s) => keep.get(`${s.id}@${s.x},${s.y}:${s.force ?? 0}`) ?? this.makePicket(g.world, `${s.id}@${s.x},${s.y}:${s.force ?? 0}`, s.x, s.y, s.fp, s.side, g.world.year, s.force ?? 0)).filter((p): p is PicketSite => !!p);
     for (const p of this.pickets) for (const i of p.block) this.blocked.add(i);
     // parked cuts of cars at the sidings (once a season)
     const pk = `${g.seed}|${g.turn}|${striking.length}`;
@@ -364,7 +367,7 @@ export class Traffic {
   }
 
   /** the crowd outside the gate of a works on strike (the gate is on the landward side, as plants.ts lays it out) */
-  private makePicket(w: GameState["world"], key: string, x: number, y: number, fp: number, side: string, year: number): PicketSite | null {
+  private makePicket(w: GameState["world"], key: string, x: number, y: number, fp: number, side: string, year: number, force = 0): PicketSite | null {
     const m = this.m;
     const toL = (a: number, b: number): [number, number] => side === "N" ? [b, a] : side === "S" ? [b, fp - 1 - a] : side === "W" ? [a, b] : [fp - 1 - a, b];
     const [lx, ly] = toL(fp - 1, 1);
@@ -400,6 +403,13 @@ export class Traffic {
     for (let k = 0; k < 18 && near.length; k++) {
       const [tx, ty] = near[k % near.length];
       figs.push({ look: poolLook(year, () => r.next(), r.chance(0.8)), fx: tx + 0.15 + r.next() * 0.7, fy: ty + 0.15 + r.next() * 0.7, placard: k === 3 || k === 10 ? k : undefined });
+    }
+    // guards (Pinkertons, company police: dark coats) or troops (blue, then khaki) between the crowd and the gate
+    if (force) {
+      const troops = force >= 2, old = year < 1917;
+      const look: Look = { key: troops ? `troop${old ? "b" : "k"}` : "guard", female: false, hat: troops ? (old ? "#2a3446" : "#5a5a34") : "#16181e", hair: "#2a2420", skin: "#d8a882", top: troops ? (old ? "#2c3a56" : "#6a6a3a") : "#1e2430", low: troops ? (old ? "#2a3446" : "#5a5a34") : "#1a1e26", long: false };
+      const n = troops ? 10 : 6;
+      for (let k = 0; k < n; k++) { const t = (k - (n - 1) / 2) * 0.55; figs.push({ look, fx: gx - ox * 0.6 + ex * t, fy: gy - oy * 0.6 + ey * t }); }
     }
     // the crowd holds the street: no wagons or cars through it
 

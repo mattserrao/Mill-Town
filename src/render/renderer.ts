@@ -1079,6 +1079,26 @@ export class Renderer {
   // ------------------------------------------------------------ inclines (drawn live, cars run)
   /** Timber trestle on a straight grade from foot to head, with two counterbalanced cars. */
   /** the player's rail siding: ballast, ties and rails from the works to the main line */
+  /** memorials where strikers were killed: a small stone obelisk with a wreath */
+  drawMemorials(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const ms = g.memorials;
+    if (!ms?.length) return;
+    const m = this.map, z = cam.zoom;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (const mm of ms) {
+      const x = Math.max(0, Math.min(m.width - 1, mm.x)), y = Math.max(0, Math.min(m.height - 1, mm.y));
+      const [wx, wy] = project(x + 0.5, y + 0.5, m.elevation[y * m.width + x]);
+      const sx = Math.round((wx - cam.x) * z), sy = Math.round((wy - cam.y) * z), k = Math.max(1, z * 2);
+      ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(sx - 4 * k, sy - 1 * k, 8 * k, 2 * k);
+      ctx.fillStyle = "#8a8a84"; ctx.fillRect(sx - 3 * k, sy - 2 * k, 6 * k, 2 * k);
+      ctx.fillStyle = "#c8c4b8"; ctx.beginPath(); ctx.moveTo(sx - 1.5 * k, sy - 2 * k); ctx.lineTo(sx + 1.5 * k, sy - 2 * k); ctx.lineTo(sx + 0.8 * k, sy - 11 * k); ctx.lineTo(sx, sy - 13 * k); ctx.lineTo(sx - 0.8 * k, sy - 11 * k); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#9a9890"; ctx.fillRect(sx, sy - 11 * k, 0.8 * k, 9 * k);
+      ctx.fillStyle = "#3a6a34"; ctx.beginPath(); ctx.arc(sx, sy - 5 * k, 1.4 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#b03028"; ctx.fillRect(sx - 0.4 * k, sy - 4 * k, 0.8 * k, 1.5 * k);
+    }
+    ctx.restore();
+  }
+
   drawSpur(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
     const c = g.company;
     if (!c?.spur) return;

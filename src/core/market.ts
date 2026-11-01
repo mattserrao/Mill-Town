@@ -8,6 +8,8 @@
 //                every rival works you own gives you a little pricing power.
 //   Research     commission a process: pay up front, wait its seasons, meet its milestones.
 
+import { hasTrait } from "./family";
+import { recordMove } from "./owners";
 import { INDUSTRIES, type IndustryId, type Tech } from "./industries";
 import { cal, type GameState, log, type RivalState, techsForYear, type Works } from "./game";
 import { RIVALS } from "./rivals";
@@ -75,6 +77,8 @@ const ERA = (year: number) => 1 + Math.max(0, year - 1900) * 0.01; // dearer to 
 
 /** what a process costs to commission now */
 export function techCost(t: Tech, year: number) { return Math.round(t.cost * ERA(year)); }
+/** what the family pays for a process (cheaper for an heir with European contacts) */
+export function techPrice(g: GameState, t: Tech) { return Math.round(techCost(t, cal(g).year) * (hasTrait(g, "abroad") ? 0.9 : 1)); }
 
 /** null if a works can commission a process now, otherwise why not */
 export function techBlocked(g: GameState, w: Works, t: Tech): string | null {
@@ -100,11 +104,12 @@ export function commission(g: GameState, w: Works, techId: string, free = false)
   const why = techBlocked(g, w, t);
   if (why) return { ok: false, text: why };
   if (!free && c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
-  const cost = techCost(t, cal(g).year);
+  const cost = techPrice(g, t);
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString()}` };
   c.cash -= cost;
   if (!free) c.biz.actionsLeft--;
-  w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons * (c.biz.flags.lab ? 0.75 : 1) * (c.biz.flags.endowed ? 0.9 : 1))) };
+  w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons * (c.biz.flags.lab ? 0.75 : 1) * (c.biz.flags.endowed ? 0.9 : 1) * (hasTrait(g, "scholar") ? 0.85 : 1))) };
+  if (!free) recordMove(g, "tech", undefined, w.industry);
   c.biz.record.push(`${cal(g).season} ${cal(g).year}: Commissioned ${t.name} at ${w.name}`);
   log(g, `${w.name} commissions ${t.name} ($${cost.toLocaleString()}, ${t.seasons} seasons).`);
   return { ok: true, text: `Work begins on ${t.name}: ready in ${t.seasons} seasons.` };

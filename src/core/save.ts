@@ -9,10 +9,15 @@
 // MAX_SAVES named saves.
 
 import { allDecisions } from "./eventdata";
+import { complyDecision, lawById } from "./politics";
+import { demandDecision } from "./labour";
+import { takeoverDecision } from "./owners";
+import { FOUNDER_NAMES, startFamily, SURNAMES } from "./family";
+import type { IndustryId } from "./industries";
 import { cal, fieldsFor, type GameState } from "./game";
 import { type GameMap, recomputeElevation } from "./map";
 
-export const SAVE_FORMAT = 1;
+export const SAVE_FORMAT = 2;
 export const MAX_SAVES = 12;
 export const AUTOSAVE = "autosave";
 
@@ -87,7 +92,7 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
   const dv = new DataView(buf);
   const headLen = dv.getUint32(0, true), n = dv.getUint32(4, true);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, headLen)));
-  if (header.format !== SAVE_FORMAT) throw new Error(`This save is from an older version of the game (format ${header.format}).`);
+  if (header.format !== SAVE_FORMAT && header.format !== 1) throw new Error(`This save is from an older version of the game (format ${header.format}).`);
   let at = 8 + headLen; at += (8 - (at % 8)) % 8;
   const arrays: ArrayBuffer[] = [];
   for (let k = 0; k < n; k++) {
@@ -115,7 +120,19 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
   g.fields = fieldsFor(map);
   // decisions waiting: asked again from the events that raised them
   const decs = allDecisions();
-  const redo = (d: unknown) => { const src = (d as { $dec?: string } | undefined)?.$dec; const made = src ? decs[src]?.(g) ?? undefined : undefined; if (made) made.source = src!; return made; };
+  const redo = (d: unknown) => {
+    const src = (d as { $dec?: string } | undefined)?.$dec;
+    if (!src) return undefined;
+    // the decisions v0.16 raises from the state rather than from an event
+    const made = src.startsWith("law:") ? (lawById(src.slice(4)) ? complyDecision(lawById(src.slice(4))!) : undefined)
+      : src.startsWith("demand:") ? demandDecision(g, src.slice(7) as IndustryId) ?? undefined
+        : src === "takeover" ? takeoverDecision(g) ?? undefined
+          : decs[src]?.(g) ?? undefined;
+    if (made) made.source = src;
+    return made;
+  };
+  // a v1 save: the founder gets a name, and the laws their calendar
+  if (g.company && !g.family) startFamily(g, FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length], SURNAMES[(g.seed * 7) % SURNAMES.length]);
   g.pendingDecision = redo(g.pendingDecision);
   g.moreDecisions = (g.moreDecisions as unknown[]).map(redo).filter((d): d is NonNullable<typeof d> => !!d);
   if (!g.pendingDecision && g.moreDecisions.length) g.pendingDecision = g.moreDecisions.shift();

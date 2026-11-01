@@ -4,6 +4,7 @@ import { type Decision, DECISIONS as LABOUR_DECISIONS } from "../business";
 import type { Effect, Rule } from "../effects";
 import type { LandmarkDef } from "../landmarks";
 import type { GameState } from "../game";
+import { BRANCH_CARDS } from "../branches";
 import * as era1 from "./era1";
 import * as era2 from "./era2";
 import * as era3 from "./era3";
@@ -27,6 +28,8 @@ export function allDecisions(): Record<string, DecisionFn> {
   if (decisions) return decisions;
   decisions = { ...LABOUR_DECISIONS };
   for (const e of ERAS) Object.assign(decisions, e.DECISIONS);
+  // cards that read the family ledger (only where an event has no card of its own)
+  for (const [k, v] of Object.entries(BRANCH_CARDS)) decisions[k] ??= v;
   return decisions;
 }
 

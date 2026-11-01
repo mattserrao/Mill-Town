@@ -10,6 +10,7 @@
 //                follow the valley's history (the panics, the Crash, the war, the collapse); dividends each season.
 //                Buying and selling shares costs no action.
 
+import { recordMove } from "./owners";
 import { bump } from "./business";
 import { relationOf } from "./economy";
 import { allWorks, cal, type GameState, log, PRICE_TREND, rivalOutput } from "./game";
@@ -69,6 +70,10 @@ export interface Holdings {
   /** shares held in each company */
   shares: Record<string, number>;
   shareCost: Record<string, number>;
+  /** the year you last bought into each rival (one purchase a year) */
+  stakeYear?: Record<string, number>;
+  /** the year you last bought each company's shares */
+  shareYear?: Record<string, number>;
   /** last season's income by source */
   last?: { biz: number; stakes: number; dividends: number };
 }
@@ -200,16 +205,17 @@ export const rivalProfit = (g: GameState, id: string) => {
   const r = g.rivals.find((x) => x.id === id), d = RIVALS.find((x) => x.id === id);
   if (!r || !d || !r.active || r.closed || r.owned) return 0;
   const ind = INDUSTRIES[d.industry];
-  return rivalOutput(g, r) * ind.basePrice * (1 + (year(g) - 1850) * PRICE_TREND) * 0.12;
+  return rivalOutput(g, r) * ind.basePrice * (1 + (year(g) - 1850) * PRICE_TREND) * 0.05;
 };
-export const stakePrice = (g: GameState, id: string) => Math.round((rivalValue(g, id) * 0.1) / 1000) * 1000;
+export const stakePrice = (g: GameState, id: string) => Math.round((rivalValue(g, id) * 0.1 * (g.rivals.find((r) => r.id === id)?.defence ?? 1)) / 1000) * 1000;
 export function stakeBlocked(g: GameState, id: string): string | null {
   const c = g.company;
   if (!c) return "Found your company first";
   if (year(g) < 1865) return "From 1865 (the joint-stock companies)";
-  if ((holdingsOf(g).stakes[id] ?? 0) >= 90) return "You hold all you can";
+  if ((holdingsOf(g).stakes[id] ?? 0) >= 50) return "You hold half: buy the rest or stop here";
   if (!rivalValue(g, id)) return "Not open";
   if (c.biz.actionsLeft <= 0) return "No actions left this season";
+  if (holdingsOf(g).stakeYear?.[id] === year(g)) return "One purchase a year: their owners are watching";
   if (c.cash < stakePrice(g, id)) return `Needs $${stakePrice(g, id).toLocaleString("en-US")}`;
   return null;
 }
@@ -220,6 +226,8 @@ export function buyStake(g: GameState, id: string): { ok: boolean; text: string 
   c.cash -= p; c.biz.actionsLeft--;
   h.stakes[id] = (h.stakes[id] ?? 0) + 10;
   h.stakeCost[id] = (h.stakeCost[id] ?? 0) + p;
+  (h.stakeYear ??= {})[id] = year(g);
+  recordMove(g, "stake", id);
   const pct = h.stakes[id];
   log(g, `${c.name} now holds ${pct}% of ${rivalName(g, id)}.`);
   return { ok: true, text: `${pct}% of ${rivalName(g, id)}${pct === 20 ? ": its owners won't move against you now" : pct === 50 ? ": a controlling stake" : ""}.` };
@@ -286,15 +294,21 @@ export function sharePrice(g: GameState, id: string): number {
 }
 export const listedOpen = (g: GameState, L: Listed) => year(g) >= L.from && !(L.until && year(g) >= L.until);
 export const LOT = 100;
+/** the most lots one purchase can find sellers for */
+export const MAX_LOTS = 10;
 export function buyShares(g: GameState, id: string, lots = 1): { ok: boolean; text: string } {
   const c = g.company;
   if (!c) return { ok: false, text: "Found your company first" };
   const L = LISTED.find((l) => l.id === id)!;
   if (!listedOpen(g, L)) return { ok: false, text: "Not listed" };
+  lots = Math.max(1, Math.min(MAX_LOTS, lots));
   const cost = Math.round(sharePrice(g, id) * LOT * lots);
   if (c.cash < cost) return { ok: false, text: `Needs $${cost.toLocaleString("en-US")}` };
   const h = holdingsOf(g);
-  c.cash -= cost;
+  if (h.shareYear?.[id] === year(g)) return { ok: false, text: "One purchase a year in each company: the brokers can only find so many sellers" };
+  if (c.biz.actionsLeft <= 0) return { ok: false, text: "No actions left this season" };
+  c.cash -= cost; c.biz.actionsLeft--;
+  (h.shareYear ??= {})[id] = year(g);
   h.shares[id] = (h.shares[id] ?? 0) + LOT * lots;
   h.shareCost[id] = (h.shareCost[id] ?? 0) + cost;
   return { ok: true, text: `Bought ${LOT * lots} shares of ${L.name}.` };
@@ -347,7 +361,7 @@ export function holdingsSeason(g: GameState): number {
       log(g, `${L.name} is bought out: your ${n.toLocaleString("en-US")} shares are paid $${pay.toLocaleString("en-US")}.`);
       continue;
     }
-    dividends += n * sharePrice(g, id) * 0.0125;
+    dividends += n * sharePrice(g, id) * 0.0075;
   }
   h.last = { biz: Math.round(biz), stakes: Math.round(stakes), dividends: Math.round(dividends) };
   const total = Math.round(biz + stakes + dividends);

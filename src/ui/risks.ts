@@ -12,7 +12,7 @@ import { money } from "./fx";
 import { roadPlans } from "../core/roads";
 
 export type Level = "bad" | "warn" | "good";
-export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" }
+export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" | "struggle" }
 
 /** your share of an industry's output in one season (0–1), or undefined before you made any */
 export function shareAt(p: PricePoint, ind: IndustryId): number | undefined {
@@ -109,7 +109,7 @@ export const LEVEL_COLOUR: Record<Level, string> = { bad: "#e06a5a", warn: "#e0a
 
 export function riskRows(list: Risk[], buttons = true): string {
   if (!list.length) return `<p class="hint">Nothing to worry about this season.</p>`;
-  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals", holdings: "Holdings" }[r.go]}</button>` : ""}</div>`).join("");
+  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals", holdings: "Holdings", struggle: "Struggle" }[r.go]}</button>` : ""}</div>`).join("");
 }
 
 export const industryName = (id: IndustryId) => INDUSTRIES[id].name;

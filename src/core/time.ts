@@ -4,36 +4,26 @@ export const SEASONS = ["Spring", "Summer", "Autumn", "Winter"] as const;
 export type Season = (typeof SEASONS)[number];
 
 export interface Era {
-  id: "I" | "II" | "III";
+  id: "I" | "II" | "III" | "IV";
   name: string;
   startYear: number;
   endYear: number; // inclusive
   /** short design note for the era */
   theme: string;
+  /** what closes it (the succession comes at the next era's first spring) */
+  endsWith: string;
 }
 
+/** Four eras, one head of the family each: the succession comes at the first spring of eras II–IV. */
 export const ERAS: readonly Era[] = [
-  {
-    id: "I",
-    name: "Iron, Coal & Steam",
-    startYear: 1850,
-    endYear: 1889,
-    theme: "Found the company. River logistics, coal, puddled iron, Bessemer arrives.",
-  },
-  {
-    id: "II",
-    name: "The Age of Steel",
-    startYear: 1890,
-    endYear: 1944,
-    theme: "Scale up. Mid-game: buy into other industries. Labor wars, electrification, two world wars.",
-  },
-  {
-    id: "III",
-    name: "Peak & Collapse",
-    startYear: 1945,
-    endYear: 1985,
-    theme: "Postwar peak, then imports, obsolete plant and the collapse. Survive it — or manage the fall.",
-  },
+  { id: "I", name: "Iron and the Founders", startYear: 1850, endYear: 1892, endsWith: "Homestead",
+    theme: "Found the company. Rivers, coal, puddled iron; Bessemer arrives; the Amalgamated rises." },
+  { id: "II", name: "Steel and the Trusts", startYear: 1893, endYear: 1919, endsWith: "the Great Steel Strike",
+    theme: "Carnegie, Frick and Westinghouse; the 1901 merger; Progressives and the immigrant mill towns." },
+  { id: "III", name: "Depression, New Deal and War", startYear: 1920, endYear: 1946, endsWith: "the 1946 strikes",
+    theme: "1929, the Wagner Act, SWOC, the Little New Deal, the arsenal of democracy." },
+  { id: "IV", name: "Renaissance and Collapse", startYear: 1947, endYear: 1985, endsWith: "the end of the mills",
+    theme: "Smoke control and the Renaissance, the 1959 strike, imports, the EPA, the mills close." },
 ];
 
 export const START_YEAR = ERAS[0].startYear;

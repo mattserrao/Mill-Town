@@ -17,6 +17,9 @@ import { habitable, Terrain } from "./terrain";
 import { HouseSub, Street, Use } from "./town";
 import { standardTechs, techCost } from "./market";
 import { priceLevel } from "./time";
+import { foundedWorks } from "./family";
+import { recordMove } from "./owners";
+import { saleQuote } from "./rivalai";
 
 export type ProjectKind = "expand" | "housing" | "dock" | "found";
 
@@ -54,7 +57,7 @@ export function projectBlocked(g: GameState, kind: ProjectKind): string | null {
   if (!c) return "Found your company first";
   if (c.biz.actionsLeft <= 0) return "No actions left this season";
   const y = cal(g).year;
-  if (PROJECTS[kind].from && y < PROJECTS[kind].from!) return `From ${PROJECTS[kind].from}`;
+  if (PROJECTS[kind].from && y < PROJECTS[kind].from! && !(kind === "found" && g.family?.newIndustry)) return `From ${PROJECTS[kind].from}`;
   if (kind === "expand" && c.annexes.filter((a) => a.kind === "expand").length >= 3) return "The works has been expanded three times";
   if (kind === "dock" && c.dock) return "The works already has a dock";
   if (kind === "housing" && c.annexes.filter((a) => a.kind === "housing").length >= 4) return "Four blocks of company housing is plenty";
@@ -170,9 +173,12 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
   if (why) return { ok: false, text: why };
   const q = checkProject(g, p.kind, p.x, p.y, p.industry);
   if (!q.ok) return { ok: false, text: q.reason ?? "Can't build there" };
-  if (c.cash < q.cost) return { ok: false, text: `Needs $${q.cost.toLocaleString()}` };
+  // the heir's new industry: the old works will be sold when the new one opens, so the bank lends against it
+  const heirs = p.kind === "found" && g.family?.newIndustry?.industry === q.industry;
+  const bridge = heirs && g.family!.newIndustry!.sellOld && !c.biz.flags.toUss ? saleQuote(g, c) : 0;
+  if (c.cash + bridge < q.cost) return { ok: false, text: `Needs $${q.cost.toLocaleString()}` };
   c.cash -= q.cost;
-  c.biz.actionsLeft--;
+  if (!heirs) c.biz.actionsLeft--;
   const year = cal(g).year, m = g.map, w = g.world;
   let text = "";
   if (p.kind === "expand") {
@@ -209,8 +215,10 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
     nw.name = `${place || "New"} ${INDUSTRIES[ind].name} Works`;
     updateWorksAccess(g, nw);
     text = `${c.name} breaks ground on a new ${INDUSTRIES[ind].name.toLowerCase()} works.`;
+    foundedWorks(g, nw);
   }
   w.version++;
+  if (p.kind === "expand" || p.kind === "found") recordMove(g, "expand", undefined, p.kind === "found" ? q.industry : c.industry);
   c.biz.record.push(`${cal(g).season} ${year}: ${PROJECTS[p.kind].name}`);
   log(g, text);
   return { ok: true, text };

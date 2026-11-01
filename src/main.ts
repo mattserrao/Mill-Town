@@ -34,6 +34,11 @@ import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCach
 import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type WorksRef } from "./core/economy";
 import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
 import { esc, fmt } from "./core/text";
+import { familyChip, resetStruggleUi, struggleRisks, struggleView, successionCard } from "./ui/struggle";
+import { DYNASTIES, legacy } from "./core/legacy";
+import { FOUNDER_NAMES, fullName, PATHS, SURNAMES } from "./core/family";
+import { topMarks, whoDid } from "./core/ledger";
+import { stanceWord } from "./core/owners";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const money = (n: number) => (n < 0 ? "-$" : "$") + fmt(Math.abs(n));
@@ -106,8 +111,8 @@ function resetUiState() {
   if (game) {
     proposal = null; roadPreview = null; placeBar();
     $("query").hidden = true;
-    toggleTrends(false); openPaper(false);
-    resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
+    toggleTrends(false); toggleStruggle(false); openPaper(false);
+    resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
@@ -120,6 +125,8 @@ function showGame(g: GameState) {
   ($<HTMLInputElement>("seed")).value = String(g.seed);
   seedEdited = false;
   ($<HTMLInputElement>("companyName")).value = suggestName(industry, g.seed);
+  ($<HTMLInputElement>("founderFirst")).value = FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length];
+  ($<HTMLInputElement>("founderLast")).value = SURNAMES[(g.seed * 7) % SURNAMES.length];
   setTab("overview");
   siteTried = [];
   placing = !g.company; ($<HTMLInputElement>("placing")).checked = placing;
@@ -300,6 +307,7 @@ function requestRender() {
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now, night); traffic.drawBoats(ctx, cam, t); }
     if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
     if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
+    if (cam.zoom >= 0.25) renderer.drawMemorials(ctx, cam, game);
     drawRoadPreview();
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t, night);
     if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
@@ -480,7 +488,9 @@ function refreshPanels() {
   $("population").title = "People living in the valley";
   const bz = co?.biz.meters, mo = Math.round(game.morale);
   const W = { rep: (v: number) => (v < -50 ? "reviled" : v < -20 ? "distrusted" : v < 15 ? "unremarkable" : v < 45 ? "respected" : "admired"), lab: (v: number) => (v < -50 ? "hostile" : v < -20 ? "bitter" : v < 15 ? "uneasy" : v < 45 ? "steady" : "loyal"), inf: (v: number) => (v < 10 ? "none to speak of" : v < 30 ? "a friend at City Hall" : v < 60 ? "heard in Harrisburg" : "heard in Washington") };
-  $("standing").innerHTML = (bz ? meterChip("Rep", "Reputation", bz.reputation, true, W.rep(bz.reputation)) + meterChip("Labour", "Labour relations", bz.labour, true, W.lab(bz.labour)) + meterChip("Infl", "Influence", bz.influence, false, W.inf(bz.influence)) : "") +
+  $("familyKpi").hidden = !game.family;
+  $("familyKpi").innerHTML = familyChip(game);
+  $("standing").innerHTML = (bz ? meterChip("Opinion", "Public opinion (reputation)", bz.reputation, true, W.rep(bz.reputation)) + meterChip("Union", "What the men and their union think of you", bz.labour, true, W.lab(bz.labour)) + meterChip("Capital", "Political capital (influence)", bz.influence, false, W.inf(bz.influence)) : "") +
     meterChip("Morale", "Town morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
   townPanel(game, $("town"), () => { afterChange(); }, goTo);
@@ -488,6 +498,8 @@ function refreshPanels() {
   worksPanel(game, $("works"), () => { afterChange(); }, startPlacing, startRoad);
   businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
+  successionCard(game, $("succession"), () => { afterChange(); });
+  if (!$("struggle").hidden) struggleView(game, $("struggle"), () => afterChange(), () => toggleStruggle(false));
   siteReport();
   overviewPanel();
   supplyPanel();
@@ -549,7 +561,7 @@ function overviewPanel() {
   const cap = now?.capacity ?? 0;
   const st = techStanding(game, c);
   const card = (k: string, v: string, sub: string, cls = "") => `<div class="card"><small>${k}</small><b class="${cls}">${v}</b>${sub}</div>`;
-  const list = risks(game);
+  const list = [...struggleRisks(game), ...risks(game)].sort((a, b) => ({ bad: 0, warn: 1, good: 2 }[a.level] - { bad: 0, warn: 1, good: 2 }[b.level]));
   el.innerHTML = `
     <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" ? "up" : "down"}">● ${status}</span></div>
     <div class="cards">
@@ -575,7 +587,7 @@ function overviewPanel() {
     </div>
     ${c.lastSeason?.notes.length ? `<p class="hint">${c.lastSeason.notes.map(esc).join(" ")}</p>` : ""}` : ""}`;
   $("ovTrends").addEventListener("click", () => toggleTrends(true));
-  el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.go!)));
+  el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => (b.dataset.go === "struggle" ? toggleStruggle(true) : setTab(b.dataset.go!))));
 }
 
 const KIND_TITLE: Record<Flow["kind"], string> = { input: "In", utilityIn: "Utilities in", utilityOut: "Your customers", output: "Out" };
@@ -606,7 +618,8 @@ function rivalsPanel() {
     <div class="sc-row riv" data-rival="${c.def.id}" title="${tip(c)}">
       <div class="sc-top"><b>${esc(name(c))}</b><span>${fmt(c.capacity)}</span></div>
       <div class="sc-bar"><div style="width:${(c.capacity / top) * 100}%;background:${RELATION_COLOUR.competitor}"></div></div>
-      <div class="sc-sub">${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}${c.state?.lastMove ? ` · ${esc(c.state.lastMove.replace(/^\d{4}: /, ""))}` : ""}${c.state?.damage.length ? ` · <span class="bad">hurt</span>` : ""}</div>
+      <div class="sc-sub">${c.state && game.company ? `<span class="${(c.state.stance ?? 0) <= -15 ? "bad" : (c.state.stance ?? 0) >= 25 ? "good" : ""}">${stanceWord(c.state.stance)}</span> · ` : ""}${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}${c.state?.lastMove ? ` · ${esc(c.state.lastMove.replace(/^\d{4}: /, ""))}` : ""}${c.state?.damage.length ? ` · <span class="bad">hurt</span>` : ""}</div>
+      ${c.state?.intent ? `<div class="sc-sub st-intent">${esc(c.state.intent.text)}</div>` : ""}
     </div>`;
   const coming = direct.filter((c) => !c.state && c.def.entryYear > game.world.year);
   const closed = direct.filter((c) => c.state?.closed);
@@ -726,7 +739,9 @@ function setupUI() {
   $("found").addEventListener("click", () => {
     if (!selected) return;
     const name = ($<HTMLInputElement>("companyName")).value.trim() || suggestName(industry, game.seed);
-    const r = foundCompany(game, industry, selected.x, selected.y, name);
+    const first = ($<HTMLInputElement>("founderFirst")).value.trim() || FOUNDER_NAMES[game.seed % FOUNDER_NAMES.length];
+    const last = ($<HTMLInputElement>("founderLast")).value.trim() || SURNAMES[(game.seed * 7) % SURNAMES.length];
+    const r = foundCompany(game, industry, selected.x, selected.y, name, { first, surname: last });
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     placing = false; ($<HTMLInputElement>("placing")).checked = false;
     if (r.ok) { selected = null; hover = null; setTab("overview"); }
@@ -734,6 +749,9 @@ function setupUI() {
     afterChange();
   });
   $("next").addEventListener("click", nextSeason);
+  $("struggleBtn").addEventListener("click", () => toggleStruggle());
+  $("familyKpi").addEventListener("click", () => toggleStruggle(true));
+  window.addEventListener("keydown", (e) => { if (!inFormControl(e) && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "s" && $("menu").hidden) toggleStruggle(); });
   $("paperNav").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-p]");
     if (!b) return;
@@ -1034,7 +1052,8 @@ function nextSeason() {
   if (game.over) return;
   // a historical moment is waiting for your answer
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
+  if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
+  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
   advanceTurn(game);
   afterTurn();
@@ -1044,9 +1063,10 @@ function nextYear() {
   if (game.over) return;
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi();
+  if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
+  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
-  do advanceTurn(game); while (!game.over && !game.pendingDecision && cal(game).season !== "Spring");
+  do advanceTurn(game); while (!game.over && !game.pendingDecision && !game.family?.succession && cal(game).season !== "Spring");
   afterTurn();
 }
 
@@ -1088,6 +1108,14 @@ function setSpeed(k: number) {
   holdShown = "-"; showHold("");
 }
 
+function toggleStruggle(force?: boolean) {
+  const el = $("struggle");
+  const open = force ?? el.hidden;
+  el.hidden = !open;
+  $("struggleBtn").classList.toggle("on", !!open);
+  if (open) { if (!$("trends").hidden) toggleTrends(false); struggleView(game, el, () => afterChange(), () => toggleStruggle(false)); }
+}
+
 function toggleTrends(force?: boolean) {
   const el = $("trends");
   const open = force ?? el.hidden;
@@ -1100,6 +1128,7 @@ function toggleTrends(force?: boolean) {
 function holdReason(): string {
   if (!$("menu").hidden) return "Main menu open";
   if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
+  if (game.family?.succession) { if ($("succession").hidden) successionCard(game, $("succession"), () => afterChange()); return "Waiting for the succession"; }
   if (proposal) return "Waiting while you place the building";
   if (roadPreview) return "Waiting while you look at the road";
   return "";
@@ -1171,11 +1200,18 @@ function showFinal() {
       : `${c.name} did not outlast the collapse. The works stand cold beside the river.`;
   } else verdict = "You never founded a company. The valley's story went on without you.";
   const epi = c ? epilogue() : [];
+  const lg = legacy(g), f = g.family;
+  const legacyHtml = c ? `<div class="legacy"><div><small>Fortune</small><b>${lg.fortune}</b></div><div><small>The Valley</small><b>${lg.valley}</b></div><div><small>History's verdict</small><b>${lg.verdict}</b></div><div><small>Legacy</small><b>${lg.total}</b></div></div>
+    <p><b>${esc(lg.title)}.</b> ${lg.lines.map(esc).join(" ")}</p>
+    ${f ? `<ol class="tree">${f.heads.map((h) => `<li><b>${esc(fullName(g, h))}</b> (${h.from}–${h.to ?? cal(g).year}) · ${esc(PATHS[h.path].name.toLowerCase())}${h.offices?.length ? ` · ${esc(h.offices.join(", "))}` : ""}${h.verdict ? ` — ${esc(h.verdict)}` : ""}</li>`).join("")}</ol>` : ""}
+    <p style="font-size:12px">${topMarks(g, 4).map((m) => `${m.year}: ${esc(whoDid(g, m))} ${esc(m.text)}`).join(" · ")}</p>
+    <table class="dyn">${[...DYNASTIES.map(([n, a, b, cc, note]) => ({ n, t: Math.round((a + b + cc) / 3), note, you: false })), { n: `The ${f?.surname ?? ""} family`, t: lg.total, note: lg.title.toLowerCase(), you: true }].sort((a, b) => b.t - a.t).map((d) => `<tr class="${d.you ? "you" : ""}"><td>${esc(d.n)}</td><td>${d.t}</td><td>${esc(d.note)}</td></tr>`).join("")}</table>` : "";
   $("final").innerHTML = `<div class="paper">
     <div class="mast"><span>Pittsburgh Post-Gazette</span><span>${c?.bankrupt ? `${cal(g).season} ${cal(g).year}` : "Winter 1985"}</span></div>
     <h3>${c?.bankrupt ? "Receivers Sell the Works" : "The Mills Go Quiet"}</h3>
     <p>${verdict}</p>
     ${epi.length ? `<p class="epilogue">${epi.join(" ")}</p>` : ""}
+    ${legacyHtml}
     <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
     ${c && c.biz.record.length ? `<p style="font-size:12px"><b>Your choices:</b> ${c.biz.record.filter((r) => r.includes("—")).concat(c.biz.record.filter((r) => !r.includes("—")).slice(-4)).slice(0, 8).map(esc).join(" · ")}</p>` : ""}
     <div class="actions"><button id="finalLook">Look around</button><button id="finalNew" class="primary">New town</button></div>

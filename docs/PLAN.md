@@ -8,22 +8,23 @@
 | Map | Highly accurate: USGS 10 m elevation, hydrography and transportation → 720×720 tiles at 30 m (the Point to Clairton) |
 | Art | Generated in code (procedural pixel sprites) |
 | Turns | Turn-based, 1 turn = 1 season |
-| Eras | Three: I Iron, Coal & Steam (1850–89) · II The Age of Steel (1890–1944) · III Peak & Collapse (1945–85) |
+| Eras | Four, one head of the family each (v0.16): I Iron and the Founders (1850–92) · II Steel and the Trusts (1893–1919) · III Depression, New Deal and War (1920–46) · IV Renaissance and Collapse (1947–85) |
 | End | Collapse is the final test |
 | Industries | Steel, Power, Glass, Metalworking/Shipbuilding. Start with one; buy into others from Era II |
-| Generations | A span of eras (no dynasty) |
+| Generations | A named family (v0.16): the founder, then an heir at each new era who chooses the family's path — the business, a new industry, politics, the co-op, or finance |
 | Rivals | AI rivals, real figures (Carnegie, Frick, Jones & Laughlin, Westinghouse, PPG, Mellon, Dravo) |
 | Town | Grows on its own in response to the mill; the player doesn't zone |
 | History | Real figures and events |
 | Business tone | Everything goes: Pinkertons, violent strike-breaking, child labour, deliberate pollution are available, with heavy reputation/unrest/legal costs |
 | Sabotage | Legal-but-ruthless tactics plus literal sabotage (rare, risky; scandal and legal ruin if caught) |
 | Action pace | 2–3 actions per season plus standing policies (wages, hours, union stance) that persist until changed |
-| Meters | Visible: reputation, labour relations, political influence beside cash |
+| Meters | Visible: Opinion (reputation), Union (labour relations), Capital (influence), Morale — fed by the family ledger (v0.16) |
+| The Struggle (v0.16) | Labour, politics and the other owners are actors: the union organises, demands and strikes (a siege on four fronts); elections move the balance at City Hall, Harrisburg and Washington, and the balance moves the laws; the rivals answer your moves. See `docs/V016-PLAN.md` |
 | Building placement | The game suggests a spot; the player confirms or moves it |
 | Public works | Private infrastructure only (sidings, docks, private rail, company housing); lobby the city for roads, bridges, locks |
 | Acquisitions | An acquired works runs as a second site with its own panel (capacity, tech, labour, freight); a company view sums them |
 | Second industry (1890+) | Buy an existing rival works or found a new one |
-| Trust buy-out | Not available: always play to 1985 |
+| Trust buy-out | Morgan's 1901 trust can buy (or swallow) a steel company for stock; a hostile owner can bid for an overdrawn one. Either forces an early succession; play goes on to 1985 |
 | Historical moments | Decisions when they touch your works (e.g. Homestead 1892 at your mill); elsewhere history plays out as written |
 | Rival AI | Rivals take the same actions, by personality (Carnegie integrates and cuts prices, Frick corners coke and breaks strikes, Mellon finances and buys) |
 | Collapse | Hard but possible to survive: modernise, diversify, keep labour peace |
@@ -202,6 +203,18 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      Street crowds: no more than two people per stretch of street, people step round crowds, use the whole
      sidewalk and pass through the works gate along its whole edge. A layer clicked again (or its legend ✕)
      goes back to the town. Save & exit: Ctrl+S, Esc or ☰ → Save & exit, with a "Saved" note
+   - The Struggle (v0.16, `src/core/ledger.ts`, `family.ts`, `labour.ts`, `politics.ts`, `owners.ts`, `career.ts`,
+     `branches.ts`, `legacy.ts`, `src/ui/struggle.ts`): see `docs/V016-PLAN.md`. A family ledger of every lasting
+     act (grievance, trust, favour, grudge, precedent; martyrs and precedents never fade) that later cards read
+     ("Because your father sent the Pinkertons…"); four eras and a named family with heirs whose traits grow from
+     what the family did, a succession card at each era (heir, path, estate tax or a foundation); the union of each
+     industry and era with members, militancy, a fund, leaders and demands, strikes as sieges (money, men, force,
+     opinion) shown at the gate with guards or troops and memorials where men were killed; real office-holders,
+     elections every cycle that move the business/reform balance, nine laws whose dates move with it and force
+     your policies (or you defy them); rivals with a stance toward the family who answer your moves (often a season
+     ahead), the owners' association, Morgan's 1901 offer and takeover bids; a political career for an heir in
+     office; income tax from 1909, pensions from 1950, Superfund cleanup from 1980; a legacy score with the family
+     tree and the real dynasties at the end. The Struggle view (S)
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
@@ -216,8 +229,9 @@ See `docs/MECHANICS.md` — comparison with SimCity (Micropolis) and the recomme
 routing, environment, growth and neighbourhood style.
 
 ## Known gaps in the current build
-- Economy balance (v0.10 pass): a company that never invests goes under by the late 1870s; one that keeps up
-  ends rich (cash still piles up from the 1940s unless spent on works, rivals or the town)
+- Economy balance (v0.16 pass): a company that never invests goes under in every industry; one that keeps up keeps
+  roughly half its peak cash through the collapse (taxes, pensions and cleanup); holdings are capped (one stake
+  and one share purchase per company a year) but a determined investor still ends far richer than an operator
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
 - Season loop cost (~200–300 ms a season late in the game): the biggest costs are town growth (`growByDesire`,

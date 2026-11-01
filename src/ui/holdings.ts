@@ -6,7 +6,7 @@ import { allWorks, cal, type GameState } from "../core/game";
 import { relationOf } from "../core/economy";
 import { INDUSTRIES } from "../core/industries";
 import {
-  bizBlocked, bizDef, bizIncome, bizPrice, BUSINESSES, buyBiz, buyShares, buyStake, holdingsOf, holdingsValue, LISTED, listedOpen, LOT,
+  bizBlocked, bizDef, bizIncome, bizPrice, BUSINESSES, buyBiz, buyShares, buyStake, holdingsOf, holdingsValue, LISTED, listedOpen, LOT, MAX_LOTS,
   rivalProfit, sellBiz, sellShares, sellStake, sellValue, sharePrice, stakeBlocked, stakeName, stakePrice, takeover, takeoverPrice, upgradeBiz, upgradeBlocked,
 } from "../core/holdings";
 import { RIVALS } from "../core/rivals";
@@ -75,8 +75,8 @@ export function holdingsPanel(g: GameState, el: HTMLElement, changed: () => void
     const ch = p0 ? (p / p0 - 1) * 100 : 0;
     const gain = n ? n * p - (h.shareCost[L.id] ?? 0) : 0;
     return actRow(`${esc(L.name)} <span class="muted">$${p.toFixed(2)}</span> <span class="${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"}${Math.abs(ch).toFixed(0)}%</span>`,
-      `<button data-shares="${L.id}" ${c.cash < p * LOT ? "disabled" : ""} title="Buy ${LOT} shares">+${LOT}</button>${n ? `<button data-unshares="${L.id}" title="Sell all ${fmt(n)}">Sell</button>` : ""}`,
-      n ? `<span class="fx">${fmt(n)} shares · ${money(n * p)}</span><span class="fx ${gain >= 0 ? "fx-good" : "fx-bad"}">${gain >= 0 ? "+" : "−"}${money(Math.abs(gain))}</span><span class="fx fx-good">+${money(n * p * 0.0125)}/season</span>` : `<span class="fx">yields ~5% a year</span>`,
+      (() => { const lots = Math.max(1, Math.min(MAX_LOTS, Math.floor(c.cash / (p * LOT)))); const done = h.shareYear?.[L.id] === y; return `<button data-shares="${L.id}" data-lots="${lots}" ${c.cash < p * LOT || done || c.biz.actionsLeft <= 0 ? "disabled" : ""} title="${done ? "Bought this year already: the brokers can only find so many sellers" : `Buy ${fmt(lots * LOT)} shares (1 action; once a year)`}">+${fmt(lots * LOT)}</button>`; })() + (n ? `<button data-unshares="${L.id}" title="Sell all ${fmt(n)}">Sell</button>` : ""),
+      n ? `<span class="fx">${fmt(n)} shares · ${money(n * p)}</span><span class="fx ${gain >= 0 ? "fx-good" : "fx-bad"}">${gain >= 0 ? "+" : "−"}${money(Math.abs(gain))}</span><span class="fx fx-good">+${money(n * p * 0.0075)}/season</span>` : `<span class="fx">yields ~3% a year</span>`,
       L.note);
   }).join("");
 
@@ -107,7 +107,7 @@ export function holdingsPanel(g: GameState, el: HTMLElement, changed: () => void
   on("stake", (id) => buyStake(g, id));
   on("unstake", (id) => sellStake(g, id));
   on("take", (id) => takeover(g, id));
-  on("shares", (id) => buyShares(g, id));
+  on("shares", (id) => buyShares(g, id, Number(el.querySelector<HTMLButtonElement>(`button[data-shares="${id}"]`)?.dataset.lots ?? 1)));
   on("unshares", (id) => sellShares(g, id));
 }
 
