@@ -18,6 +18,12 @@ import { sieges } from "./labour";
 export type Faction = "industrialist" | "politician";
 export const START_YEARS = ERAS.map((e) => e.startYear);
 
+/** the seed every baked later start is grown from (tests/bake-starts.test.ts writes them to public/starts) */
+export const START_SEED = 1893;
+/** the founder the baked starts are played under; renamed to the player's choice when one is loaded */
+export const BAKED_FOUNDER: Founder = { first: "Thomas", surname: "Kerr" };
+export const startFile = (year: number, industry: IndustryId) => `${year}-${industry}.mtsave`;
+
 /** the best site for an industry that the founding capital can buy */
 export function bestSite(g: GameState, ind: IndustryId): { x: number; y: number } | null {
   const m = g.map, sat = popSAT(m, g.world), fp = footprintTiles(m, ind);
@@ -65,15 +71,53 @@ export function laterStartGame(map: GameMap, seed: number, o: LaterStart): GameS
 }
 
 /** play seasons until the start year's succession comes due (call repeatedly: returns true when done) */
-export function simulateSome(g: GameState, o: LaterStart, seasons: number): boolean {
+export function simulateSome(g: GameState, o: LaterStart, seasons: number, bake = false): boolean {
+  const due = () => !!g.family?.succession && cal(g).year >= o.year;
   for (let k = 0; k < seasons; k++) {
-    if (g.family?.succession && cal(g).year >= o.year) return arrive(g, o);
+    if (due()) return bake || arrive(g, o);
     autoOwner(g);
     advanceTurn(g);
     if (g.over) return true;
   }
-  if (g.family?.succession && cal(g).year >= o.year) return arrive(g, o);
+  if (due()) return bake || arrive(g, o);
   return false;
+}
+
+/**
+ * A later start from its baked snapshot (public/starts): the simulated valley at the succession, with the
+ * player's faction and family name put on it. Null if there is no snapshot (then simulate live).
+ */
+export async function loadStart(map: GameMap, o: LaterStart, fetchBlob: (file: string) => Promise<Blob | null>, unpack: (b: Blob, m: GameMap) => Promise<GameState>): Promise<GameState | null> {
+  const blob = await fetchBlob(startFile(o.year, o.industry));
+  if (!blob) return null;
+  const g = await unpack(blob, map);
+  if (!g.family?.succession || g.over) return null;
+  renameFamily(g, { first: g.family.heads[0]?.first ?? BAKED_FOUNDER.first, surname: g.family.surname }, o.founder);
+  g.flags.laterStart = o.year;
+  g.flags.faction = o.faction;
+  arrive(g, o);
+  return g;
+}
+
+/** the baked founder becomes the player's: the family, the company and what the papers wrote */
+function renameFamily(g: GameState, from: Founder, to: Founder) {
+  const f = g.family, c = g.company;
+  if (!f || !c) return;
+  const first = to.first || from.first, surname = to.surname || from.surname;
+  if (first === from.first && surname === from.surname) return;
+  // the founder's first name is only swapped in the text when no later head or heir shares it
+  const shared = f.heads.slice(1).some((h) => h.first === from.first) || f.heirs.some((h) => h.first === from.first);
+  const sub = (t: string) => (shared ? t : t.split(`${from.first} ${from.surname}`).join(`${first} ${surname}`)).split(from.surname).join(surname);
+  f.surname = surname;
+  if (f.heads[0]) f.heads[0].first = first;
+  c.name = sub(c.name);
+  for (const w of c.others) w.name = sub(w.name);
+  for (const l of g.log) l.text = sub(l.text);
+  for (const h of g.headlines) { h.name = sub(h.name); h.description = sub(h.description); }
+  for (const n of g.news) for (const it of n.items) { it.name = sub(it.name); it.description = sub(it.description); }
+  for (const m of g.ledger ?? []) m.text = sub(m.text);
+  if (f.succession) f.succession.note = sub(f.succession.note);
+  for (const r of c.biz.record) c.biz.record[c.biz.record.indexOf(r)] = sub(r);
 }
 
 /** you arrive: the succession card waits for you, with the paths of your faction */

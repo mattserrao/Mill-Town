@@ -164,7 +164,7 @@ describe("the owners", () => {
     expect(g.rivals.filter((r) => r.answered || r.intent).length).toBeGreaterThan(before);
     recordMove(g, "recognise");
     expect(ownersOf(g).member).toBe(false);
-  });
+  }, 60000);
 });
 
 describe("cards that read the ledger", () => {

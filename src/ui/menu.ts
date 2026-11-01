@@ -59,7 +59,7 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
       <div class="mm-h">Start in</div>
       <div class="mm-opts">${START.map(([y, name, sub]) => `<label class="${pick.year === y ? "on" : ""}"><input type="radio" name="mmYear" value="${y}" ${pick.year === y ? "checked" : ""}/><b>${name}</b><span>${sub}</span></label>`).join("")}</div>
       ${pick.year > 1850 ? `
-      <p class="mm-p">The valley and your family are played from 1850 by the simulation — a careful owner making the choices of the day. You arrive at the succession and take over, with everything the family did before you.</p>
+      <p class="mm-p">The valley and your family have been played from 1850 by a careful owner making the choices of the day. You arrive at the succession and take over, with everything the family did before you. (A later start is one valley; the seed above is for 1850.)</p>
       <div class="mm-h">Your faction</div>
       <div class="mm-opts mm-two">
         <label class="${pick.faction === "industrialist" ? "on" : ""}"><input type="radio" name="mmFaction" value="industrialist" ${pick.faction === "industrialist" ? "checked" : ""}/><b>Industrialist</b><span>Run the family company</span></label>

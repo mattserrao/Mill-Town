@@ -20,9 +20,9 @@ import { holdingsPanel, resetHoldingsUi, sellDialog } from "./ui/holdings";
 import { bizDef } from "./core/holdings";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { icon, METERS, type MeterKey, money as short } from "./ui/fx";
-import { loadGame, newSaveId, saveGame } from "./core/save";
+import { loadGame, newSaveId, saveGame, unpackGame } from "./core/save";
 import { mainMenu, type NewGameOptions, simCard } from "./ui/menu";
-import { laterStartGame, simulateSome } from "./core/autoplay";
+import { laterStartGame, loadStart, simulateSome } from "./core/autoplay";
 import { lobbyInfluence, lobbySeasons, orderRoad, type RoadPlan, roadBlocked } from "./core/roads";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
@@ -93,7 +93,7 @@ async function start() {
   const params = new URLSearchParams(location.search);
   const asked = Number(params.get("seed"));
   const seed = params.get("seed") && Number.isFinite(asked) ? Math.floor(asked) : Math.floor(Math.random() * 1e6);
-  map = await loadMap("maps/mon-valley.json");
+  map = await loadMap(`${import.meta.env.BASE_URL}maps/mon-valley.json`);
   renderer = new Renderer(map);
   traffic = new Traffic(map);
   traffic.occluded = (sx, sy, d) => renderer.occluded(sx, sy, d);
@@ -156,7 +156,18 @@ function startLater(seed: number, o: NewGameOptions) {
   const founder = { first: o.first || FOUNDER_NAMES[seed % FOUNDER_NAMES.length], surname: o.surname || SURNAMES[(seed * 7) % SURNAMES.length] };
   const lo = { year: o.year, faction: o.faction, industry: o.industry, founder, name: `${founder.surname} & Co. ${INDUSTRIES[o.industry].name} Works` };
   simCard($("menu"), o.year, 1850, "Laying out the town…");
-  setTimeout(() => {
+  const arrive = (g: GameState) => {
+    closeMenu();
+    showGame(g);
+    showNews();
+    const c = g.company;
+    if (c) centerOn(c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 0.5);
+    autosave();
+  };
+  // the baked snapshot of this start (public/starts) arrives at once; without one, the years are simulated here
+  const fetchStart = async (file: string) => { try { const r = await fetch(`${import.meta.env.BASE_URL}starts/${file}`); return r.ok ? await r.blob() : null; } catch { return null; } };
+  loadStart(map, lo, fetchStart, unpackGame).then((g) => { if (g) arrive(g); else simulateLive(); }, () => simulateLive());
+  function simulateLive() {
     const g = laterStartGame(map, seed, lo);
     if (!g) { openMenu(true); return; }
     const step = () => {
@@ -166,15 +177,10 @@ function startLater(seed: number, o: NewGameOptions) {
       const h = g.headlines[0];
       simCard($("menu"), o.year, cal(g).year, `${cal(g).season} ${cal(g).year}${h ? ` · ${h.name}` : ""}`);
       if (!done) { setTimeout(step, 0); return; }
-      closeMenu();
-      showGame(g);
-      showNews();
-      const c = g.company;
-      if (c) centerOn(c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 0.5);
-      autosave();
+      arrive(g);
     };
-    step();
-  }, 30);
+    setTimeout(step, 30);
+  }
 }
 
 function newTown(seed: number) {
