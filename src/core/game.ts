@@ -84,6 +84,8 @@ export interface Works {
   annexes: Annex[];
   /** bought from this rival */
   fromRival?: string;
+  /** what the family paid for it, when it was bought rather than built (v0.21: a bought works sells for no more than that for eight years) */
+  paid?: number;
   /** minutes from this works to every block (the first works uses g.access) */
   access?: Float32Array;
   founded: number;

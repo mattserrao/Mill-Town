@@ -40,8 +40,16 @@ export function worksValue(g: GameState, w: Works): number {
   return Math.round(Math.max(yearlyProfit(w) * EARNINGS_YEARS, scrapValue(g, w)));
 }
 
-/** what a buyer pays for one of your works (value −10%; the workers and the Authority pay less) */
-export const sellPrice = (g: GameState, w: Works) => Math.round((worksValue(g, w) * 0.9) / 1000) * 1000;
+/**
+ * What a buyer pays for one of your works (value −10%; the workers and the Authority pay less). A works bought
+ * from a rival fetches no more than was paid for it until it has been the family's for eight years: buyers
+ * don't pay for two years of your processes as if they were the works' own record.
+ */
+export function sellPrice(g: GameState, w: Works): number {
+  let v = worksValue(g, w) * 0.9;
+  if (w.paid && cal(g).year - w.founded < EARNINGS_YEARS) v = Math.min(v, w.paid);
+  return Math.round(v / 1000) * 1000;
+}
 
 // ---------------------------------------------------------------- the rivals
 
