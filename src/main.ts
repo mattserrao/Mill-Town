@@ -322,12 +322,15 @@ function hoverSiteOk(x: number, y: number): boolean {
   return hoverSite.ok;
 }
 function animating() { return ($<HTMLInputElement>("animate")).checked || ($<HTMLSelectElement>("tod")).value === "cycle"; }
+/** the map stands still while the main menu or the end-of-game paper covers it (nothing to see, nothing to spend) */
+function covered() { return !$("menu").hidden || !$("final").hidden; }
 function requestRender() {
   if (pending || !game) return;
   pending = true;
   requestAnimationFrame((now) => {
     pending = false;
-    if (animating() && now - lastFrame < 40) { requestRender(); return; } // ~25 fps
+    if (animating() && now - lastFrame < 30) { requestRender(); return; } // ~30 fps
+    if (covered() && now - lastFrame < 500) { requestRender(); return; }
     lastFrame = now;
     const fpSize = footprintTiles(map, industry);
     const fp = proposal
@@ -366,17 +369,26 @@ function requestRender() {
       drawRivals(ctx, cam, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, reservedRects());
     }
     drawMinimapView();
-    $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
+    const zt = `${cam.zoom}×${more ? " · drawing…" : ""}`;
+    if ($("zoom").textContent !== zt) $("zoom").textContent = zt;
     if (more || animating() || roadPreview) requestRender();
   });
 }
 
 // ---------------------------------------------------------------- minimap
-let miniBase: ImageData;
+/** the map at one pixel a tile, redrawn when the town changes; shown smoothed at the minimap's size */
+const miniBase = document.createElement("canvas");
+const MINI_PX = 384;
+let miniVersion = "";
 function drawMinimapBase() {
   const W = map.width, H = map.height;
-  mini.width = W; mini.height = H;
-  const img = mctx.createImageData(W, H);
+  const mv = `${game.seed}:${game.world.version}`;
+  if (mv === miniVersion && miniReady) return;
+  miniVersion = mv;
+  if (miniBase.width !== W) { miniBase.width = W; miniBase.height = H; }
+  if (mini.width !== MINI_PX) { mini.width = MINI_PX; mini.height = MINI_PX; }
+  const bctx = miniBase.getContext("2d")!;
+  const img = bctx.createImageData(W, H);
   const lo = map.minHeight, hi = map.maxHeight;
   const useCol: Record<number, [number, number, number]> = {
     1: [52, 92, 44], 2: [160, 150, 80], 3: [170, 150, 120], 4: [190, 150, 110], 5: [170, 80, 60], 6: [230, 220, 200],
@@ -390,17 +402,28 @@ function drawMinimapBase() {
     else { const t = (map.elevation[i] - lo) / (hi - lo); c = [90 + t * 80, 130 + t * 50, 60 + t * 40]; }
     img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
   }
-  miniBase = img;
+  bctx.putImageData(img, 0, 0);
+  // the smoothed copy at the minimap's size, made once here (a high-quality downscale every frame is dear)
+  if (miniSmall.width !== MINI_PX) { miniSmall.width = MINI_PX; miniSmall.height = MINI_PX; }
+  const sctx = miniSmall.getContext("2d")!;
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = "high";
+  sctx.drawImage(miniBase, 0, 0, MINI_PX, MINI_PX);
+  miniReady = true;
 }
+const miniSmall = document.createElement("canvas");
+let miniReady = false;
 
 function drawMinimapView() {
-  if (!miniBase) return;
-  mctx.putImageData(miniBase, 0, 0);
+  if (!miniReady) return;
+  // smoothed down from a tile a pixel (nearest-neighbour at 192 px turned streets and rivers to speckle)
+  mctx.drawImage(miniSmall, 0, 0);
+  const sc = MINI_PX / map.width;
   const pts = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([px, py]) => {
     // invert the projection on a plane at a typical ground height (~260 m)
     const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom;
     const a = wx / 32, b = (wy + (260 - 200) * 1.15) / 16;
-    return [(a + b) / 2, (b - a) / 2];
+    return [((a + b) / 2) * sc, ((b - a) / 2) * sc];
   });
   mctx.strokeStyle = "#fff";
   mctx.lineWidth = 2;
@@ -411,7 +434,16 @@ function drawMinimapView() {
 }
 
 /** Screen areas covered by on-map controls (zoom buttons, minimap, zoom badge), in canvas px. */
+let reservedCache: { key: string; rects: { x: number; y: number; w: number; h: number }[] } | null = null;
 function reservedRects() {
+  // six layout reads a frame otherwise; the panels only move when the canvas or the headline changes size
+  const key = `${canvas.width}x${canvas.height}:${$("headline").offsetHeight}:${$("minimap").offsetHeight}:${$("mapTools").offsetWidth}`;
+  if (reservedCache?.key === key) return reservedCache.rects;
+  const rects = reservedRectsNow();
+  reservedCache = { key, rects };
+  return rects;
+}
+function reservedRectsNow() {
   const vr = canvas.getBoundingClientRect();
   const sx = canvas.width / vr.width, sy = canvas.height / vr.height;
   return ["zoomButtons", "minimap", "zoom", "mapTools", "headline"].map((id) => {

@@ -327,9 +327,15 @@ export class Renderer {
       // each chunk re-renders only when what it shows has changed (dirty-chunk tracking by content signature)
       const version = this.chunkSig(g, c.cx, c.cy) + tail;
       if (have && have.key === version) continue;
-      if (performance.now() - t0 > FRAME_MS && have) { missing++; continue; }
-      if (performance.now() - t0 > FRAME_MS * 2) { missing++; continue; }
+      // a stale chunk waits for the next frame when this one wouldn't fit the budget (a zoom-1 chunk can
+      // take 20–40 ms, so the check is on the expected cost, not just on the time already spent); a chunk
+      // not drawn at all gets twice the budget before it waits
+      const spent = performance.now() - t0;
+      if (have && spent + this.chunkMs > FRAME_MS) { missing++; continue; }
+      if (!have && spent > FRAME_MS * 2) { missing++; continue; }
+      const c0 = performance.now();
       const ch2 = this.renderChunk(g, c.cx, c.cy, s, view, version);
+      this.chunkMs = this.chunkMs * 0.7 + (performance.now() - c0) * 0.3;
       this.chunks.delete(key);
       this.chunks.set(key, ch2);
     }
@@ -363,6 +369,9 @@ export class Renderer {
     this.pending = missing;
     return missing > 0;
   }
+
+  /** running estimate of one chunk's raster time at the current zoom, ms */
+  private chunkMs = 10;
 
   /** the chunks blitted this frame and where (front to back is the end of the list) */
   private drawn: { c: Chunk; dx: number; dy: number; k: number }[] = [];
