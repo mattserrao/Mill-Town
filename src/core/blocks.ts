@@ -93,7 +93,19 @@ export function percentile(f: Float32Array, p: number): number {
  * Bilinear upsample of a block field to tiles, row by row (fast): calls `put(i, value)` for every tile.
  */
 export function upsample(m: GameMap, f: Float32Array, put: (i: number, v: number) => void) {
-  const g = blockGrid(m), W = m.width;
+  const out = upsampleTo(m, f);
+  for (let i = 0, n = out.length; i < n; i++) put(i, out[i]);
+}
+
+let upScratch: Float32Array | null = null;
+/**
+ * Bilinear upsample of a block field to tiles into a shared scratch array (valid until the next call) —
+ * a plain loop over the result is several times quicker than a callback per tile.
+ */
+export function upsampleTo(m: GameMap, f: Float32Array): Float32Array {
+  const g = blockGrid(m), W = m.width, n = W * m.height;
+  if (!upScratch || upScratch.length !== n) upScratch = new Float32Array(n);
+  const out = upScratch;
   const x0 = new Int32Array(W), x1 = new Int32Array(W), tx = new Float32Array(W);
   for (let x = 0; x < W; x++) {
     const fx = (x + 0.5) / B - 0.5;
@@ -109,7 +121,8 @@ export function upsample(m: GameMap, f: Float32Array, put: (i: number, v: number
       const t = tx[x];
       const top = f[r0 + x0[x]] * (1 - t) + f[r0 + x1[x]] * t;
       const bot = f[r1 + x0[x]] * (1 - t) + f[r1 + x1[x]] * t;
-      put(row + x, top * (1 - ty) + bot * ty);
+      out[row + x] = top * (1 - ty) + bot * ty;
     }
   }
+  return out;
 }

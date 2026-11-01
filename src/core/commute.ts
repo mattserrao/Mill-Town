@@ -30,20 +30,36 @@ const TAU = 20;          // minutes: how fast willingness to commute falls off
 const MAX_MIN = 100;
 
 
+let costCache: { m: GameMap; w: World; version: number; year: number; cost: Float32Array } | null = null;
 export function blockCosts(m: GameMap, w: World): Float32Array {
+  // asked for several times a year (the commute, the works' fields, each road plan): one pass over the map
+  const cc = costCache;
+  if (cc && cc.m === m && cc.w === w && cc.version === w.version && cc.year === w.year) return cc.cost;
+  const cost = blockCostsNow(m, w);
+  costCache = { m, w, version: w.version, year: w.year, cost };
+  return cost;
+}
+function blockCostsNow(m: GameMap, w: World): Float32Array {
   const g = blockGrid(m);
   const streets = new Uint8Array(g.n), pikes = new Uint8Array(g.n), bridge = new Uint8Array(g.n), incline = new Uint8Array(g.n);
   const water = new Uint8Array(g.n), slope = new Float32Array(g.n), cnt = new Uint8Array(g.n);
-  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
-    const i = y * m.width + x, b = blockOf(g, x, y);
-    cnt[b]++;
-    if (m.terrain[i] === Terrain.Water) water[b]++;
-    slope[b] += m.slope[i];
-    const s = w.street[i];
-    if (s) streets[b]++;
-    if (s === Street.Pike) pikes[b] = 1;
-    if (s === Street.Bridge) bridge[b] = 1;
-    if (w.use[i] === Use.Incline) incline[b] = 1;
+  const W = m.width, ter = m.terrain, sl = m.slope, st = w.street, use = w.use;
+  for (let y = 0; y < m.height; y++) {
+    const row = y * W, brow = (y / B | 0) * g.bw;
+    for (let bx = 0, x0 = 0; x0 < W; bx++, x0 += B) {
+      const b = brow + bx;
+      let c = 0, wa = 0, so = 0, ns = 0;
+      for (let x = x0, xe = Math.min(W, x0 + B); x < xe; x++) {
+        const i = row + x;
+        c++;
+        if (ter[i] === Terrain.Water) wa++;
+        so += sl[i];
+        const s = st[i];
+        if (s) { ns++; if (s === Street.Pike) pikes[b] = 1; else if (s === Street.Bridge) bridge[b] = 1; }
+        if (use[i] === Use.Incline) incline[b] = 1;
+      }
+      cnt[b] += c; water[b] += wa; slope[b] += so; streets[b] += ns;
+    }
   }
   const cost = new Float32Array(g.n);
   for (let b = 0; b < g.n; b++) {

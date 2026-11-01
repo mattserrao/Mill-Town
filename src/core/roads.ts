@@ -149,7 +149,9 @@ let cache: { key: string; plans: RoadPlan[] } | null = null;
 export function roadPlans(g: GameState): RoadPlan[] {
   const c = g.company;
   if (!c) return [];
-  const key = `${g.seed}:${g.turn}:${g.world.version}:${c.x},${c.y}`;
+  // refreshed each year, not each season (the town's version moves nearly every season as it grows, and
+  // planning routes ten roads and bridges is too dear to repeat four times a year)
+  const key = `${g.seed}:${g.world.year}:${c.x},${c.y}:${(g.publicWorks.roads ?? []).length}:${allWorks(c).length}`;
   if (cache?.key === key) return cache.plans;
   const pending = new Set((g.publicWorks.roads ?? []).map((r) => r.plan.zone));
   // the places that would gain most from a quicker trip, nearest first among equals; route the best few

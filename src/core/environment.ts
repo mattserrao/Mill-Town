@@ -8,7 +8,7 @@
 //         Allegheny, away from it on the Ohio) and slowly clears. Until filtration (1908) the riverside towns drink it.
 // Health: air + water + crowding. Unrest: poor health, crowding and the grievances of the era.
 
-import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsample } from "./blocks";
+import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsampleTo } from "./blocks";
 import type { GameMap } from "./map";
 import { Terrain } from "./terrain";
 import { Use, type World } from "./town";
@@ -75,12 +75,18 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
   }
   const heat = SEASON_HEAT[season] * homeCoal(w.year) * mult;
   const steam = w.year < 1955 ? 1 : Math.max(0, 1 - (w.year - 1955) / 8); // diesels replace steam
+  const pop = w.pop, use = w.use, W = m.width, homeK = HOME_K * heat, shopE = COMMERCE_K * heat;
   for (let y = 0; y < m.height; y++) {
-    const row = y * m.width, brow = (y / B | 0) * g.bw;
-    for (let x = 0; x < m.width; x++) {
-      const i = row + x;
-      if (w.pop[i]) { const e = w.pop[i] * HOME_K * heat; E[brow + (x / B | 0)] += e; homes += e; }
-      else if (w.use[i] === Use.Commerce || w.use[i] === Use.Civic) { const e = COMMERCE_K * heat; E[brow + (x / B | 0)] += e; homes += e; } // boilers of shops, offices, hotels, churches
+    const row = y * W, brow = (y / B | 0) * g.bw;
+    for (let bx = 0, x0 = 0; x0 < W; bx++, x0 += B) {
+      // one block's worth of tiles at a time (no division per tile)
+      let e = 0;
+      for (let x = x0, xe = Math.min(W, x0 + B); x < xe; x++) {
+        const i = row + x, p = pop[i];
+        if (p) e += p * homeK;
+        else { const u = use[i]; if (u === Use.Commerce || u === Use.Civic) e += shopE; } // boilers of shops, offices, hotels, churches
+      }
+      if (e) { E[brow + bx] += e; homes += e; }
     }
   }
   if (steam) for (const i of openRail(m, w.year)) { const e = RAIL_K * steam * mult; E[blockOf(g, i % m.width, (i / m.width) | 0)] += e; rail += e; }
@@ -103,7 +109,8 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
 
   // long-term exposure per tile
   const p = w.pollution, k = SOOT_SCALE * SOOT_ALPHA;
-  upsample(m, env.air, (i, v) => { p[i] = p[i] * (1 - SOOT_ALPHA) + v * k; });
+  const up = upsampleTo(m, env.air), keep = 1 - SOOT_ALPHA;
+  for (let i = 0, n = p.length; i < n; i++) p[i] = p[i] * keep + up[i] * k;
 }
 
 let railCache: { m: GameMap; year: number; tiles: number[] } | null = null;

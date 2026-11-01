@@ -3,7 +3,7 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
-import { blockGrid, blockOf, upsample } from "./blocks";
+import { blockGrid, blockOf, upsampleTo } from "./blocks";
 import { DIAMOND, INCLINES, latLonToTile, PARKS, tileLine } from "./features";
 import { type GameMap, idx, inBounds, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
@@ -84,16 +84,27 @@ export const POP_CAP = { cottage: 8, houses: 24, rowhouses: 70 };
  * Birmingham) and the main streets; elsewhere — the mill towns, the outskirts — frame houses.
  */
 export function densityCap(m: GameMap, w: World, i: number): number {
-  const x = i % m.width, y = (i / m.width) | 0;
+  if (coreMask(m, w)[i]) return POP_CAP.rowhouses;
+  const W = m.width, x = i % W, y = (i / W) | 0, st = w.street;
+  if ((x + 1 < W && st[i + 1] === Street.Pike) || (x > 0 && st[i - 1] === Street.Pike)
+    || (y + 1 < m.height && st[i + W] === Street.Pike) || (y > 0 && st[i - W] === Street.Pike)) return 48;
+  return POP_CAP.houses;
+}
+let coreCache: { m: GameMap; settlements: World["settlements"]; n: number; mask: Uint8Array } | null = null;
+/** the city cores (fixed once the 1850 settlements are laid out), as a tile mask — asked for every candidate lot every season */
+function coreMask(m: GameMap, w: World): Uint8Array {
+  const c = coreCache;
+  if (c && c.m === m && c.settlements === w.settlements && c.n === w.settlements.length) return c.mask;
+  const mask = new Uint8Array(m.width * m.height);
   for (const s of w.settlements) {
     const core = s.name.startsWith("The Point") ? 60 : s.name === "Allegheny City" ? 45 : s.name.startsWith("Birmingham") ? 28 : 0;
-    if (core && Math.hypot(s.x - x, s.y - y) < core) return POP_CAP.rowhouses;
+    if (!core) continue;
+    for (let y = Math.max(0, s.y - core); y <= Math.min(m.height - 1, s.y + core); y++)
+      for (let x = Math.max(0, s.x - core); x <= Math.min(m.width - 1, s.x + core); x++)
+        if (Math.hypot(s.x - x, s.y - y) < core) mask[y * m.width + x] = 1;
   }
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const nx = x + dx, ny = y + dy;
-    if (inBounds(m, nx, ny) && w.street[ny * m.width + nx] === Street.Pike) return 48;
-  }
-  return POP_CAP.houses;
+  coreCache = { m, settlements: w.settlements, n: w.settlements.length, mask };
+  return mask;
 }
 
 /** Hillside lots hold frame houses, not brick blocks: hillside 24 people, steep 14. */
@@ -918,12 +929,13 @@ export function recomputeLandValue(m: GameMap, w: World) {
   }
   const BASE = [0, 0, 0, 0, 0, 0, 0, 0];
   BASE[Terrain.Floodplain] = 60; BASE[Terrain.Flat] = 50; BASE[Terrain.Upland] = 40; BASE[Terrain.Slope] = 22; BASE[Terrain.Steep] = 8;
-  upsample(m, urban, (i, u) => {
-    const t = m.terrain[i];
-    if (t === Terrain.Water) { w.landValue[i] = 0; return; }
-    const dirty = 1 - Math.min(0.6, w.pollution[i] * 0.5);
-    w.landValue[i] = Math.round(((BASE[t] || 8) + u + w.pop[i] * 3 + (w.street[i] ? 20 : 0)) * dirty);
-  });
+  const up = upsampleTo(m, urban), lv = w.landValue, pol = w.pollution, pop = w.pop, st = w.street, ter = m.terrain;
+  for (let i = 0, n = lv.length; i < n; i++) {
+    const t = ter[i];
+    if (t === Terrain.Water) { lv[i] = 0; continue; }
+    const dirty = 1 - Math.min(0.6, pol[i] * 0.5);
+    lv[i] = Math.round(((BASE[t] || 8) + up[i] + pop[i] * 3 + (st[i] ? 20 : 0)) * dirty);
+  }
 }
 
 // ---------------------------------------------------------------- binary heap

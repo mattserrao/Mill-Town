@@ -447,6 +447,21 @@ function setTab(tab: string) {
   $("right").dataset.tab = tab;
   for (const b of document.querySelectorAll<HTMLButtonElement>("#rightTabs button")) b.classList.toggle("on", b.dataset.tab === tab);
   $("right").scrollTop = 0;
+  if (game && staleTabs.has(tab)) renderTab(tab);
+}
+const currentTab = () => $("right").dataset.tab ?? "overview";
+/** tabs whose content is out of date: hidden tabs are rebuilt only when shown (a season rebuilt all six) */
+const staleTabs = new Set<string>();
+function renderTab(tab: string) {
+  staleTabs.delete(tab);
+  switch (tab) {
+    case "overview": siteReport(); overviewPanel(); break;
+    case "works": worksPanel(game, $("works"), () => { afterChange(); }, startPlacing); break;
+    case "policy": businessPanel(game, $("biz"), () => { afterChange(); }); break;
+    case "holdings": holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo, () => openDialog(true)); break;
+    case "town": townPanel(game, $("town"), () => { afterChange(); }, goTo, startRoad); break;
+    case "rivals": rivalsPanel(); break;
+  }
 }
 
 /** a company name of the period for the industry, different each town ("Lyon, Shorb & Co. Iron Works") */
@@ -540,18 +555,14 @@ function refreshPanels() {
   $("standing").innerHTML = (bz ? meterTop("reputation", bz.reputation, true, W.rep(bz.reputation)) + meterTop("labour", bz.labour, true, W.lab(bz.labour)) + meterTop("influence", bz.influence, false, W.inf(bz.influence)) : "") +
     meterTop("morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
-  townPanel(game, $("town"), () => { afterChange(); }, goTo, startRoad);
-  holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo, () => openDialog(true));
+  // only the open tab is rebuilt now; the others when they are next shown
+  for (const t of ["overview", "works", "policy", "holdings", "town", "rivals"]) staleTabs.add(t);
+  renderTab(currentTab());
   if (!$("dialog").hidden) openDialog(true);
-  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
-  businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
   successionCard(game, $("succession"), () => { afterChange(); });
   if (!$("struggle").hidden) struggleView(game, $("struggle"), () => afterChange(), () => toggleStruggle(false));
-  siteReport();
-  overviewPanel();
   supplyPanel();
-  rivalsPanel();
   $("legend").innerHTML = overlayLegend(overlay, game);
   showNews();
   $("log").innerHTML = game.log.slice(-60).reverse().map((l) => {

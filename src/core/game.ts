@@ -1458,7 +1458,9 @@ function strikeContagion(g: GameState, w: Works): number {
 }
 
 export function totalPopulation(g: GameState): number {
-  let s = 0;
-  for (const p of g.world.pop) s += p;
-  return s;
+  const pop = g.world.pop, n = pop.length;
+  let a = 0, b = 0, c = 0, d = 0, i = 0;
+  for (; i + 3 < n; i += 4) { a += pop[i]; b += pop[i + 1]; c += pop[i + 2]; d += pop[i + 3]; }
+  for (; i < n; i++) a += pop[i];
+  return a + b + c + d;
 }
