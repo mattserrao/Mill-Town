@@ -266,7 +266,20 @@ export function spurOption(m: GameMap, s: Site, year: number): { to: [number, nu
   const rd = railDist(m, year);
   const [direct] = nearest(m, s, 3, (i) => rd[i] >= 0);
   if (direct >= 0 || s.spur) return null;
-  const [t, d] = nearest(m, s, 40, (i) => rd[i] >= 0);
+  // the nearest open rail the siding can reach over dry land: a siding is a straight run of track from the
+  // works' edge, and one laid across a river (as the nearest tile sometimes was) is no siding at all
+  const cx = s.x + s.fp / 2, cy = s.y + s.fp / 2;
+  const [t, d] = nearest(m, s, 40, (i) => rd[i] >= 0 && !crossesWater(m, cx, cy, (i % m.width) + 0.5, ((i / m.width) | 0) + 0.5));
   if (t < 0) return null;
   return { to: [t % m.width, (t / m.width) | 0], len: Math.ceil(d) };
+}
+
+/** does the straight line between two points pass over water? (sampled every half tile) */
+function crossesWater(m: GameMap, x0: number, y0: number, x1: number, y1: number): boolean {
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2));
+  for (let k = 0; k <= n; k++) {
+    const f = k / n, x = Math.floor(x0 + (x1 - x0) * f), y = Math.floor(y0 + (y1 - y0) * f);
+    if (inBounds(m, x, y) && m.terrain[y * m.width + x] === Terrain.Water) return true;
+  }
+  return false;
 }

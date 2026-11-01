@@ -71,12 +71,14 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #timeControls { display: flex; gap: 4px; }
 #bestSite { width: 100%; margin-top: 6px; }
 #final {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 10, 12, 0.55);
+  /* the paper scrolls inside the map area rather than spilling over the top bar; the Struggle and Trends panels (z 5) open above it */
+  position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; background: rgba(10, 10, 12, 0.55);
+  overflow-y: auto; padding: 16px 0; box-sizing: border-box; z-index: 4;
 }
 #final[hidden] { display: none; }
 #final .paper {
   width: min(620px, 86%); background: #efe6cf; color: #1e1a14; border: 2px solid #1e1a14; box-shadow: 6px 6px 0 rgba(0,0,0,0.5);
-  padding: 12px 18px 14px; font-family: Georgia, "Times New Roman", serif;
+  padding: 12px 18px 14px; font-family: Georgia, "Times New Roman", serif; margin: auto; flex: 0 0 auto;
 }
 #final .mast { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; border-bottom: 2px solid #1e1a14; padding-bottom: 3px; margin-bottom: 8px; display: flex; justify-content: space-between; }
 #final h3 { margin: 4px 0 6px; font-size: 26px; line-height: 1.1; }
