@@ -16,10 +16,10 @@ import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
 import { trendsView } from "./ui/trends";
 import { resetTownUi, townPanel } from "./ui/town";
-import { holdingsPanel, resetHoldingsUi } from "./ui/holdings";
+import { holdingsPanel, resetHoldingsUi, sellDialog } from "./ui/holdings";
 import { bizDef } from "./core/holdings";
 import { riskRows, risks, shareAt } from "./ui/risks";
-import { money as short } from "./ui/fx";
+import { icon, METERS, type MeterKey, money as short } from "./ui/fx";
 import { loadGame, newSaveId, saveGame } from "./core/save";
 import { mainMenu, type NewGameOptions, simCard } from "./ui/menu";
 import { laterStartGame, simulateSome } from "./core/autoplay";
@@ -37,11 +37,14 @@ import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type Work
 import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
 import { esc, fmt } from "./core/text";
 import { Use } from "./core/town";
-import { familyChip, resetStruggleUi, struggleRisks, struggleView, successionCard } from "./ui/struggle";
+import { resetStruggleUi, struggleRisks, struggleView, successionCard } from "./ui/struggle";
 import { DYNASTIES, legacy } from "./core/legacy";
 import { FOUNDER_NAMES, fullName, PATHS, SURNAMES } from "./core/family";
 import { topMarks, whoDid } from "./core/ledger";
 import { stanceWord } from "./core/owners";
+import { actionRows, wireActions } from "./ui/actions";
+import { actRow, chip, costButton } from "./ui/fx";
+import { buyStake, stakeBlocked, stakePrice } from "./core/holdings";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const money = (n: number) => (n < 0 ? "-$" : "$") + fmt(Math.abs(n));
@@ -188,7 +191,7 @@ function autosave() {
   saveGame(game).catch((e) => console.warn("autosave failed", e)).finally(() => { autosaving = false; });
 }
 
-function openMenu(atStart = false, saved = false) {
+function openMenu(atStart = false, saved = false, view: "main" | "load" = "main") {
   if (!atStart && !saved) autosave();
   mainMenu($("menu"), {
     inGame: !atStart,
@@ -209,7 +212,7 @@ function openMenu(atStart = false, saved = false) {
       closeMenu();
       if (g.over) showFinal();
     },
-  });
+  }, view);
 }
 function closeMenu() { $("menu").hidden = true; }
 
@@ -500,40 +503,47 @@ function renderPaper() {
   el.scrollTop = 0;
 }
 
+let paperRead = 0;
 function openPaper(open: boolean) {
   $("paper").hidden = !open;
-  if (open) { paperIdx = game.news.length - 1; renderPaper(); }
+  $("paperBtn").classList.toggle("on", open);
+  if (open) { paperIdx = game.news.length - 1; paperRead = game.news.length; renderPaper(); }
+  $("paperCount").textContent = "";
   renderHeadline();
 }
 
-/** a small bar for the top bar: signed meters run from the middle, the others from the left */
-function meterChip(label: string, title: string, v: number, signed: boolean, word: string) {
-  const short = label.slice(0, 3);
+/** the sell-or-list dialog (Money tab) */
+function openDialog(open: boolean) {
+  const el = $("dialog");
+  if (!open) { el.hidden = true; return; }
+  sellDialog(game, el, () => afterChange(), () => openDialog(false));
+}
+
+/** a meter for the top bar: icon, number, and a small bar (signed meters run from the middle) */
+function meterTop(k: MeterKey, v: number, signed: boolean, word: string) {
   const col = !signed ? "#c8a040" : v >= 0 ? "#5aa860" : "#c8503a";
   const bar = signed ? `<b style="left:${Math.min(50, (v + 100) / 2)}%;width:${Math.abs(v) / 2}%;background:${col}"></b><i class="mid"></i>` : `<b style="left:0;width:${Math.max(2, v)}%;background:${col}"></b>`;
-  return `<div class="meter" title="${title}: ${Math.round(v)} · ${word}"><span><span class="m-long">${label}</span><span class="m-short">${short}</span></span><span class="mbar">${bar}</span><b class="${signed ? (v >= 0 ? "up" : "down") : ""}">${signed && v > 0 ? "+" : ""}${Math.round(v)}</b></div>`;
+  return `<div class="meter" title="${METERS[k].name}: ${Math.round(v)} · ${word}\n${METERS[k].tip}">${icon(k)}<span class="m-name">${METERS[k].name}</span><b class="${signed ? (v >= 0 ? "up" : "down") : ""}">${signed && v > 0 ? "+" : ""}${Math.round(v)}</b><span class="mbar">${bar}</span></div>`;
 }
 
 function refreshPanels() {
   const c = cal(game), co = game.company;
   $("calendar").innerHTML = `<small>Era ${c.era.id}</small><b>${c.season} ${c.year}</b>`;
   $("calendar").title = `Era ${c.era.id}: ${c.era.name}`;
-  $("cash").innerHTML = `<small>${co ? "Cash" : "Capital"}</small><b>${co ? short(co.cash) : short(foundingCapital(industry, cal(game).year))}</b>`;
   const p = co?.totals?.profit;
-  $("profit").hidden = !co;
-  $("profit").innerHTML = `<small>Last season</small><b class="${(p ?? 0) >= 0 ? "up" : "down"}">${p === undefined ? "—" : `${p >= 0 ? "+" : ""}${short(p)}`}</b>`;
-  $("population").innerHTML = `<small>Valley</small><b>${fmt(totalPopulation(game))}</b>`;
-  $("population").title = "People living in the valley";
+  $("cash").innerHTML = co ? `<small>Cash</small><b class="${co.cash < 0 ? "down" : ""}">${short(co.cash)}${p !== undefined ? ` <span class="pf ${p >= 0 ? "up" : "down"}">${p >= 0 ? "▲" : "▼"} ${short(Math.abs(p))}</span>` : ""}</b>` : `<small>To found a works</small><b>${short(foundingCapital(industry, cal(game).year))}</b>`;
+  $("cash").title = co ? `Cash${p !== undefined ? ` · last season ${p >= 0 ? "made" : "lost"} ${short(Math.abs(p))}` : ""}` : "The family's capital";
+  const unread = game.news.length - paperRead;
+  $("paperCount").textContent = unread > 0 && $("paper").hidden ? ` ${unread > 9 ? "9+" : unread}` : "";
   const bz = co?.biz.meters, mo = Math.round(game.morale);
   const W = { rep: (v: number) => (v < -50 ? "reviled" : v < -20 ? "distrusted" : v < 15 ? "unremarkable" : v < 45 ? "respected" : "admired"), lab: (v: number) => (v < -50 ? "hostile" : v < -20 ? "bitter" : v < 15 ? "uneasy" : v < 45 ? "steady" : "loyal"), inf: (v: number) => (v < 10 ? "none to speak of" : v < 30 ? "a friend at City Hall" : v < 60 ? "heard in Harrisburg" : "heard in Washington") };
-  $("familyKpi").hidden = !game.family;
-  $("familyKpi").innerHTML = familyChip(game);
-  $("standing").innerHTML = (bz ? meterChip("Opinion", "Public opinion (reputation)", bz.reputation, true, W.rep(bz.reputation)) + meterChip("Union", "What the men and their union think of you", bz.labour, true, W.lab(bz.labour)) + meterChip("Capital", "Political capital (influence)", bz.influence, false, W.inf(bz.influence)) : "") +
-    meterChip("Morale", "Town morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
+  $("standing").innerHTML = (bz ? meterTop("reputation", bz.reputation, true, W.rep(bz.reputation)) + meterTop("labour", bz.labour, true, W.lab(bz.labour)) + meterTop("influence", bz.influence, false, W.inf(bz.influence)) : "") +
+    meterTop("morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
-  townPanel(game, $("town"), () => { afterChange(); }, goTo);
-  holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo);
-  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing, startRoad);
+  townPanel(game, $("town"), () => { afterChange(); }, goTo, startRoad);
+  holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo, () => openDialog(true));
+  if (!$("dialog").hidden) openDialog(true);
+  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
   businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
   successionCard(game, $("succession"), () => { afterChange(); });
@@ -586,6 +596,7 @@ const spark = (vals: (number | undefined)[], col: string) => {
 };
 
 /** the Overview tab: the company's numbers at a glance, what to watch, last season's accounts */
+let watchAll = false;
 function overviewPanel() {
   const c = game.company, el = $("overview");
   if (!c) { el.innerHTML = ""; return; }
@@ -603,18 +614,16 @@ function overviewPanel() {
   el.innerHTML = `
     <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" && !c.bankrupt ? "up" : "down"}">● ${status}</span></div>
     <div class="cards">
-      ${card("Cash", short(c.cash), spark(hist.map((p) => p.cash), "#e0a243"), c.cash < 0 ? "down" : "")}
-      ${card("Profit / season", s ? short(s.profit) : "—", spark(hist.map((p) => p.profit), "#7cc87c"), s && s.profit < 0 ? "down" : "up")}
-      ${card("Output", s ? fmt(s.produced) : "—", `<em>of ${fmt(cap)}${cap && s ? ` · ${Math.round((s.produced / cap) * 100)}% used` : ""}</em>`)}
-      ${card("Market share", sh !== undefined ? `${Math.round(sh * 100)}%` : "—", sh !== undefined && sh0 !== undefined ? `<em><span class="${sh >= sh0 ? "up" : "down"}">${sh >= sh0 ? "▲" : "▼"}</span> ${Math.round(sh0 * 100)}% ten years ago</em>` : "<em>of the industry's output</em>")}
-      ${card("Price / unit", price ? `$${price.toFixed(2)}` : "—", `<em>${st.factor === 1 ? "level with rivals" : `${st.factor > 1 ? "+" : "−"}${Math.round(Math.abs(st.factor - 1) * 100)}% vs rivals`}</em>`, st.factor < 1 ? "down" : "")}
-      ${card("Cost / unit", uc ? `$${uc.toFixed(2)}` : "—", `<em>${uc && price ? `margin ${Math.round((1 - uc / price) * 100)}%` : ""}</em>`, uc && price && uc > price ? "down" : "")}
-      ${(() => { const nw = companyWorth(game); return card("Net worth", short(nw.total), `<em>works ${short(nw.works)} · holdings ${short(nw.holdings)}</em>`, nw.total < 0 ? "down" : ""); })()}
+      ${(() => { const nw = companyWorth(game); return card("Net worth", short(nw.total), spark(hist.map((p) => p.worth ?? p.cash), "#7cc87c") + `<em>works ${short(nw.works)} · cash ${short(nw.cash)}</em>`, nw.total < 0 ? "down" : ""); })()}
+      ${card("Output", s ? fmt(s.produced) : "—", `<em>of ${fmt(cap)}${cap && s ? ` · ${Math.round((s.produced / cap) * 100)}% used` : ""}${sh !== undefined ? ` · ${Math.round(sh * 100)}% of the industry` : ""}</em>`)}
+      ${card("Margin", uc && price ? `${Math.round((1 - uc / price) * 100)}%` : "—", `<em>${price ? `$${price.toFixed(2)} a unit · cost ${uc ? `$${uc.toFixed(2)}` : "—"}` : ""}${st.factor !== 1 ? ` · <span class="down">${st.factor > 1 ? "+" : "−"}${Math.round(Math.abs(st.factor - 1) * 100)}% vs rivals</span>` : ""}</em>`, uc && price && uc > price ? "down" : "")}
       ${(() => { const mk = game.markets?.[c.industry], stock = allWorks(c).reduce((s2, w) => s2 + (w.stock ?? 0), 0);
-        return card("Market", mk ? `${mk.price >= 1 ? "+" : "−"}${Math.abs(Math.round((mk.price - 1) * 100))}%` : "—", `<em>${mk ? `${mk.demand >= mk.supply ? "short" : "glut"} · ${Math.round((mk.supply / Math.max(1, mk.demand)) * 100)}% of demand offered${stock ? ` · ${fmt(stock)} in yards` : ""}` : "no market before 1893"}</em>`, mk && mk.price < 0.9 ? "down" : ""); })()}
+        if (!mk) return card("Market share", sh !== undefined ? `${Math.round(sh * 100)}%` : "—", sh !== undefined && sh0 !== undefined ? `<em><span class="${sh >= sh0 ? "up" : "down"}">${sh >= sh0 ? "▲" : "▼"}</span> ${Math.round(sh0 * 100)}% ten years ago</em>` : "<em>of the industry's output</em>");
+        const glut = mk.supply > mk.demand, gap = Math.round(Math.abs(mk.supply / Math.max(1, mk.demand) - 1) * 100);
+        return card("Market", gap < 3 ? "Balanced" : glut ? "Glut" : "Short", `<em>${gap < 3 ? "supply meets demand" : glut ? `${gap}% more made than wanted` : `${gap}% more wanted than made`} · price ${mk.price >= 1 ? "+" : "−"}${Math.abs(Math.round((mk.price - 1) * 100))}%${stock ? ` · ${fmt(stock)} in the yards` : ""}</em>`, gap < 3 ? "" : glut ? "down" : "up"); })()}
     </div>
     <h4 class="mh">Watch <button class="link" id="ovTrends">Trends ▸</button></h4>
-    <div class="risks">${riskRows(list.slice(0, 5))}</div>
+    <div class="risks">${riskRows(watchAll ? list : list.slice(0, 5))}</div>${list.length > 5 ? `<button class="link more" id="watchAll">${watchAll ? "Show fewer" : `Show all (${list.length})`}</button>` : ""}
     ${s ? `<h4 class="mh">Last season${c.others.length ? " · all works" : ""}</h4>
     <div class="pl">
       ${([["Revenue", s.revenue, "#7ac8e0"], ["Raw materials", -s.inputCost, "#e07a64"], ["Wages", -s.wages, "#e07a64"], ["Upkeep", -s.upkeep, "#e07a64"], ...(s.other ? [["Other", -s.other, s.other > 0 ? "#e07a64" : "#7cc87c"]] : []), ...(c.totals?.holdings ? [["Holdings", c.totals.holdings, "#7cc87c"]] : [])] as [string, number, string][])
@@ -628,22 +637,36 @@ function overviewPanel() {
     </div>
     ${c.lastSeason?.notes.length ? `<p class="hint">${c.lastSeason.notes.map(esc).join(" ")}</p>` : ""}` : ""}`;
   $("ovTrends").addEventListener("click", () => toggleTrends(true));
+  document.getElementById("watchAll")?.addEventListener("click", () => { watchAll = !watchAll; overviewPanel(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => (b.dataset.go === "struggle" ? toggleStruggle(true) : setTab(b.dataset.go!))));
 }
 
 const KIND_TITLE: Record<Flow["kind"], string> = { input: "In", utilityIn: "Utilities in", utilityOut: "Your customers", output: "Out" };
+/** the supply chain, shown under the map legend when its layer is on: each product once, its partners beneath */
 function supplyPanel() {
-  const sc = game.company ? currentChain() : null;
-  $("supplySection").hidden = !sc;
-  if (!sc) return;
-  const groups = (["input", "utilityIn", "utilityOut", "output"] as const).map((k) => [k, sc.flows.filter((f) => f.kind === k)] as const).filter(([, fl]) => fl.length);
-  $("supply").innerHTML = groups.map(([k, fl]) => `<div class="sc-head">${KIND_TITLE[k]}</div>` + fl.map((f) => `
-    <div class="sc-row" data-flow="${f.id}" data-x="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).x}" data-y="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).y}" title="${esc(f.partner)} · ${esc(f.via)} — click to show on the map">
-      <div class="sc-top"><i style="background:${FLOW_COLOUR(f)}"></i><b>${f.good}</b><span>${f.qty ? `${fmt(f.qty)}/season` : ""}${f.value ? ` · ${short(f.value)}` : ""}</span></div>
-      ${f.qty ? `<div class="sc-bar"><div style="width:${Math.max(3, f.share * 100)}%;background:${FLOW_COLOUR(f)}"></div></div>` : ""}
-    </div>`).join("")).join("");
+  const sc = game.company && overlay === "supply" ? currentChain() : null;
+  $("supply").hidden = !sc;
+  if (!sc) { $("supply").innerHTML = ""; return; }
+  const groups = (["input", "utilityIn", "utilityOut", "output"] as const).map((k) => {
+    const byGood = new Map<string, Flow[]>();
+    for (const f of sc.flows.filter((x) => x.kind === k)) byGood.set(f.good, [...(byGood.get(f.good) ?? []), f]);
+    return [k, [...byGood.values()]] as const;
+  }).filter(([, fl]) => fl.length);
+  $("supply").innerHTML = groups.map(([k, goods]) => `<div class="sc-head">${KIND_TITLE[k]}</div>` + goods.map((fl) => {
+    const f = fl.reduce((a, b) => (b.qty > a.qty ? b : a));
+    const qty = fl.reduce((t, x) => t + x.qty, 0), value = fl.reduce((t, x) => t + x.value, 0), share = fl.reduce((t, x) => t + x.share, 0);
+    const end = f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to;
+    const partners = [...new Set(fl.map((x) => x.partner))];
+    return `<div class="sc-row" data-flow="${f.id}" data-x="${end.x}" data-y="${end.y}" title="${esc(fl.map((x) => `${x.partner} · ${x.via}`).join("\n"))} — click to show on the map">
+      <div class="sc-top"><i style="background:${FLOW_COLOUR(f)}"></i><b>${f.good}</b><span>${qty ? `${fmt(qty)}/season` : ""}${value ? ` · ${short(value)}` : ""}</span></div>
+      ${qty ? `<div class="sc-bar"><div style="width:${Math.max(3, Math.min(1, share) * 100)}%;background:${FLOW_COLOUR(f)}"></div></div>` : ""}
+      <div class="sc-sub">${partners.length > 2 ? `${esc(partners[0])} and ${partners.length - 1} more` : partners.map(esc).join(" · ")}</div>
+    </div>`;
+  }).join("")).join("");
 }
 
+let rivalMenu: string | null = null, rivalStatus = "";
+const rivalFolds = new Set<string>();
 function rivalsPanel() {
   const mine = playerWorks(game);
   const ind = mine?.industry ?? industry;
@@ -655,27 +678,43 @@ function rivalsPanel() {
   const top = Math.max(myOut, ...open.map((c) => c.capacity), 1);
   const name = (c: (typeof list)[number]) => plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear));
   const tip = (c: (typeof list)[number]) => esc(`${c.def.figures.join(" & ")} — ${c.def.note}${c.state?.damage.length ? `\nHurt: ${c.state.damage.map((d) => `${d.why} (−${Math.round((1 - d.mult) * 100)}%)`).join(", ")}` : ""}`);
+  const menu = (id: string) => {
+    if (!game.company) return "";
+    const { rows } = actionRows(game, (a) => !!a.target, id);
+    const sw = stakeBlocked(game, id);
+    const stake = actRow("Buy a 10% stake", costButton(`data-stakeriv="${id}"`, stakePrice(game, id), sw), chip("a share of its profit", "good"), "10% buys a share of its profit; at 20% its owners leave you alone; at 50% you can buy the rest.");
+    return `<div class="riv-menu">${rows.join("")}${stake}</div>`;
+  };
   const row2 = (c: (typeof list)[number]) => `
-    <div class="sc-row riv" data-rival="${c.def.id}" title="${tip(c)}">
-      <div class="sc-top"><b>${esc(name(c))}</b><span>${fmt(c.capacity)}</span></div>
+    <div class="sc-row riv${rivalMenu === c.def.id ? " open" : ""}" data-rival="${c.def.id}" title="${tip(c)}">
+      <div class="sc-top"><b>${esc(name(c))}</b><span>${fmt(c.capacity)}</span>${game.company ? `<button class="dots" data-rmenu="${c.def.id}" title="Moves against this works">⋯</button>` : ""}</div>
       <div class="sc-bar"><div style="width:${(c.capacity / top) * 100}%;background:${RELATION_COLOUR.competitor}"></div></div>
       <div class="sc-sub">${c.state && game.company ? `<span class="${(c.state.stance ?? 0) <= -15 ? "bad" : (c.state.stance ?? 0) >= 25 ? "good" : ""}">${stanceWord(c.state.stance)}</span> · ` : ""}${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}${c.state?.lastMove ? ` · ${esc(c.state.lastMove.replace(/^\d{4}: /, ""))}` : ""}${c.state?.damage.length ? ` · <span class="bad">hurt</span>` : ""}</div>
       ${c.state?.intent ? `<div class="sc-sub st-intent">${esc(c.state.intent.text)}</div>` : ""}
-    </div>`;
+    </div>${rivalMenu === c.def.id ? menu(c.def.id) : ""}`;
   const coming = direct.filter((c) => !c.state && c.def.entryYear > game.world.year);
   const closed = direct.filter((c) => c.state?.closed);
   const others = list.filter((c) => c.relation !== "competitor" && c.state && !c.state.closed);
   const label: Record<string, string> = { supplier: "Supplier", customer: "Customer", lender: "Bank", other: "" };
+  const fold = (k: string, title: string, n: number, body: string) => n ? `<h4 class="mh hd-sec" data-rfold="${k}">${rivalFolds.has(k) ? "▾" : "▸"} ${title}<span>${n}</span></h4>${rivalFolds.has(k) ? body : ""}` : "";
+  const rejoin = game.company ? actionRows(game, (a) => a.id === "rejoin").rows.join("") : "";
   $("rivalsList").innerHTML = `
+    ${rivalStatus ? `<div class="bz-status">${esc(rivalStatus)}</div>` : ""}
+    ${rejoin}
     <h4 class="mh">${INDUSTRIES[ind].name}${mine ? "" : " (if you found here)"}${mine && total ? `<span>${Math.round((myOut / total) * 100)}% yours</span>` : ""}</h4>
     ${mine && total ? `<div class="ms-bar">${[{ n: "You", v: myOut, c: "#ffd34a" }, ...open.map((c) => ({ n: name(c), v: c.capacity, c: RELATION_COLOUR.competitor }))].map((p, k) => `<div title="${esc(p.n)}: ${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? Math.max(0.35, 1 - k * 0.1) : 1}"></div>`).join("")}</div>` : ""}
     ${mine ? `<div class="sc-row riv you"><div class="sc-top"><b>You</b><span>${fmt(myOut)}</span></div><div class="sc-bar"><div style="width:${(myOut / top) * 100}%;background:#ffd34a"></div></div></div>` : ""}
     ${open.map(row2).join("") || `<p class="hint">No rival works open yet.</p>`}
     ${list.filter((c) => c.owned).map((c) => `<div class="sc-row"><div class="sc-top"><b>${esc(name(c))}</b><span class="owned">yours</span></div></div>`).join("")}
-    ${coming.length ? `<h4 class="mh">Coming</h4>${coming.map((c) => `<div class="sc-row later" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${c.def.entryYear}</span></div></div>`).join("")}` : ""}
-    ${closed.length ? `<h4 class="mh">Closed</h4>${closed.map((c) => `<div class="sc-row later" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b></div></div>`).join("")}` : ""}
-    ${others.length ? `<h4 class="mh">Suppliers, customers, bank</h4>${others.map((c) => `<div class="sc-row" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${label[c.relation]}</span></div></div>`).join("")}` : ""}
-    <p class="hint">Output per season. Hover for owners; click to find on the map.</p>`;
+    <p class="hint">Output per season. Hover for the owners; click to find it on the map; ⋯ for moves against it.</p>
+    ${fold("coming", "Coming", coming.length, coming.map((c) => `<div class="sc-row later" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${c.def.entryYear}</span></div></div>`).join(""))}
+    ${fold("closed", "Closed", closed.length, closed.map((c) => `<div class="sc-row later" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b></div></div>`).join(""))}
+    ${fold("others", "Suppliers, customers, bank", others.length, others.map((c) => `<div class="sc-row" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${label[c.relation]}</span></div></div>`).join(""))}`;
+  const el = $("rivalsList");
+  el.querySelectorAll<HTMLButtonElement>("button[data-rmenu]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); rivalMenu = rivalMenu === b.dataset.rmenu ? null : b.dataset.rmenu!; rivalsPanel(); }));
+  el.querySelectorAll<HTMLElement>("[data-rfold]").forEach((h) => h.addEventListener("click", () => { const k = h.dataset.rfold!; if (rivalFolds.has(k)) rivalFolds.delete(k); else rivalFolds.add(k); rivalsPanel(); }));
+  el.querySelectorAll<HTMLButtonElement>("button[data-stakeriv]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); rivalStatus = buyStake(game, b.dataset.stakeriv!).text; afterChange(); }));
+  wireActions(el, game, (t) => { rivalStatus = t; afterChange(); });
 }
 
 function setOverlay(id: OverlayId) {
@@ -685,22 +724,35 @@ function setOverlay(id: OverlayId) {
 // ---------------------------------------------------------------- UI wiring
 function setupUI() {
   // map layers: chips grouped Land / Town / Business / Best sites, behind the Map button
-  $("overlays").innerHTML = (["Land", "Town", "Business", "Best sites"] as const).map((grp) => `<div class="ov-group">${grp}</div><div class="chips">` + OVERLAYS.filter((o) => o.group === grp).map((o) =>
-    `<label class="chip ov" title="${o.title ?? o.label}"><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/>${o.swatch ? `<span class="ov-sw" style="background:${o.swatch}"></span>` : ""}${o.label}</label>`).join("") + `</div>`).join("");
+  // "Best sites" is one layer with an industry picker
+  const siteDef = OVERLAYS.find((o) => o.group === "Best sites")!;
+  $("overlays").innerHTML = (["Land", "Town", "Business"] as const).map((grp) => `<div class="ov-group">${grp}</div><div class="chips">` + OVERLAYS.filter((o) => o.group === grp).map((o) =>
+    `<label class="chip ov" title="${o.title ?? o.label}"><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/>${o.swatch ? `<span class="ov-sw" style="background:${o.swatch}"></span>` : ""}${o.label}</label>`).join("")
+    + (grp === "Business" ? `<label class="chip ov" title="Where a new works would do best"><input type="radio" name="overlay" id="siteRadio" value="site:${industry}"/><span class="ov-sw" style="background:${siteDef.swatch}"></span>Best sites</label><select id="siteInd" title="Best sites for which industry">${(Object.keys(INDUSTRIES) as IndustryId[]).map((k) => `<option value="${k}"${k === industry ? " selected" : ""}>${INDUSTRIES[k].name}</option>`).join("")}</select>` : "") + `</div>`).join("");
+  $("siteInd").addEventListener("change", (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    $<HTMLInputElement>("siteRadio").value = `site:${v}`;
+    if (overlay.startsWith("site:")) applyOverlay(`site:${v}` as OverlayId);
+  });
   $("overlays").addEventListener("change", (e) => {
-    overlay = (e.target as HTMLInputElement).value as OverlayId;
+    const t = e.target as HTMLInputElement;
+    if (t.name === "overlay") applyOverlay(t.value as OverlayId);
+  });
+  const applyOverlay = (id: OverlayId) => {
+    overlay = id;
     focusId = null;
     const def = OVERLAYS.find((o) => o.id === overlay)!;
-    $("layerName").textContent = def.group === "Best sites" ? `Sites: ${def.label}` : def.label;
+    $("layerName").textContent = def.group === "Best sites" ? `Best sites: ${def.label}` : def.label;
     $("layerBtn").classList.toggle("on", overlay !== "none");
     $("legend").innerHTML = overlayLegend(overlay, game);
     $("legendBox").hidden = overlay === "none";
+    supplyPanel();
     $("legendBox").querySelector(".lg-close")?.remove();
     if (overlay !== "none") $("legendBox").insertAdjacentHTML("afterbegin", `<button class="lg-close" title="Back to the town">✕</button>`);
-    if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; industryNote(); }
+    if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; ($<HTMLSelectElement>("siteInd")).value = industry; ($<HTMLInputElement>("siteRadio")).value = overlay; ($<HTMLInputElement>("siteRadio")).checked = true; industryNote(); }
     siteReport();
     requestRender();
-  });
+  };
   $("layerBtn").addEventListener("click", (e) => { e.stopPropagation(); $("layerMenu").hidden = !$("layerMenu").hidden; });
   // a layer chip clicked again turns that layer off: back to the town
   $("overlays").addEventListener("click", (e) => {
@@ -734,6 +786,7 @@ function setupUI() {
     });
     el.addEventListener("mouseleave", () => { focusId = null; if (overlay === ov) requestRender(); });
     el.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("button, select, .riv-menu")) return;
       const row = (e.target as HTMLElement).closest<HTMLElement>(".sc-row");
       if (!row || !row.dataset[attr]) return;
       if (overlay !== ov) setOverlay(ov);
@@ -748,7 +801,6 @@ function setupUI() {
       requestRender();
     });
   }
-  $("showSupply").addEventListener("click", (e) => { e.stopPropagation(); setOverlay(overlay === "supply" ? "none" : "supply"); });
   $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
   // Sound. Browsers (Safari above all) only allow audio to start inside a user gesture, so sound is
@@ -789,9 +841,9 @@ function setupUI() {
     renderer.updateHeights();
     afterChange();
   });
-  $("next").addEventListener("click", nextSeason);
+  $("next").addEventListener("click", (e) => { if (e.shiftKey) nextYear(); else nextSeason(); });
+  $("paperBtn").addEventListener("click", () => openPaper($("paper").hidden === true));
   $("struggleBtn").addEventListener("click", () => toggleStruggle());
-  $("familyKpi").addEventListener("click", () => toggleStruggle(true));
   window.addEventListener("keydown", (e) => { if (!inFormControl(e) && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "s" && $("menu").hidden) toggleStruggle(); });
   $("paperNav").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-p]");
@@ -800,9 +852,10 @@ function setupUI() {
     paperIdx = Math.max(0, Math.min(game.news.length - 1, paperIdx + Number(b.dataset.p)));
     renderPaper();
   });
-  $("speeds").addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-speed]");
-    if (b) setSpeed(Number(b.dataset.speed));
+  $("playBtn").addEventListener("click", () => { if (speed > 0) stopPlay(); else startPlay(); });
+  $("speedBtn").addEventListener("click", () => {
+    const k = (speed || lastSpeed) % 4 + 1;
+    if (speed > 0) setSpeed(k); else { lastSpeed = k; speedUI(); }
   });
   $("regen").addEventListener("click", () => {
     // a typed seed replays that town; otherwise every press is a fresh one
@@ -820,7 +873,15 @@ function setupUI() {
   // the Game menu holds the seed and New town; it closes on any click outside it
   $("gameBtn").addEventListener("click", (e) => { e.stopPropagation(); $("gameDrop").hidden = !$("gameDrop").hidden; });
   document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#gameMenu")) $("gameDrop").hidden = true; });
-  $("nextYear").addEventListener("click", nextYear);
+  $("loadBtn").addEventListener("click", () => { $("gameDrop").hidden = true; stopPlay(); openMenu(false, false, "load"); });
+  $("gameDrop").addEventListener("click", (e) => {
+    const f = (e.target as HTMLElement).closest<HTMLButtonElement>("button.fold");
+    if (!f) return;
+    e.stopPropagation();
+    const body = $(f.dataset.fold!);
+    body.hidden = !body.hidden;
+    f.querySelector("i")!.textContent = body.hidden ? "▸" : "▾";
+  });
   $("saveBtn").addEventListener("click", () => { $("gameDrop").hidden = true; saveNamed(); });
   $("exitBtn").addEventListener("click", () => saveAndExit());
   // Ctrl/Cmd+S saves, anywhere (not the browser's "save page")
@@ -904,7 +965,23 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("menu").hidden) { if ($("menu").querySelector("[data-a=back]")) closeMenu(); } else if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal || roadPreview) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else if (!$("gameDrop").hidden) $("gameDrop").hidden = true; else if (selected) { selected = null; siteReport(); requestRender(); } else saveAndExit(); }
+    else if (k === "escape") {
+      // Esc closes whatever is on top; only with nothing open does it save and go to the menu
+      if (!$("menu").hidden) { if ($("menu").querySelector("[data-a=back]")) closeMenu(); }
+      else if (!$("gameDrop").hidden) $("gameDrop").hidden = true;
+      else if (!$("layerMenu").hidden) $("layerMenu").hidden = true;
+      else if (!$("dialog").hidden) openDialog(false);
+      else if (!$("query").hidden) $("query").hidden = true;
+      else if (!$("paper").hidden) openPaper(false);
+      else if (!$("struggle").hidden) toggleStruggle(false);
+      else if (!$("trends").hidden) toggleTrends(false);
+      else if (proposal || roadPreview) stopPlacing();
+      else if (overlay !== "none") setOverlay("none");
+      else if (selected) { selected = null; siteReport(); requestRender(); }
+      else if (game.pendingDecision || game.family?.succession) return;
+      else saveAndExit();
+    }
+    else if (k === "n") { openPaper($("paper").hidden === true); return; }
     else if (k === "t") { toggleTrends(); return; }
     else return;
     clampCam();
@@ -932,7 +1009,7 @@ function showQuery(x: number, y: number, px: number, py: number) {
   el.innerHTML = queryCard({ game, map, renderer }, x, y);
   // what each community in the neighbourhood has built, and builds next (folded)
   const dist = document.createElement("div");
-  if (districtPanel(game, dist, zoneAt(game, x, y))) el.insertAdjacentHTML("beforeend", `<details class="q-dist"><summary>Communities here</summary><div id="district">${dist.innerHTML}</div></details>`);
+  if (districtPanel(game, dist, zoneAt(game, x, y))) el.insertAdjacentHTML("beforeend", `<details class="q-dist"><summary>What each community has built</summary><div id="district">${dist.innerHTML}</div></details>`);
   el.hidden = false;
   const vp = $("viewport"), vw = vp.clientWidth, vh = vp.clientHeight, w = el.offsetWidth, h = el.offsetHeight;
   let left = px + 24 + w < vw - 8 ? px + 24 : Math.max(8, px - 24 - w);
@@ -1152,7 +1229,7 @@ function setSpeed(k: number) {
       nextSeason();
     }, 100);
   }
-  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => b.classList.toggle("on", Number(b.dataset.speed) === speed));
+  speedUI();
   holdShown = "-"; showHold("");
 }
 
@@ -1185,12 +1262,17 @@ let holdShown = "";
 function showHold(why: string) {
   if (why === holdShown) return;
   holdShown = why;
-  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => {
-    const on = Number(b.dataset.speed) === speed && speed > 0;
-    b.classList.toggle("held", on && !!why);
-    b.dataset.t ??= b.title;
-    b.title = on && why ? `${why} — play resumes at this speed` : b.dataset.t;
-  });
+  const b = $<HTMLButtonElement>("playBtn");
+  b.classList.toggle("held", speed > 0 && !!why);
+  b.title = speed > 0 && why ? `${why} — play resumes after` : "Play / pause (P)";
+}
+const SPEED_WORD = ["", "1×", "2×", "4×", "8×"];
+/** the play button and the speed it plays at */
+function speedUI() {
+  const play = $<HTMLButtonElement>("playBtn");
+  play.textContent = speed > 0 ? "❚❚" : "▶";
+  play.classList.toggle("on", speed > 0);
+  $("speedBtn").textContent = SPEED_WORD[speed || lastSpeed];
 }
 
 function startPlay() { if (!game.over) setSpeed(lastSpeed); }
@@ -1198,9 +1280,8 @@ function stopPlay() { setSpeed(0); }
 
 function updateTimeControls() {
   const over = !!game.over;
-  for (const id of ["next", "nextYear"]) ($<HTMLButtonElement>(id)).disabled = over;
-  document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => { b.disabled = over && b.dataset.speed !== "0"; });
-  $("next").textContent = over ? "The end" : "Season ▶";
+  for (const id of ["next", "playBtn", "speedBtn"]) ($<HTMLButtonElement>(id)).disabled = over;
+  $("next").textContent = over ? "The end" : "Next season ▶";
 }
 
 /** jump to the best affordable site for the chosen industry (press again for the next one) */

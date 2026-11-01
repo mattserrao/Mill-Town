@@ -17,9 +17,12 @@ import { rivalName } from "../core/rivalai";
 import { Rng } from "../core/rng";
 import { esc } from "../core/text";
 import { money } from "./fx";
+import { actionRows, STRUGGLE_BUTTONS, STRUGGLE_GROUPS, wireActions } from "./actions";
+import type { RivalState } from "../core/game";
 
 let status = "";
 let seq = 0;
+let marksAll = false;
 
 const bar = (v: number, max: number, col: string, title = "") => `<span class="st-bar" title="${esc(title)}"><b style="width:${Math.max(2, Math.min(100, (v / max) * 100))}%;background:${col}"></b></span>`;
 /** −100 … +100 centred bar: business (left, amber) … reform (right, green) */
@@ -59,7 +62,7 @@ function unionBlock(g: GameState, u: Union): string {
 
 export function struggleView(g: GameState, el: HTMLElement, changed: () => void, close: () => void) {
   const c = g.company, y = cal(g).year;
-  if (!c) { el.innerHTML = `<div class="tr-head"><h3>The Struggle</h3><span class="spacer"></span><button data-close>Close ✕</button></div><p class="tr-empty hint">Found a company first.</p>`; el.querySelector("[data-close]")!.addEventListener("click", close); return; }
+  if (!c) { el.innerHTML = `<div class="tr-head"><h3>The Struggle</h3><span class="spacer"></span><button class="x" data-close>✕</button></div><p class="tr-empty hint">Found a company first.</p>`; el.querySelector("[data-close]")!.addEventListener("click", close); return; }
   const p = polOf(g), L = lawsOf(g), h = head(g);
   const unions = Object.values(g.unions ?? {}).filter((u): u is Union => !!u);
   const lab = standing(g, "labour");
@@ -88,33 +91,45 @@ export function struggleView(g: GameState, el: HTMLElement, changed: () => void,
   const careerRow = h?.path === "politics" ? `<div class="st-card"><div class="st-title"><b>${esc(fullName(g, h))}</b><span>${car?.office ? esc(OFFICES[car.office].name) + (car.until ? ` to ${car.until}` : "") : "no office yet"}</span></div>
     ${car?.running ? `<p class="st-note">Running for ${OFFICES[car.running.office].name.toLowerCase()}: ${Math.round(raceOdds(g, car.running.office, car.running.spent) * 100)}% odds this autumn.</p>` : no ? `<p class="st-note">Next: ${OFFICES[no].name.toLowerCase()} (${Math.round(raceOdds(g, no) * 100)}% odds).</p>` : ""}
     <div class="st-acts">${actBtn(g, "run", "Run for office")}${actBtn(g, "police_out", "Police out")}${actBtn(g, "police_in", "Police in")}${actBtn(g, "mediate", "Mediate")}${actBtn(g, "city_contract", "Contract")}${actBtn(g, "tariff_vote", "Tariff")}</div></div>` : "";
-  const politicsCol = `<h4>Politics <span>${p.scandal > 5 ? `<b class="bad">scandal</b>` : ""}</span></h4>${careerRow}${levelRows}<h5>Laws</h5>${lawRows}`;
+  const acts = actionRows(g, (a) => STRUGGLE_GROUPS.has(a.group) && !STRUGGLE_BUTTONS.has(a.id));
+  const politicsCol = `<h4>Politics <span>${p.scandal > 5 ? `<b class="bad">scandal</b>` : ""}</span></h4>${careerRow}${levelRows}
+    ${acts.rows.length ? `<h5>Lobbying</h5>${acts.rows.join("")}` : ""}
+    <h5>Laws</h5><div class="st-laws">${lawRows}</div>`;
   // owners column
   const o = ownersOf(g);
-  const rivals = g.rivals.filter((r) => r.active && !r.owned && !r.closed).sort((a, b) => (a.stance ?? 0) - (b.stance ?? 0));
+  // one card per owner: U.S. Steel's works are one company, not five
+  const byOwner = new Map<string, RivalState[]>();
+  for (const r of g.rivals.filter((x) => x.active && !x.owned && !x.closed)) {
+    const k = rivalName(RIVALS.find((x) => x.id === r.id)!, y).replace(/ [—–(].*$/, "");
+    byOwner.set(k, [...(byOwner.get(k) ?? []), r]);
+  }
+  const owners = [...byOwner.entries()].map(([name, rs]) => ({ name, rs, stance: rs.reduce((t, r) => t + (r.stance ?? 0), 0) / rs.length })).sort((a, b) => a.stance - b.stance);
   const ownersCol = `<h4>Owners <span>${o.member ? "in the association" : `<b class="bad">expelled${o.expelled ? ` ${o.expelled}` : ""}</b>`}</span></h4>
-    ${rivals.map((r) => {
-      const d = RIVALS.find((x) => x.id === r.id)!, s = r.stance ?? 0;
+    ${owners.map(({ name, rs, stance }) => {
+      const d = RIVALS.find((x) => x.id === rs[0].id)!;
+      const inds = [...new Set(rs.map((r) => INDUSTRIES[RIVALS.find((x) => x.id === r.id)!.industry].name.toLowerCase()))].join(", ");
       return `<div class="st-card st-riv">
-        <div class="st-title"><b>${esc(rivalName(d, y))}</b><span>${esc(d.figures[0])} · ${INDUSTRIES[d.industry].name.toLowerCase()}</span></div>
-        <div class="st-kv"><span>${stanceWord(s)}</span>${lean(s, "Hostile ← → Ally")}<em>${Math.round(s)}</em></div>
-        ${r.intent ? `<p class="st-intent">Next season: ${esc(r.intent.text.replace(/^.*? is /, "").replace(/^.*?'s /, ""))}</p>` : ""}
-        ${r.answered ? `<p class="st-note">${esc(r.answered)}</p>` : ""}
+        <div class="st-title"><b>${esc(name)}</b><span>${rs.length > 1 ? `${rs.length} works · ` : `${esc(d.figures[0])} · `}${esc(inds)}</span></div>
+        <div class="st-kv"><span>${stanceWord(stance)}</span>${lean(stance, "Hostile ← → Ally")}<em>${Math.round(stance)}</em></div>
+        ${rs.filter((r) => r.intent).map((r) => `<p class="st-intent">Next season: ${esc(r.intent!.text.replace(/^.*? is /, "").replace(/^.*?'s /, ""))}</p>`).join("")}
+        ${rs.filter((r) => r.answered).slice(0, 1).map((r) => `<p class="st-note">${esc(r.answered!)}</p>`).join("")}
       </div>`;
     }).join("") || `<p class="hint">No rival works open.</p>`}`;
   // ledger and family
-  const marks = topMarks(g, 10);
+  const marks = topMarks(g, marksAll ? 30 : 6);
   const f = g.family;
   el.innerHTML = `
-    <div class="tr-head"><h3>The Struggle</h3><span class="hint">${h ? `${esc(fullName(g, h))}, ${age(g, h)} · head of the family since ${h.from}` : ""}${managed(g) ? " · a manager runs the works" : ""}</span><span class="spacer"></span><span class="hint">${c.biz.actionsLeft} action${c.biz.actionsLeft === 1 ? "" : "s"} left</span><button data-close>Close ✕</button></div>
+    <div class="tr-head ovl-head"><h3>The Struggle</h3><span class="hint">${h ? `${esc(fullName(g, h))}, ${age(g, h)} · head of the family since ${h.from}` : ""}${managed(g) ? " · a manager runs the works" : ""}</span><span class="spacer"></span><span class="hint">${c.biz.actionsLeft} action${c.biz.actionsLeft === 1 ? "" : "s"} left</span><button class="x" data-close title="Close (Esc)">✕</button></div>
     ${status ? `<div class="st-status">${esc(status)}</div>` : ""}
     <div class="st-grid"><div class="st-col">${labourCol}</div><div class="st-col">${politicsCol}</div><div class="st-col">${ownersCol}</div></div>
     <div class="st-foot">
-      <div class="st-ledger"><h5>What the valley remembers</h5>${marks.length ? marks.map((m) => `<span class="st-mark ${m.kind === "trust" || m.kind === "favour" ? "good" : m.kind === "precedent" ? "" : "bad"}" title="${esc(`${m.kind} · ${m.side} · weight ${Math.round(m.weight)}${m.martyrs ? ` · ${m.martyrs} killed` : ""}`)}">${m.year} · ${esc(whoDid(g, m))} ${esc(m.text)}</span>`).join("") : `<span class="hint">Nothing yet.</span>`}</div>
+      <div class="st-ledger"><h5>What the valley remembers <button class="link" data-marks="1">${marksAll ? "Show fewer" : "Show all"}</button></h5>${marks.length ? marks.map((m) => `<span class="st-mark ${m.kind === "trust" || m.kind === "favour" ? "good" : m.kind === "precedent" ? "" : "bad"}" title="${esc(`${m.kind} · ${m.side} · weight ${Math.round(m.weight)}${m.martyrs ? ` · ${m.martyrs} killed` : ""}`)}">${m.year} · ${esc(whoDid(g, m))} ${esc(m.text)}</span>`).join("") : `<span class="hint">Nothing yet.</span>`}</div>
       <div class="st-family"><h5>The ${esc(f?.surname ?? "")} family</h5>${(f?.heads ?? []).map((x, k) => `<span class="${k === generation(g) ? "on" : ""}" title="${esc(x.verdict ?? "")}">${esc(x.first)} ${x.from}–${x.to ?? ""} <em>${esc(PATH_SHORT[x.path])}</em></span>`).join(" → ")}
         ${f?.heirs.length ? `<div class="hint">Heirs: ${f.heirs.map((p) => `${esc(p.first)} (${Math.max(0, y - p.born)}${p.traits.length ? `, ${p.traits.map((t) => TRAITS[t].name.toLowerCase()).join(", ")}` : ""})`).join(" · ")}</div>` : ""}</div>
     </div>`;
   el.querySelector("[data-close]")!.addEventListener("click", close);
+  el.querySelector("[data-marks]")?.addEventListener("click", () => { marksAll = !marksAll; struggleView(g, el, changed, close); });
+  wireActions(el, g, (t) => { status = t; changed(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-sact]").forEach((b) => b.addEventListener("click", () => {
     const r = takeAction(g, b.dataset.sact!, new Rng(`${g.seed}:st:${g.turn}:${seq++}`), b.dataset.arg);
     status = r.text;

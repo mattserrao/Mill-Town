@@ -1,59 +1,50 @@
-// The Works tab: each works you own (capacity, men, processes), what to commission next, what to build on the
-// map (placed, then confirmed) and what to build for the town. One row per thing: name, cost, effects; the
-// longer description is in the tooltip.
+// The Works tab: each works you own (capacity, men, processes) with the next upgrades to commission, anything the
+// law or the market asks of it, and what to build on the map (placed, then confirmed). Roads and gifts to the town
+// are on the Town tab; buying into other works is on the Money tab. One row per thing: name, button, effect chips.
 
-import { allWorks, buildIncline, buildSpur, buildSteps, cal, fundLibrary, type GameState, INCLINE_COST, LIBRARY_COST, spurQuote, STEPS_COST, type Works, worksCapacity } from "../core/game";
+import { allWorks, buildSpur, cal, type GameState, spurQuote, type Works, worksCapacity } from "../core/game";
 import { INDUSTRIES, industriesIn, type IndustryId } from "../core/industries";
 import { commission, techBlocked, techCost, techStanding } from "../core/market";
 import { PROJECTS, type ProjectKind, projectBlocked } from "../core/projects";
-import { distance, feet } from "../core/units";
-import { lobbyInfluence, lobbySeasons, type RoadPlan, roadPlans } from "../core/roads";
+import { distance } from "../core/units";
 import { esc, fmt } from "../core/text";
-import { money } from "./fx";
+import { actRow, chip, costButton, head, meterChip, money, more } from "./fx";
+import { actionRows, wireActions } from "./actions";
+export { actRow } from "./fx";
 import { complianceOf } from "../core/enviro";
 import { nameNow, RIVALS } from "../core/rivals";
 import { acquisitionQuote } from "../core/rivalai";
-import { buyStake, rivalProfit, rivalValue, stakeBlocked, stakePrice } from "../core/holdings";
-import { takeAction } from "../core/business";
-import { Rng } from "../core/rng";
+import { rivalProfit, rivalValue, stakeBlocked, stakePrice } from "../core/holdings";
 
 let open = new Set<string>(["p"]);
 let status = "";
 let newIndustry: IndustryId | null = null;
-let buyIntoOpen = false;
-let buyCount = 0;
 
-/** every rival works you could buy (or take a stake in), by industry, with its price (v0.18.2) */
-function buyIntoRows(g: GameState): string {
-  const c = g.company!;
+/** every rival works you could buy (or take a stake in) in one industry, with its price; a picker for the industry */
+export function buyIntoRows(g: GameState, pick: string): string {
+  const c = g.company!, y = cal(g).year;
   const open = g.rivals.filter((r) => r.active && !r.closed && !r.owned);
-  const rows = industriesIn(cal(g).year).map((ind) => {
-    const list = open.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === ind);
-    if (!list.length) return "";
-    return `<div class="hd-grp">${INDUSTRIES[ind].name}</div>` + list.map((r) => {
-      const d = RIVALS.find((x) => x.id === r.id)!, q = acquisitionQuote(g, r), sw = stakeBlocked(g, r.id);
-      const why = "refused" in q ? q.refused : c.biz.actionsLeft <= 0 ? "No actions left this season" : c.cash < q.price ? `Needs ${money(q.price)}` : null;
-      return actRow(esc(nameNow(d, cal(g).year, r.name, r.nameYear)), `${"price" in q ? `<button data-buyw="${r.id}" ${why ? `disabled title="${esc(why)}"` : ""}>${money(q.price)}</button>` : ""}<button data-stakew="${r.id}" ${sw ? `disabled title="${esc(sw)}"` : ""}>10% ${money(stakePrice(g, r.id))}</button>`,
-        `<span class="fx">worth ${money(rivalValue(g, r.id))}</span><span class="fx ${rivalProfit(g, r.id) < 0 ? "fx-bad" : "fx-good"}">${money(rivalProfit(g, r.id) * 4)}/yr</span>${r.offmap ? `<span class="fx">off the map: ${esc(d.offmap ?? "")}</span>` : ""}${"refused" in q ? `<span class="fx fx-bad">${esc(q.refused)}</span>` : ""}`,
-        `${d.note} Buy the works (its value + 10%) and run it as yours, or take a 10% stake for a share of its profit.`);
-    }).join("");
+  const inds = industriesIn(y).filter((ind) => open.some((r) => RIVALS.find((d) => d.id === r.id)?.industry === ind));
+  if (!inds.length) return `<p class="hint">No works open to buy.</p>`;
+  const ind = inds.includes(pick as IndustryId) ? (pick as IndustryId) : inds[0];
+  const list = open.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === ind);
+  return `<label class="bz-target">Industry <select data-buyind>${inds.map((i) => `<option value="${i}"${i === ind ? " selected" : ""}>${INDUSTRIES[i].name} (${open.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === i).length})</option>`).join("")}</select></label>` + list.map((r) => {
+    const d = RIVALS.find((x) => x.id === r.id)!, q = acquisitionQuote(g, r), sw = stakeBlocked(g, r.id);
+    const why = "refused" in q ? q.refused : c.biz.actionsLeft <= 0 ? "No actions left this season" : c.cash < q.price ? `Needs ${money(q.price)}` : null;
+    return actRow(esc(nameNow(d, y, r.name, r.nameYear)), `${"price" in q ? costButton(`data-buyw="${r.id}"`, q.price, why) : ""}${costButton(`data-stakew="${r.id}"`, 0, sw, `10% ${money(stakePrice(g, r.id))}`)}`,
+      `${chip(`worth ${money(rivalValue(g, r.id))}`)}${chip(`${money(rivalProfit(g, r.id) * 4)}/yr`, rivalProfit(g, r.id) < 0 ? "bad" : "good")}${r.offmap ? chip(`off the map: ${d.offmap ?? ""}`) : ""}${"refused" in q ? chip(q.refused, "bad") : ""}`,
+      `${d.note} Buy the works (its value + 10%) and run it as yours, or take a 10% stake for a share of its profit.`);
   }).join("");
-  return rows || `<p class="hint">No works open to buy.</p>`;
 }
 
 const STATUS: Record<string, string> = { running: "Running", idle: "Idle", strike: "On strike", flooded: "Flooded", lockout: "Locked out" };
 const PROJECT_FX: Record<ProjectKind, string> = {
   expand: `<span class="fx fx-good">Capacity +30%</span>`,
-  housing: `<span class="fx fx-good">Lab +4</span><span class="fx fx-good">fewer strikes</span>`,
+  housing: `${meterChip("labour", 4)}<span class="fx fx-good">fewer strikes</span>`,
   dock: `<span class="fx fx-good">no wagon haul</span><span class="fx fx-good">first call on barges</span>`,
   found: `<span class="fx">any industry</span>`,
 };
 const TECH_WORD: Record<string, string> = { capacity: "Capacity", efficiency: "Fuel & ore", workersPerUnit: "Men/unit", pollution: "Smoke" };
-
-/** a row: name (with tooltip), an action button, effect chips underneath */
-export function actRow(name: string, button: string, fx: string, title: string, extra = "") {
-  return `<div class="act" title="${esc(title)}"><span class="act-n">${name}</span>${extra}${button}${fx ? `<div class="act-fx">${fx}</div>` : ""}</div>`;
-}
 
 function worksCard(g: GameState, w: Works, many: boolean): string {
   const c = g.company!, ind = INDUSTRIES[w.industry], s = w.lastSeason, y = cal(g).year;
@@ -61,8 +52,11 @@ function worksCard(g: GameState, w: Works, many: boolean): string {
   const isOpen = !many || open.has(w.id);
   const res = w.research ? ind.tech.find((t) => t.id === w.research!.id) : null;
   // what can be built now, plus the next invention coming
-  const avail = ind.tech.filter((t) => !w.techs.includes(t.id) && t.year <= y);
-  const next = [...avail, ...ind.tech.filter((t) => !w.techs.includes(t.id) && t.year > y && t.year <= y + 10).slice(0, 1)].filter((t) => t.id !== w.research?.id);
+  const avail = ind.tech.filter((t) => !w.techs.includes(t.id) && t.year <= y && t.id !== w.research?.id);
+  const soon = ind.tech.filter((t) => !w.techs.includes(t.id) && t.year > y && t.year <= y + 10).slice(0, 1);
+  const allOpen = open.has(`all:${w.id}`);
+  const next = allOpen ? [...avail, ...soon] : avail.slice(0, 3);
+  const hidden = avail.length + soon.length - next.length;
   const head = `<div class="wk-head" ${many ? `data-toggle="${w.id}"` : ""}><b>${esc(w.name)}</b><span class="${w.status === "running" ? "up" : "down"}">${STATUS[w.status] ?? w.status}</span><span class="${s && s.profit < 0 ? "down" : ""}">${s ? money(s.profit) : ""}</span>${many ? `<i>${isOpen ? "▾" : "▸"}</i>` : ""}</div>`;
   if (!isOpen) return `<div class="wk">${head}</div>`;
   return `<div class="wk">${head}
@@ -78,39 +72,35 @@ function worksCard(g: GameState, w: Works, many: boolean): string {
         const good = k === "capacity" ? d > 0 : d < 0;
         return `<span class="fx ${good ? "fx-good" : "fx-bad"}">${TECH_WORD[k]} ${d > 0 ? "+" : "−"}${Math.round(Math.abs(d) * 100)}%</span>`;
       }).join("") + `<span class="fx">${t.seasons} seasons</span>`;
-      return actRow(`${esc(t.name)}${t.year > y ? ` <span class="muted">${t.year}</span>` : ""}`, `<button data-tech="${t.id}" data-works="${w.id}" ${why ? `disabled title="${esc(why)}"` : ""}>${money(techCost(t, y))}</button>`, fx, `${t.note ?? t.name}${why ? ` — ${why}` : ""}`);
+      return actRow(`${esc(t.name)}${t.year > y ? ` <span class="muted">${t.year}</span>` : ""}`, costButton(`data-tech="${t.id}" data-works="${w.id}"`, techCost(t, y), why), fx, `${t.note ?? t.name}${why ? ` — ${why}` : ""}`);
     }).join("")}
+    ${hidden > 0 || allOpen ? `<div class="wk-more">${more(`all:${w.id}`, allOpen, hidden, "all processes")}</div>` : ""}
   </div>`;
 }
 
-export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, place: (kind: ProjectKind, industry?: IndustryId) => void, road?: (p: RoadPlan) => void) {
+export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, place: (kind: ProjectKind, industry?: IndustryId) => void) {
   const c = g.company;
   if (!c) { el.innerHTML = ""; return; }
   const y = cal(g).year;
   const works = allWorks(c);
   const q = spurQuote(g);
-  const town: [string, string, number, boolean, string, string][] = [
-    ["library", c.library ? "Library funded" : "Fund a library", LIBRARY_COST, c.library || y < 1880, `<span class="fx fx-good">Rep +</span><span class="fx fx-good">Mor +</span>`, y < 1880 ? "From 1880" : "A free public library near the works"],
-    ["steps", "Public steps", STEPS_COST, false, `<span class="fx fx-good">shorter walk</span>`, "A flight of public steps from hillside houses down to the street"],
-    ["incline", "Incline", INCLINE_COST, y < 1870, `<span class="fx fx-good">hilltop men in reach</span>`, y < 1870 ? "Inclines arrive in 1870" : "An incline from a street near the works up to the hilltop houses"],
-  ];
+  const env = actionRows(g, (a) => a.group === "Environment");
+  const stock = works.reduce((t, w) => t + (w.stock ?? 0), 0);
+  const yards = stock ? actionRows(g, (a) => a.id === "dump") : { rows: [], off: [] };
   el.innerHTML = `
     ${status ? `<div class="bz-status">${esc(status)}</div>` : ""}
     ${works.map((w) => worksCard(g, w, works.length > 1)).join("")}
-    <h4 class="mh">Build on the map</h4>
+    ${yards.rows.length ? head("In the yards", `${fmt(stock)} unsold`) + yards.rows.join("") : ""}
+    ${env.rows.length ? head("Environment") + env.rows.join("") : ""}
+    ${head("Build")}
     ${(Object.keys(PROJECTS) as ProjectKind[]).map((k) => {
       if (k === "found" && y < 1890) return "";
       const why = projectBlocked(g, k);
       const extra = k === "found" ? `<select data-ind>${industriesIn(y).map((id) => `<option value="${id}"${id === (newIndustry ?? c.industry) ? " selected" : ""}>${INDUSTRIES[id].name}</option>`).join("")}</select>` : "";
-      return actRow(PROJECTS[k].name.replace(/^Build (an? )?/, "").replace(/^./, (m) => m.toUpperCase()), `<button data-place="${k}" ${why ? `disabled title="${esc(why)}"` : ""}>Place…</button>`, PROJECT_FX[k], `${PROJECTS[k].blurb} The game suggests a spot: click the map to move it, then confirm.${why ? ` — ${why}` : ""}`, extra);
+      return actRow(PROJECTS[k].name.replace(/^Build (an? )?/, "").replace(/^./, (m) => m.toUpperCase()), costButton(`data-place="${k}"`, 0, why, "Place on map"), PROJECT_FX[k], `${PROJECTS[k].blurb} The game suggests a spot: click the map to move it, then confirm.${why ? ` — ${why}` : ""}`, extra);
     }).join("")}
-    ${q || c.spur ? actRow("Rail siding", `<button data-town="spur" ${c.spur || !q || c.cash < q.cost ? "disabled" : ""}>${c.spur ? "Built" : money(q!.cost)}</button>`, q ? `<span class="fx">${distance(q.len * g.map.metersPerTile)}</span><span class="fx fx-good">ore & coal by rail</span>` : "", "A siding to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full") : ""}
-    <h4 class="mh">Buy into…<button class="link" data-buyinto="1">${buyIntoOpen ? "hide" : "show"}</button></h4>
-    ${buyIntoOpen ? buyIntoRows(g) : ""}
-    <h4 class="mh">Roads &amp; bridges</h4>
-    ${roadRows(g)}
-    <h4 class="mh">For the town</h4>
-    ${town.map(([id, name, cost, off, fx, title]) => actRow(name, `<button data-town="${id}" ${off || c.cash < cost ? "disabled" : ""}>${money(cost)}</button>`, fx, title)).join("")}`;
+    ${q || c.spur ? actRow("Rail siding", costButton(`data-town="spur"`, q?.cost ?? 0, c.spur ? "Built" : !q ? "No line in reach" : c.cash < q.cost ? `Needs ${money(q.cost)}` : null, c.spur ? "Built" : undefined), q ? `${chip(distance(q.len * g.map.metersPerTile))}${chip("ore & coal by rail", "good")}` : "", "A siding to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full") : ""}
+    <p class="hint">Roads and gifts to the town are on the Town tab; buying other works on the Money tab.</p>`;
 
   el.querySelectorAll<HTMLElement>("[data-toggle]").forEach((h) => h.addEventListener("click", () => {
     const id = h.dataset.toggle!;
@@ -127,28 +117,19 @@ export function worksPanel(g: GameState, el: HTMLElement, changed: () => void, p
     const k = b.dataset.place as ProjectKind;
     place(k, k === "found" ? newIndustry ?? c.industry : undefined);
   }));
-  el.querySelector<HTMLButtonElement>("button[data-buyinto]")?.addEventListener("click", () => { buyIntoOpen = !buyIntoOpen; worksPanel(g, el, changed, place, road); });
-  el.querySelectorAll<HTMLButtonElement>("button[data-buyw]").forEach((b) => b.addEventListener("click", () => { status = takeAction(g, "buy", new Rng(`${g.seed}:buyw:${g.turn}:${buyCount++}`), b.dataset.buyw).text; changed(); }));
-  el.querySelectorAll<HTMLButtonElement>("button[data-stakew]").forEach((b) => b.addEventListener("click", () => { status = buyStake(g, b.dataset.stakew!).text; changed(); }));
-  const plans = roadPlans(g);
-  el.querySelectorAll<HTMLButtonElement>("button[data-road]").forEach((b) => b.addEventListener("click", () => road?.(plans[Number(b.dataset.road)])));
-  const TOWN = { library: fundLibrary, steps: buildSteps, incline: buildIncline, spur: buildSpur };
+  el.querySelectorAll<HTMLButtonElement>("button[data-more]").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.more!;
+    if (open.has(k)) open.delete(k); else open.add(k);
+    worksPanel(g, el, changed, place);
+  }));
+  wireActions(el, g, (t) => { status = t; changed(); });
+  const TOWN = { spur: buildSpur };
   el.querySelectorAll<HTMLButtonElement>("button[data-town]").forEach((b) => b.addEventListener("click", () => {
     const r = TOWN[b.dataset.town as keyof typeof TOWN](g);
     status = r.ok ? "Done." : r.reason ?? "Can't do that.";
     if (!r.ok) g.log.push({ turn: g.turn, text: r.reason! });
     changed();
   }));
-}
-
-/** the roads worth building, with what each would do; and roads the city is building for you */
-function roadRows(g: GameState): string {
-  const plans = roadPlans(g).slice(0, 5);
-  const pending = (g.publicWorks.roads ?? []).map((r) => `<div class="act"><span class="act-n">Road to ${esc(r.plan.to)}</span><span class="muted">city builds · ${Math.max(0, r.due - g.turn)} seasons</span></div>`).join("");
-  const rows = plans.map((p, k) => actRow(`${p.bridge ? "Bridge to" : "Road to"} ${esc(p.to)}`, `<button data-road="${k}" ${g.company!.biz.actionsLeft <= 0 ? "disabled" : ""}>Plan…</button>`,
-    `<span class="fx fx-good">+${fmt(p.gain)} in reach</span><span class="fx">${Math.round(p.before)} → ${Math.round(p.after)} min</span>${p.bridgeTiles ? `<span class="fx">bridge ${feet(p.bridgeTiles * g.map.metersPerTile)}</span>` : ""}<span class="fx">${money(p.cost)} or Inf ${lobbyInfluence(p)}</span>`,
-    `A main road from the works to ${p.to}${p.bridgeTiles ? `, with a new bridge (${feet(p.bridgeTiles * g.map.metersPerTile)})` : ""}: ${distance(p.path.length * g.map.metersPerTile)}. Horsecars (from 1859) and streetcars (1890–1955) run on it, so the trip drops from ${Math.round(p.before)} to ${Math.round(p.after)} minutes and about ${fmt(p.gain)} more people would take a job at the works; houses settle along it. Pay for it now, or lobby the city to build it (${lobbySeasons(p)} seasons).`)).join("");
-  return pending + (rows || `<p class="hint">No road would bring many more men within reach now.</p>`);
 }
 
 /** the market behind a works' orders (tooltip) */
