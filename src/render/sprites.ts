@@ -1530,12 +1530,37 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
 
 export interface SpriteBuf { w: number; h: number; ax: number; ay: number; px: Uint32Array; soft: boolean }
 
+/**
+ * Trim a sprite's canvas to what's drawn on it (houses are drawn on a tall canvas with room for hillside
+ * foundations, and most are on flat ground): the anchor moves with the crop, so it draws in the same place.
+ */
+export function cropSprite(s: Sprite): Sprite {
+  const { width: W, height: H } = s.canvas;
+  const d = s.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) { x0 = y0 = 0; x1 = y1 = 0; }
+  // keep the crop on an 8-pixel grid so scaled copies land on the same pixels as before
+  x0 &= ~7; y0 &= ~7;
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  if (w * h > W * H * 0.85) return s; // not worth it
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d")!.drawImage(s.canvas, x0, y0, w, h, 0, 0, w, h);
+  return { ...s, canvas: c, ax: s.ax - x0, ay: s.ay - y0 };
+}
+
+/** one scratch canvas for every rescale (a new canvas each time left thousands of detached elements to collect) */
+let scratch: { c: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+
 export function scaleSprite(s: Sprite, scale: number): SpriteBuf {
   const w = Math.max(1, Math.round(s.canvas.width * scale));
   const h = Math.max(1, Math.round(s.canvas.height * scale));
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  if (!scratch) { const c = document.createElement("canvas"); scratch = { c, ctx: c.getContext("2d", { willReadFrequently: true })! }; }
+  const c = scratch.c, ctx = scratch.ctx;
+  if (c.width < w || c.height < h) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, h); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
   ctx.imageSmoothingEnabled = scale < 1;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(s.canvas, 0, 0, w, h);
