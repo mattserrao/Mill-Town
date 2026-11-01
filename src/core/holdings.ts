@@ -373,7 +373,7 @@ export function updateStocks(g: GameState) {
 /** the market's mood this year (1 is normal; under 0.85 is a slump, when boards cut their dividends) */
 export const marketMood = (y: number) => lerpCurve(MARKET, y);
 /** lots of one company the brokers can still find this decade (v0.21: a family firm can't buy a bank) */
-export const decadeCap = (y: number) => Math.round(20 * priceLevel(y));
+export const decadeCap = (y: number) => Math.round(6 * priceLevel(y));
 export const decadeKey = (y: number, id: string) => `${Math.floor(y / 10) * 10}:${id}`;
 export const lotsLeft = (g: GameState, id: string) => Math.max(0, decadeCap(year(g)) - (holdingsOf(g).shareDecade?.[decadeKey(year(g), id)] ?? 0));
 
@@ -390,7 +390,7 @@ const INDUSTRIES_PRICE = (ind: IndustryId, y: number) => INDUSTRY_DEFS[ind].base
 export const listedOpen = (g: GameState, L: Listed) => year(g) >= L.from && !(L.until && year(g) >= L.until);
 export const LOT = 100;
 /** the most lots one purchase can find sellers for: more as the market grows (v0.18.2) */
-export const maxLots = (y: number) => Math.round(8 * priceLevel(y));
+export const maxLots = (y: number) => Math.round(6 * priceLevel(y));
 /** buying on margin (the call-loan market, 1920 until the Securities Exchange Act of 1934): 10% down */
 export const marginOpen = (y: number) => y >= 1920 && y < 1934;
 export const MARGIN_RATE = 0.015; // a season (about 6% a year)
