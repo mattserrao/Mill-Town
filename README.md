@@ -22,17 +22,20 @@ in the terminal running `npm run dev`.
 - Found a company: pick an industry, click a tile (or "Show me a good site"), check the site report, press **Found company here**
 - Time: Space = next season, Shift+Space = next year; speeds pause / 1× / 2× / 4× / 8× in the top bar (P pauses,
   keys 1–4 pick a speed; at 1× a game takes about two hours). The game ends after Winter 1985
-- Run the business from the right panel: standing policies, three actions a season, building projects, technology,
-  rivals; historical decisions appear as cards (the owners' historical choice is marked and taken if you skip)
-- Markets (top bar): prices, wages and your accounts since 1850 · the newspaper and the log sit at the bottom left
-- Overlays (left panel): land, town (cities & neighbourhoods, population, ancestry, smoke, health, unrest, traffic…)
-  and business (supply chain, freight, competitors, site scores)
-- Map: drag / WASD / arrows to pan; scroll, +/- or the on-screen buttons to zoom; click a tile to inspect it;
-  ? or Q for the query tool; Esc closes views
-- Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in the left panel
-- Game menu (top bar): type a seed and press New town to replay a town, or leave it for a fresh one
-- Right panel tabs: Company (tile, site report, company, supply chain) · Business (works, technology, policies,
-  actions) · Town (morale, teams, neighbourhood) · Rivals
+- Top bar: date, cash, last season's profit, valley population, and four meters (reputation, labour relations,
+  influence, town morale; hover for the word)
+- Right panel tabs: **Overview** (cash, profit, output, market share, price and cost per unit, a Watch list of
+  risks, last season's accounts) · **Works** (processes, commissioning, building on the map, projects for the town,
+  supply chain) · **Policy** (standing policies, three actions a season, the town) · **Rivals** (output against
+  yours, suppliers and customers). Historical decisions appear as cards (the owners' choice is marked and taken if
+  you skip)
+- **Trends** (T): cash, profit, price against cost, capacity and men, market share by rival and the risk list ·
+  prices, wages and raw materials · population, morale, the jobless and your workforce's health
+- Map: drag / WASD / arrows to pan; scroll, +/- or the on-screen buttons to zoom; click a tile for its card
+  (before founding, a click picks a site); the **Map** button holds the layers (land, town, business, best sites)
+  and view options; the headline strip at the bottom opens the paper, with the ledger (log) beside it; Esc closes
+- Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in ☰
+- ☰ menu: type a seed and press New town to replay a town, or leave it for a fresh one
 - Browser console: `mt` exposes the game (`mt.next(40)`, `mt.center(x, y, 2)`, `mt.select(x, y)`, `mt.overlay("coal")`, `mt.fire("Event Name")`)
 
 ## Layout
@@ -44,7 +47,7 @@ src/core/                     game model (no DOM): map, town growth, industries 
                               rivals, freight, environment, events engine (effects.ts) and event data
                               (eventdata/era1-4.ts), landmarks, sports, the season loop (game.ts)
 src/render/                   iso projection, procedural pixel-art sprites, chunked renderer, traffic, flows
-src/ui/                       panels: overlays, business, works, markets, query, district
+src/ui/                       panels: overlays, business (policy), works, trends, risks, query, district
 src/audio/                    procedural music and ambience
 src/main.ts                   app wiring, camera, panels, minimap
 docs/EVENTS.csv               the historical timeline the game reads (edit it to change history; see docs/EVENTS.md)

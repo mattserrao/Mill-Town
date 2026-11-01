@@ -1,11 +1,9 @@
 import { distance, feet } from "./core/units";
-import { advanceTurn, allWorks, buildIncline, buildSpur, buildSteps, cal, spurQuote, commuteWeight, foundCompany, fundLibrary, INCLINE_COST, LIBRARY_COST, newGame, STEPS_COST, totalPopulation, walkMinutes, type GameState } from "./core/game";
+import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "./core/industries";
-import { loadMap, tileLatLon, type GameMap } from "./core/map";
+import { loadMap, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
-import { TERRAIN_NAMES } from "./core/terrain";
-import { STRUCTURES, SUB_NAMES, Use, USE_NAMES } from "./core/town";
-import { ANCHORS, anchorAt, GROUPS } from "./core/ancestry";
+import { ANCHORS } from "./core/ancestry";
 import { type Camera, pickTile, project, ZOOMS } from "./render/iso";
 import { Renderer } from "./render/renderer";
 import { Traffic } from "./render/traffic";
@@ -15,7 +13,9 @@ import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
 import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
-import { marketsView } from "./ui/markets";
+import { trendsView } from "./ui/trends";
+import { riskRows, risks, shareAt } from "./ui/risks";
+import { money as short } from "./ui/fx";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
 import { drawDistricts } from "./render/districts";
@@ -54,7 +54,6 @@ let placing = true;
 let playTimer = 0;
 let seedEdited = false;
 let newsAt = 0;
-let querying = false;
 let soundWanted = (() => { try { return localStorage.getItem("mt.sound") !== "off"; } catch { return true; } })();
 let siteTried: { x: number; y: number }[] = [];
 /** flow or rival hovered in the side panel: drawn on top, the rest faded */
@@ -92,9 +91,8 @@ function newTown(seed: number) {
   // nothing from the last town carries over: placing, open views, panel state, cached flows and traffic
   if (game) {
     proposal = null; placeBar();
-    if (querying) setQuerying(false);
-    $("query").hidden = true;
-    toggleMarkets(false);
+      $("query").hidden = true;
+    toggleTrends(false); openPaper(false);
     resetBusinessUi(); resetWorksUi();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
@@ -104,7 +102,7 @@ function newTown(seed: number) {
   ($<HTMLInputElement>("seed")).value = String(seed);
   seedEdited = false;
   ($<HTMLInputElement>("companyName")).value = suggestName(industry, seed);
-  setTab("company");
+  setTab("overview");
   siteTried = [];
   placing = true; ($<HTMLInputElement>("placing")).checked = true;
   $("final").hidden = true;
@@ -284,7 +282,7 @@ function drawMinimapView() {
 function reservedRects() {
   const vr = canvas.getBoundingClientRect();
   const sx = canvas.width / vr.width, sy = canvas.height / vr.height;
-  return ["zoomButtons", "minimap", "zoom"].map((id) => {
+  return ["zoomButtons", "minimap", "zoom", "mapTools", "headline"].map((id) => {
     const r = $(id).getBoundingClientRect();
     return { x: (r.left - vr.left) * sx - 4, y: (r.top - vr.top) * sy - 4, w: r.width * sx + 8, h: r.height * sy + 8 };
   });
@@ -333,131 +331,120 @@ function row(k: string, v: string, cls = "") {
 const PAPERS = ["Pittsburgh Gazette", "Pittsburgh Dispatch", "Pittsburgh Press", "Pittsburgh Post-Gazette"];
 /** which issue of the paper is shown (the archive is game.news, newest last) */
 let paperIdx = -1, paperSeen = 0;
-/** Show the newest issue in the newspaper at the bottom left when a new one comes out. */
+let paperTab: "paper" | "ledger" = "paper";
+/** When a new issue comes out: show its first story in the headline strip, and the issue in the paper. */
 function showNews() {
   if (game.news.length !== paperSeen) {
     paperSeen = game.news.length;
     paperIdx = game.news.length - 1;
     newsAt = performance.now();
   }
+  renderHeadline();
   renderPaper();
+}
+
+function renderHeadline() {
+  const el = $("headline");
+  const issue = game.news[game.news.length - 1];
+  if (!issue) { el.hidden = true; return; }
+  const fresh = issue.turn === game.turn;
+  const it = issue.items[0];
+  el.hidden = !$("paper").hidden;
+  el.classList.toggle("fresh", fresh);
+  el.innerHTML = `<span class="hl-kick">${fresh ? esc(it.category) : `${cal({ ...game, turn: issue.turn }).season} ${cal({ ...game, turn: issue.turn }).year}`}</span><span class="hl-head">${esc(it.name)}</span><span class="hl-more">${issue.items.length > 1 ? `+${issue.items.length - 1} more · ` : ""}Read ▸</span>`;
 }
 
 function renderPaper() {
   const el = $("news");
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#paper [data-pp]")) b.classList.toggle("on", b.dataset.pp === paperTab);
+  el.hidden = paperTab !== "paper";
+  $("log").hidden = paperTab !== "ledger";
+  $("paperNav").hidden = paperTab !== "paper";
   const issue = game.news[paperIdx];
-  const fresh = !!issue && issue.turn === game.turn;
-  el.classList.toggle("fresh", fresh);
   const n = game.news.length;
   $("paperNav").innerHTML = n ? `<button data-p="-1" ${paperIdx <= 0 ? "disabled" : ""} title="Older issue">◀</button><span>${paperIdx + 1}/${n}</span><button data-p="1" ${paperIdx >= n - 1 ? "disabled" : ""} title="Newer issue">▶</button>` : "";
   if (!issue) { el.innerHTML = `<p class="none">No news yet.</p>`; return; }
   const c = cal({ ...game, turn: issue.turn });
   const paper = PAPERS[c.year < 1880 ? 0 : c.year < 1920 ? 1 : c.year < 1927 ? 2 : 3];
   el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
-    (fresh ? "" : `<p class="none">${paperIdx === n - 1 ? "No news this season. The last issue:" : "From the archive:"}</p>`) +
     issue.items.map((e) => `<div class="kicker">${e.category}</div><h3>${esc(e.name)}</h3><p>${esc(e.description)}</p>`).join("");
   el.scrollTop = 0;
-  // several stories: say so, and let the reader scroll
-  if (issue.items.length > 1 && el.scrollHeight > el.clientHeight + 4) {
-    el.insertAdjacentHTML("beforeend", `<div class="more">▾ ${issue.items.length} stories — scroll</div>`);
-    el.onscroll = () => { const m = el.querySelector<HTMLElement>(".more"); if (m) m.hidden = el.scrollTop + el.clientHeight >= el.scrollHeight - 6; };
-  } else el.onscroll = null;
+}
+
+function openPaper(open: boolean) {
+  $("paper").hidden = !open;
+  if (open) { paperIdx = game.news.length - 1; renderPaper(); }
+  renderHeadline();
+}
+
+/** a small bar for the top bar: signed meters run from the middle, the others from the left */
+function meterChip(label: string, title: string, v: number, signed: boolean, word: string) {
+  const col = !signed ? "#c8a040" : v >= 0 ? "#5aa860" : "#c8503a";
+  const bar = signed ? `<b style="left:${Math.min(50, (v + 100) / 2)}%;width:${Math.abs(v) / 2}%;background:${col}"></b><i class="mid"></i>` : `<b style="left:0;width:${Math.max(2, v)}%;background:${col}"></b>`;
+  return `<div class="meter" title="${title}: ${Math.round(v)} · ${word}"><span>${label}</span><span class="mbar">${bar}</span><b class="${signed ? (v >= 0 ? "up" : "down") : ""}">${signed && v > 0 ? "+" : ""}${Math.round(v)}</b></div>`;
 }
 
 function refreshPanels() {
-  const c = cal(game);
-  $("calendar").innerHTML = `<b>${c.season} ${c.year}</b> · Era ${c.era.id}`;
+  const c = cal(game), co = game.company;
+  $("calendar").innerHTML = `<small>Era ${c.era.id}</small><b>${c.season} ${c.year}</b>`;
   $("calendar").title = `Era ${c.era.id}: ${c.era.name}`;
-  $("population").innerHTML = `Pop. <b>${fmt(totalPopulation(game))}</b>`;
-  $("cash").innerHTML = game.company ? `Cash <b>${money(game.company.cash)}</b>` : `Capital <b>$100,000</b>`;
-  const bz = game.company?.biz.meters;
-  $("standing").innerHTML = (bz ? ["Rep", "Labour", "Infl"].map((k, i) => { const v = Math.round([bz.reputation, bz.labour, bz.influence][i]); return `${k} <b class="${i < 2 ? (v >= 0 ? "up" : "down") : ""}">${i < 2 && v > 0 ? "+" : ""}${v}</b>`; }).join(" · ") + " · " : "") + `Morale <b class="${game.morale >= 50 ? "up" : "down"}">${Math.round(game.morale)}</b>`;
+  $("cash").innerHTML = `<small>${co ? "Cash" : "Capital"}</small><b>${co ? short(co.cash) : "$100,000"}</b>`;
+  const p = co?.totals?.profit;
+  $("profit").hidden = !co;
+  $("profit").innerHTML = `<small>Last season</small><b class="${(p ?? 0) >= 0 ? "up" : "down"}">${p === undefined ? "—" : `${p >= 0 ? "+" : ""}${short(p)}`}</b>`;
+  $("population").innerHTML = `<small>Valley</small><b>${fmt(totalPopulation(game))}</b>`;
+  $("population").title = "People living in the valley";
+  const bz = co?.biz.meters, mo = Math.round(game.morale);
+  const W = { rep: (v: number) => (v < -50 ? "reviled" : v < -20 ? "distrusted" : v < 15 ? "unremarkable" : v < 45 ? "respected" : "admired"), lab: (v: number) => (v < -50 ? "hostile" : v < -20 ? "bitter" : v < 15 ? "uneasy" : v < 45 ? "steady" : "loyal"), inf: (v: number) => (v < 10 ? "none to speak of" : v < 30 ? "a friend at City Hall" : v < 60 ? "heard in Harrisburg" : "heard in Washington") };
+  $("standing").innerHTML = (bz ? meterChip("Rep", "Reputation", bz.reputation, true, W.rep(bz.reputation)) + meterChip("Labour", "Labour relations", bz.labour, true, W.lab(bz.labour)) + meterChip("Infl", "Influence", bz.influence, false, W.inf(bz.influence)) : "") +
+    meterChip("Morale", "Town morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
+  for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
+  $("townSection").hidden = !co;
   townPanel();
-  $("businessSection").hidden = !game.company;
-  $("worksSection").hidden = !game.company;
   worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
   businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
-  inspect();
-  companyPanel();
+  siteReport();
+  overviewPanel();
   supplyPanel();
   rivalsPanel();
   $("legend").innerHTML = overlayLegend(overlay, game);
   showNews();
-  $("log").innerHTML = game.log.slice(-40).reverse().map((l) => {
+  $("log").innerHTML = game.log.slice(-60).reverse().map((l) => {
     const lc = cal({ ...game, turn: l.turn });
-    return `<li>${lc.season.slice(0, 3)} ${lc.year} — <b>${esc(l.text)}</b></li>`;
+    return `<li><span>${lc.season.slice(0, 3)} ${lc.year}</span> ${esc(l.text)}</li>`;
   }).join("");
 }
 
 /** morale, the jobless, the teams and their grounds */
 function townPanel() {
-  const g = game, y = g.world.year, mo = Math.round(g.morale);
-  const word = mo < 25 ? "Despairing" : mo < 40 ? "Low" : mo < 60 ? "Steady" : mo < 75 ? "Proud" : "Jubilant";
+  const g = game, y = g.world.year;
   const teams = g.teams.filter((t) => t.active);
-  $("town").innerHTML = `<div class="bz-meter"><div class="bz-k">Town morale</div><div class="bz-bar"><b style="left:0;width:${mo}%;background:${mo >= 50 ? "#5aa860" : "#c8a040"}"></b></div><div class="bz-v">${mo} · ${word}</div></div>
-    ${g.jobless > 50 ? `<div class="kv"><div class="k">Out of work</div><div class="v bad">${fmt(g.jobless)}</div></div>` : ""}
-    ${teams.length ? `<div class="kv">${teams.map((t) => `<div class="k">${teamName(t.id, y)}</div><div class="v">${teamGround(t.id, y)}${t.last ? ` · ${t.last}` : ""}${t.titles.length ? ` · 🏆 ${t.titles.join(", ")}` : ""}</div>`).join("")}</div>` : `<p class="hint">No professional teams yet (the Alleghenys take the field in 1887).</p>`}
-    ${g.landmarks.length ? `<p class="hint">${g.landmarks.length} landmarks built${g.landmarks.some((l) => l.state !== "open") ? `, ${g.landmarks.filter((l) => l.state !== "open").length} closed or ruined` : ""}.</p>` : ""}`;
+  $("town").innerHTML = `<div class="kv">
+    <div class="k">Morale</div><div class="v ${g.morale >= 50 ? "good" : "bad"}">${Math.round(g.morale)}</div>
+    <div class="k">Out of work</div><div class="v ${g.jobless > 500 ? "bad" : ""}">${fmt(g.jobless)}</div>
+    ${teams.map((t) => `<div class="k">${teamName(t.id, y)}</div><div class="v" title="${esc(teamGround(t.id, y))}${t.last ? ` · ${esc(t.last)}` : ""}">${t.titles.length ? `🏆 ${t.titles.slice(-2).join(", ")}${t.titles.length > 2 ? "…" : ""}` : t.last ?? ""}</div>`).join("")}
+  </div>`;
 }
 
-function inspect() {
-  const el = $("inspector");
-  const site = $("siteSection");
-  $("districtSection").hidden = !selected || !districtPanel(game, $("district"), zoneAt(game, selected.x, selected.y));
-  $("bizEmpty").hidden = !!game.company;
-  if (!selected) { el.innerHTML = `<p class="hint">Click a tile.</p>`; site.hidden = true; return; }
-  const { x, y } = selected;
-  const i = y * map.width + x;
-  const w = game.world;
-  const ll = tileLatLon(map, x, y);
-  const water = map.water[i] ? map.waterNames[String(map.water[i])] : "";
-  const creek = map.creek[i] ? map.creekNames[String(map.creek[i])] : "";
-  const rail = map.rail[i] ? map.railLines[String(map.rail[i])] : null;
-  const bridge = map.bridge[i] ? map.bridges[String(map.bridge[i])] : null;
-  let near = map.landmarks[0], nd = Infinity;
-  for (const l of map.landmarks) { const d = Math.hypot(l.x - x, l.y - y); if (d < nd) { nd = d; near = l; } }
-  const owner = w.owner[i] === 0 ? "—" : w.owner[i] === 1 ? game.company?.name ?? "You" : game.rivals.find((r) => r.ownerId === w.owner[i])?.id ?? "Rival";
-  const struct = w.structure[i] > 0 && w.structure[i] < 255 ? STRUCTURES[w.structure[i]] : "";
-  el.innerHTML = [
-    row("Tile", `${x}, ${y}`),
-    row("Lat / Lon", `${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`),
-    row("Elevation", feet(map.elevation[i])),
-    row("Terrain", TERRAIN_NAMES[map.terrain[i]]),
-    row("Slope", `${map.slope[i]}°`),
-    water ? row("Water", water) : "",
-    creek ? row("Creek", creek) : "",
-    rail ? row("Rail", `${rail.name} (${rail.year})`, rail.year > w.year ? "bad" : "") : "",
-    bridge ? row("Bridge", `${bridge.name} (${bridge.year})`, bridge.year > w.year ? "bad" : "") : "",
-    w.street[i] ? row("Street", ["", "Lane", "Pike", "Bridge", "Public steps"][w.street[i]]) : "",
-    game.company && game.access ? row("Walk to works", isFinite(walkMinutes(game, i)) ? `${walkMinutes(game, i).toFixed(0)} min (${Math.round(commuteWeight(walkMinutes(game, i)) * 100)}% take the job)` : "over an hour") : "",
-    row("Coal", ["None", "Seam underground", "Seam outcrop"][map.coal[i]]),
-    row("Land use", struct ? struct[0].toUpperCase() + struct.slice(1) : SUB_NAMES[w.use[i]]?.[w.sub[i]] ?? USE_NAMES[w.use[i]]),
-    w.built[i] ? row("Built", String(w.built[i])) : "",
-    row("Residents", fmt(w.pop[i])),
-    w.eth[i] ? row(w.use[i] === Use.Civic ? "Congregation" : "Community", w.use[i] === Use.Civic && w.sub[i] === 8 ? GROUPS[w.eth[i]].hall : GROUPS[w.eth[i]].name) : "",
-    anchorAt(map, x, y) ? row("Neighbourhood", anchorAt(map, x, y)!.name) : "",
-    row("Land value", money(w.landValue[i])),
-    row("Pollution", w.pollution[i].toFixed(3)),
-    row("Owner", owner),
-    row("Nearest place", `${near.name} (${distance(nd * map.metersPerTile)})`),
-  ].join("");
-
-  site.hidden = !!game.company;
-  if (game.company) return;
-  const rep = evaluateSite(map, game.world, game.fields, industry, x, y);
-  $("site").innerHTML = [
-    row("Industry", INDUSTRIES[industry].name),
-    row("Footprint", `${rep.footprint}×${rep.footprint} tiles (${feet(rep.footprint * map.metersPerTile)} square)`),
+/** before founding: the site report for the selected tile and the chosen industry */
+function siteReport() {
+  const show = !game.company;
+  $("foundSection").hidden = !show;
+  if (!show) return;
+  const site = $("site");
+  if (!selected) { site.hidden = true; $("siteHint").hidden = false; ($<HTMLButtonElement>("found")).disabled = true; return; }
+  const rep = evaluateSite(map, game.world, game.fields, industry, selected.x, selected.y);
+  site.hidden = false; $("siteHint").hidden = true;
+  site.innerHTML = [
     row("Score", `${rep.score} / 100`, rep.ok ? "good" : "bad"),
     row("Cost", money(rep.cost), rep.cost > 100000 ? "bad" : ""),
-    row("Labor nearby", fmt(rep.labor)),
+    row("Men nearby", fmt(rep.labor)),
     row("River", rep.riverM > 60000 ? "—" : distance(rep.riverM)),
-    row("Coal outcrop", rep.coalM > 60000 ? "—" : distance(rep.coalM)),
-    row("Relief", feet(rep.reliefM)),
-    `<div class="full hint">${rep.reasons.join(" · ")}</div>`,
+    rep.ok ? "" : `<div class="full bad">${rep.reasons.join(" · ")}</div>`,
   ].join("");
-  ($<HTMLButtonElement>("found")).disabled = !!game.company || !rep.ok || rep.cost > 100000;
+  site.title = rep.reasons.join(" · ");
+  ($<HTMLButtonElement>("found")).disabled = !rep.ok || rep.cost > 100000;
 }
 
 /** what the works is now, from its newest process ("Bessemer steel", not 1850's "iron furnace" in 1985) */
@@ -467,102 +454,101 @@ function businessNow(c: { industry: IndustryId; techs: string[] }): string {
   return newest ? `${ind.name} · ${newest.name.toLowerCase()}` : ind.startsAs;
 }
 
-/** a warning in the Company panel when the works has fallen well behind the industry */
-function behindWarning(): string[] {
-  const out: string[] = [];
-  for (const w of allWorks(game.company!)) {
-    const st = techStanding(game, w);
-    if (st.behind.length >= 2) out.push(`<div class="full warn">${esc(w.name)} is ${st.behind.length} processes behind the industry (${st.behind.map((t) => esc(t.name)).join(", ")}): its prices are ${Math.round((1 - st.factor) * 100)}% under the rivals'. Commission them on the Business tab.</div>`);
-  }
-  return out;
+const spark = (vals: (number | undefined)[], col: string) => {
+  const v = vals.filter((x): x is number => x !== undefined && isFinite(x));
+  if (v.length < 3) return "";
+  const lo = Math.min(...v), hi = Math.max(...v), w = 100, h = 18;
+  const pts = v.map((x, k) => `${((k / (v.length - 1)) * w).toFixed(1)},${(h - 1 - ((x - lo) / (hi - lo || 1)) * (h - 2)).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3" vector-effect="non-scaling-stroke"/></svg>`;
+};
+
+/** the Overview tab: the company's numbers at a glance, what to watch, last season's accounts */
+function overviewPanel() {
+  const c = game.company, el = $("overview");
+  if (!c) { el.innerHTML = ""; return; }
+  const s = c.totals ?? c.lastSeason;
+  const status = c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : c.status === "lockout" ? "Locked out" : "Idle";
+  const hist = game.prices.slice(-40);
+  const now = game.prices[game.prices.length - 1];
+  const then = game.prices.find((p) => cal({ ...game, turn: p.turn }).year >= cal(game).year - 10 && p.prodInd?.[c.industry]);
+  const sh = now ? shareAt(now, c.industry) : undefined, sh0 = then && then !== now ? shareAt(then, c.industry) : undefined;
+  const price = now?.yours[c.industry] ?? now?.market[c.industry], uc = now?.unitCost;
+  const cap = now?.capacity ?? 0;
+  const st = techStanding(game, c);
+  const card = (k: string, v: string, sub: string, cls = "") => `<div class="card"><small>${k}</small><b class="${cls}">${v}</b>${sub}</div>`;
+  const list = risks(game);
+  el.innerHTML = `
+    <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" ? "up" : "down"}">● ${status}</span></div>
+    <div class="cards">
+      ${card("Cash", short(c.cash), spark(hist.map((p) => p.cash), "#e0a243"), c.cash < 0 ? "down" : "")}
+      ${card("Profit / season", s ? short(s.profit) : "—", spark(hist.map((p) => p.profit), "#7cc87c"), s && s.profit < 0 ? "down" : "up")}
+      ${card("Output", s ? fmt(s.produced) : "—", `<em>of ${fmt(cap)}${cap && s ? ` · ${Math.round((s.produced / cap) * 100)}% used` : ""}</em>`)}
+      ${card("Market share", sh !== undefined ? `${Math.round(sh * 100)}%` : "—", sh !== undefined && sh0 !== undefined ? `<em><span class="${sh >= sh0 ? "up" : "down"}">${sh >= sh0 ? "▲" : "▼"}</span> ${Math.round(sh0 * 100)}% ten years ago</em>` : "<em>of the industry's output</em>")}
+      ${card("Price / unit", price ? `$${price.toFixed(2)}` : "—", `<em>${st.factor === 1 ? "level with rivals" : `${st.factor > 1 ? "+" : "−"}${Math.round(Math.abs(st.factor - 1) * 100)}% vs rivals`}</em>`, st.factor < 1 ? "down" : "")}
+      ${card("Cost / unit", uc ? `$${uc.toFixed(2)}` : "—", `<em>${uc && price ? `margin ${Math.round((1 - uc / price) * 100)}%` : ""}</em>`, uc && price && uc > price ? "down" : "")}
+    </div>
+    <h4 class="mh">Watch <button class="link" id="ovTrends">Trends ▸</button></h4>
+    <div class="risks">${riskRows(list.slice(0, 5))}</div>
+    ${s ? `<h4 class="mh">Last season${c.others.length ? " · all works" : ""}</h4>
+    <div class="pl">
+      ${([["Revenue", s.revenue, "#7ac8e0"], ["Raw materials", -s.inputCost, "#e07a64"], ["Wages", -s.wages, "#e07a64"], ["Upkeep", -s.upkeep, "#e07a64"], ...(s.other ? [["Other", -s.other, s.other > 0 ? "#e07a64" : "#7cc87c"]] : [])] as [string, number, string][])
+        .map(([k, v, col]) => `<span class="k">${k}</span><span class="bar"><b style="width:${s.revenue ? Math.min(100, (Math.abs(v) / s.revenue) * 100) : 0}%;background:${col}"></b></span><span class="v">${short(v)}</span>`).join("")}
+      <span class="k tot">Profit</span><span class="tot"></span><span class="v tot ${s.profit < 0 ? "down" : "up"}">${short(s.profit)}</span>
+    </div>
+    <div class="kv mt">
+      <div class="k">Men</div><div class="v">${fmt(c.lastSeason?.workersHired ?? 0)} / ${fmt(c.lastSeason?.workersWanted ?? 0)}</div>
+      <div class="k">Health · unrest</div><div class="v"><span class="${c.health < 0.7 ? "bad" : ""}">${Math.round(c.health * 100)}%</span> · <span class="${c.unrest >= 0.35 ? "bad" : ""}">${c.unrest < 0.2 ? "quiet" : c.unrest < 0.35 ? "grumbling" : c.unrest < 0.5 ? "restless" : "angry"}</span></div>
+      ${c.debt ? `<div class="k">Owed to the bank</div><div class="v bad">${short(c.debt)}</div>` : ""}
+    </div>
+    ${c.lastSeason?.notes.length ? `<p class="hint">${c.lastSeason.notes.map(esc).join(" ")}</p>` : ""}` : ""}`;
+  $("ovTrends").addEventListener("click", () => toggleTrends(true));
+  el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.go!)));
 }
 
-function companyPanel() {
-  const c = game.company;
-  $("companySection").hidden = !c;
-  $("foundSection").hidden = !!c;
-  if (!c) return;
-  const ind = INDUSTRIES[c.industry];
-  const s = c.lastSeason;
-  $("company").innerHTML = [
-    row("Name", esc(c.name)),
-    row("Business", businessNow(c)),
-    row("Status", c.status === "running" ? "Running" : c.status === "strike" ? "On strike" : c.status === "flooded" ? "Flooded" : c.status === "lockout" ? "Locked out" : "Idle", c.status === "running" ? "good" : "bad"),
-    row("Cash", money(c.cash), c.cash < 0 ? "bad" : ""),
-    c.debt ? row("Owed to the bank", money(c.debt), "bad") : "",
-    c.others.length ? row("Works", `${c.others.length + 1} (${allWorks(c).map((w) => w.name.replace(/ Co\.$/, "")).join(", ")})`) : "",
-    row("Employees", fmt(allWorks(c).reduce((s, w) => s + w.employees, 0))),
-    row("Lifetime output", fmt(c.produced)),
-    row("Tech", c.techs.map((t) => ind.tech.find((x) => x.id === t)?.name).join(", ")),
-    ...behindWarning(),
-    ...(s ? [
-      `<div class="full hint">Last season${c.others.length ? " (first works; the company's costs)" : ""}</div>`,
-      row("Produced", fmt(s.produced)),
-      row("Revenue", money(s.revenue)),
-      row("Inputs", money(-s.inputCost)),
-      row("Wages", money(-s.wages)),
-      s.upkeep ? row("Upkeep", money(-s.upkeep)) : "",
-      s.other ? row("Other", money(-s.other), s.other > 0 ? "" : "good") : "",
-      row("Profit", money(s.profit), s.profit < 0 ? "bad" : "good"),
-      c.others.length && c.totals ? row("All works", money(c.totals.profit), c.totals.profit < 0 ? "bad" : "good") : "",
-      row("Workers", `${fmt(s.workersHired)} / ${fmt(s.workersWanted)}`),
-      row("Workforce health", `${Math.round(c.health * 100)}%`, c.health < 0.7 ? "bad" : ""),
-      row("Unrest", c.unrest < 0.2 ? "Quiet" : c.unrest < 0.35 ? "Grumbling" : c.unrest < 0.5 ? "Restless" : "Angry", c.unrest >= 0.35 ? "bad" : ""),
-      ...(c.freight ? [
-        `<div class="full hint">Shipping in (last season)</div>`,
-        ...c.freight.lanes.map((l) => row(l.good[0].toUpperCase() + l.good.slice(1), `${fmt(l.delivered)} t by ${l.mode === "river" ? (l.gateway === "upper_mon" ? "Mon barge" : l.gateway === "allegheny" ? "Allegheny barge" : "Ohio barge") : "rail"} · $${l.costPerTon.toFixed(2)}/t${l.util > 0.85 ? ` · ${Math.round(l.util * 100)}% full` : ""}`, l.util > 1 ? "bad" : "")),
-      ] : []),
-      s.notes.length ? `<div class="full hint">${s.notes.join(" ")}</div>` : "",
-    ] : []),
-  ].join("");
-  const lib = $<HTMLButtonElement>("library");
-  lib.disabled = c.library || cal(game).year < 1880 || c.cash < LIBRARY_COST;
-  lib.textContent = c.library ? "Library funded" : `Fund a library ($${fmt(LIBRARY_COST)})`;
-  ($<HTMLButtonElement>("steps")).disabled = c.cash < STEPS_COST;
-  const q = spurQuote(game), sp = $<HTMLButtonElement>("spur");
-  sp.hidden = !q && !c.spur;
-  sp.disabled = !q || c.cash < (q?.cost ?? Infinity);
-  sp.textContent = c.spur ? "Rail siding built" : q ? `Build a rail siding ($${fmt(q.cost)}, ${distance(q.len * map.metersPerTile)})` : "";
-  const inc = $<HTMLButtonElement>("incline");
-  inc.disabled = c.cash < INCLINE_COST || cal(game).year < 1870;
-  inc.title = cal(game).year < 1870 ? "Inclines arrive in 1870" : "Build an incline from a street near the works up to the hilltop houses";
-}
-
-const KIND_TITLE: Record<Flow["kind"], string> = { input: "Raw materials in", utilityIn: "Utilities in", utilityOut: "Utilities out (your customers)", output: "Finished goods out" };
+const KIND_TITLE: Record<Flow["kind"], string> = { input: "In", utilityIn: "Utilities in", utilityOut: "Your customers", output: "Out" };
 function supplyPanel() {
   const sc = game.company ? currentChain() : null;
   $("supplySection").hidden = !sc;
   if (!sc) return;
   const groups = (["input", "utilityIn", "utilityOut", "output"] as const).map((k) => [k, sc.flows.filter((f) => f.kind === k)] as const).filter(([, fl]) => fl.length);
   $("supply").innerHTML = groups.map(([k, fl]) => `<div class="sc-head">${KIND_TITLE[k]}</div>` + fl.map((f) => `
-    <div class="sc-row" data-flow="${f.id}" data-x="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).x}" data-y="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).y}" title="Hover to highlight on the Supply chain overlay, click to go there">
-      <div class="sc-top"><i style="background:${FLOW_COLOUR(f)}"></i><b>${f.good}</b><span>${f.qty ? fmt(f.qty) : ""}</span></div>
+    <div class="sc-row" data-flow="${f.id}" data-x="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).x}" data-y="${(f.kind === "input" || f.kind === "utilityIn" ? f.from : f.to).y}" title="${esc(f.partner)} · ${esc(f.via)} — click to show on the map">
+      <div class="sc-top"><i style="background:${FLOW_COLOUR(f)}"></i><b>${f.good}</b><span>${f.qty ? `${fmt(f.qty)}/season` : ""}${f.value ? ` · ${short(f.value)}` : ""}</span></div>
       ${f.qty ? `<div class="sc-bar"><div style="width:${Math.max(3, f.share * 100)}%;background:${FLOW_COLOUR(f)}"></div></div>` : ""}
-      <div class="sc-sub">${f.partner} · ${f.via}${f.value ? ` · ${money(f.value)}` : ""}</div>
-    </div>`).join("")).join("") + `<p class="hint">Quantities are units per season. Bars show each link's share of inputs (by value) or of output.</p>`;
+    </div>`).join("")).join("");
 }
 
 function rivalsPanel() {
   const mine = playerWorks(game);
   const ind = mine?.industry ?? industry;
   const list = competitors(game, ind, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined);
-  $("rivalsTitle").textContent = mine ? "Competitors" : `Who you'd face in ${INDUSTRIES[ind].name}`;
-  const direct = list.filter((c) => c.relation === "competitor" && c.state);
-  const myCap = game.company ? allWorks(game.company).filter((w) => w.industry === ind).reduce((t, w) => t + capacityOf(w.industry, w.techs), 0) : 0;
-  const total = myCap + direct.reduce((s, c) => s + c.capacity, 0);
-  const share = mine && total ? `<div class="full hint">Your share of ${INDUSTRIES[ind].name.toLowerCase()} capacity on the map</div>
-    <div class="ms-bar">${[{ n: "You", v: myCap, c: "#ffd34a" }, ...direct.map((c) => ({ n: plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear)), v: c.capacity, c: RELATION_COLOUR.competitor }))]
-      .map((p, k) => `<div title="${p.n}: ~${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? 1 - k * 0.15 : 1}"></div>`).join("")}</div>
-    <div class="hint">You ${Math.round((myCap / total) * 100)}% · ${direct.length} rival works open</div>` : "";
-  const label: Record<string, string> = { competitor: "Competitor", supplier: "Supplier", customer: "Customer", lender: "Bank", other: "Other industry" };
-  $("rivalsList").innerHTML = share + list.map((c) => `
-    <div class="sc-row ${c.state ? "" : "later"}" data-rival="${c.def.id}" title="Hover to highlight on the Competitors overlay, click to go there">
-      <div class="sc-top"><i style="background:${RELATION_COLOUR[c.relation]}"></i><b>${esc(plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear)))}${c.state?.closed ? " (closed)" : ""}</b><span>${label[c.relation]}</span></div>
-      <div class="sc-sub">${c.owned ? `<span class="owned">Yours now</span> · ${c.product}` : c.state ? `${c.product} · ~${fmt(c.capacity)}/season · ${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}` : c.def.entryYear > game.world.year ? `Opens ${c.def.entryYear} near ${c.def.site}` : `Never opened: no site near ${c.def.site}`}</div>
-      <div class="sc-sub">${esc(c.def.figures.join(" & "))} — ${esc(c.def.note)}</div>
-      ${c.state?.lastMove ? `<div class="sc-sub"><i>Last move ${c.state.lastMove}</i></div>` : ""}
-      ${c.state?.damage.length ? `<div class="sc-sub bad">Hurt: ${c.state.damage.map((d) => `${d.why} (−${Math.round((1 - d.mult) * 100)}%)`).join(", ")}</div>` : ""}
-    </div>`).join("");
+  const direct = list.filter((c) => c.relation === "competitor");
+  const open = direct.filter((c) => c.state && !c.state.closed && !c.owned);
+  const myOut = game.company ? allWorks(game.company).filter((w) => w.industry === ind).reduce((t, w) => t + (w.lastSeason?.produced ?? 0), 0) : 0;
+  const total = myOut + open.reduce((s, c) => s + c.capacity, 0);
+  const top = Math.max(myOut, ...open.map((c) => c.capacity), 1);
+  const name = (c: (typeof list)[number]) => plantName(nameNow(c.def, game.world.year, c.state?.name, c.state?.nameYear));
+  const tip = (c: (typeof list)[number]) => esc(`${c.def.figures.join(" & ")} — ${c.def.note}${c.state?.damage.length ? `\nHurt: ${c.state.damage.map((d) => `${d.why} (−${Math.round((1 - d.mult) * 100)}%)`).join(", ")}` : ""}`);
+  const row2 = (c: (typeof list)[number]) => `
+    <div class="sc-row riv" data-rival="${c.def.id}" title="${tip(c)}">
+      <div class="sc-top"><b>${esc(name(c))}</b><span>${fmt(c.capacity)}</span></div>
+      <div class="sc-bar"><div style="width:${(c.capacity / top) * 100}%;background:${RELATION_COLOUR.competitor}"></div></div>
+      <div class="sc-sub">${c.near}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}${c.state?.lastMove ? ` · ${esc(c.state.lastMove.replace(/^\d{4}: /, ""))}` : ""}${c.state?.damage.length ? ` · <span class="bad">hurt</span>` : ""}</div>
+    </div>`;
+  const coming = direct.filter((c) => !c.state && c.def.entryYear > game.world.year);
+  const closed = direct.filter((c) => c.state?.closed);
+  const others = list.filter((c) => c.relation !== "competitor" && c.state && !c.state.closed);
+  const label: Record<string, string> = { supplier: "Supplier", customer: "Customer", lender: "Bank", other: "" };
+  $("rivalsList").innerHTML = `
+    <h4 class="mh">${INDUSTRIES[ind].name}${mine ? "" : " (if you found here)"}${mine && total ? `<span>${Math.round((myOut / total) * 100)}% yours</span>` : ""}</h4>
+    ${mine && total ? `<div class="ms-bar">${[{ n: "You", v: myOut, c: "#ffd34a" }, ...open.map((c) => ({ n: name(c), v: c.capacity, c: RELATION_COLOUR.competitor }))].map((p, k) => `<div title="${esc(p.n)}: ${fmt(p.v)}/season" style="width:${(p.v / total) * 100}%;background:${p.c};opacity:${k ? Math.max(0.35, 1 - k * 0.1) : 1}"></div>`).join("")}</div>` : ""}
+    ${mine ? `<div class="sc-row riv you"><div class="sc-top"><b>You</b><span>${fmt(myOut)}</span></div><div class="sc-bar"><div style="width:${(myOut / top) * 100}%;background:#ffd34a"></div></div></div>` : ""}
+    ${open.map(row2).join("") || `<p class="hint">No rival works open yet.</p>`}
+    ${list.filter((c) => c.owned).map((c) => `<div class="sc-row"><div class="sc-top"><b>${esc(name(c))}</b><span class="owned">yours</span></div></div>`).join("")}
+    ${coming.length ? `<h4 class="mh">Coming</h4>${coming.map((c) => `<div class="sc-row later" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${c.def.entryYear}</span></div></div>`).join("")}` : ""}
+    ${closed.length ? `<h4 class="mh">Closed</h4>${closed.map((c) => `<div class="sc-row later" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b></div></div>`).join("")}` : ""}
+    ${others.length ? `<h4 class="mh">Suppliers, customers, bank</h4>${others.map((c) => `<div class="sc-row" data-rival="${c.def.id}" title="${tip(c)}"><div class="sc-top"><b>${esc(name(c))}</b><span>${label[c.relation]}</span></div></div>`).join("")}` : ""}
+    <p class="hint">Output per season. Hover for owners; click to find on the map.</p>`;
 }
 
 function setOverlay(id: OverlayId) {
@@ -571,19 +557,35 @@ function setOverlay(id: OverlayId) {
 
 // ---------------------------------------------------------------- UI wiring
 function setupUI() {
-  $("overlays").innerHTML = (["Land", "Town", "Business"] as const).map((grp) => `<div class="ov-group">${grp}</div>` + OVERLAYS.filter((o) => o.group === grp).map((o) =>
-    `<label class="ov"><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/> <span class="ov-name">${o.label}</span>${o.swatch ? `<span class="ov-sw" style="background:${o.swatch}"></span>` : ""}</label>`).join("")).join("");
+  // map layers: chips grouped Land / Town / Business / Best sites, behind the Map button
+  $("overlays").innerHTML = (["Land", "Town", "Business", "Best sites"] as const).map((grp) => `<div class="ov-group">${grp}</div><div class="chips">` + OVERLAYS.filter((o) => o.group === grp).map((o) =>
+    `<label class="chip ov" title="${o.title ?? o.label}"><input type="radio" name="overlay" value="${o.id}" ${o.id === overlay ? "checked" : ""}/>${o.swatch ? `<span class="ov-sw" style="background:${o.swatch}"></span>` : ""}${o.label}</label>`).join("") + `</div>`).join("");
   $("overlays").addEventListener("change", (e) => {
     overlay = (e.target as HTMLInputElement).value as OverlayId;
     focusId = null;
+    const def = OVERLAYS.find((o) => o.id === overlay)!;
+    $("layerName").textContent = def.group === "Best sites" ? `Sites: ${def.label}` : def.label;
+    $("layerBtn").classList.toggle("on", overlay !== "none");
     $("legend").innerHTML = overlayLegend(overlay, game);
+    $("legendBox").hidden = overlay === "none";
     if (overlay.startsWith("site:")) { industry = overlay.slice(5) as IndustryId; ($<HTMLSelectElement>("industry")).value = industry; industryNote(); }
-    inspect();
+    siteReport();
     requestRender();
   });
+  $("layerBtn").addEventListener("click", (e) => { e.stopPropagation(); $("layerMenu").hidden = !$("layerMenu").hidden; });
+  document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#mapTools")) $("layerMenu").hidden = true; });
+  // the headline strip opens the paper; the paper has a ledger tab (the log)
+  $("headline").addEventListener("click", () => openPaper(true));
+  $("paper").addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest(".pp-close")) { openPaper(false); return; }
+    const tb = t.closest<HTMLButtonElement>("button[data-pp]");
+    if (tb) { paperTab = tb.dataset.pp as typeof paperTab; renderPaper(); }
+  });
+  $("trendsBtn").addEventListener("click", () => toggleTrends());
   const sel = $<HTMLSelectElement>("industry");
   sel.innerHTML = INDUSTRY_IDS.map((k) => `<option value="${k}">${INDUSTRIES[k].name}</option>`).join("");
-  sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); inspect(); rivalsPanel(); requestRender(); });
+  sel.addEventListener("change", () => { industry = sel.value as IndustryId; industryNote(); siteReport(); rivalsPanel(); requestRender(); });
   industryNote();
   // supply chain and competitor lists: hover highlights on the map, click flies there
   for (const [list, attr, ov] of [["supply", "flow", "supply"], ["rivalsList", "rival", "rivals"]] as const) {
@@ -596,7 +598,7 @@ function setupUI() {
     el.addEventListener("mouseleave", () => { focusId = null; if (overlay === ov) requestRender(); });
     el.addEventListener("click", (e) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>(".sc-row");
-      if (!row) return;
+      if (!row || !row.dataset[attr]) return;
       if (overlay !== ov) setOverlay(ov);
       focusId = row.dataset[attr] ?? null;
       let x = Number(row.dataset.x), y = Number(row.dataset.y);
@@ -609,15 +611,9 @@ function setupUI() {
       requestRender();
     });
   }
-  $("showSupply").addEventListener("click", () => setOverlay(overlay === "supply" ? "none" : "supply"));
-  $("showRivals").addEventListener("click", () => setOverlay(overlay === "rivals" ? "none" : "rivals"));
-  $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; if (placing && querying) setQuerying(false); requestRender(); });
+  $("showSupply").addEventListener("click", (e) => { e.stopPropagation(); setOverlay(overlay === "supply" ? "none" : "supply"); });
+  $<HTMLInputElement>("placing").addEventListener("change", (e) => { placing = (e.target as HTMLInputElement).checked; requestRender(); });
   for (const id of ["labels", "grid", "animate", "tod"]) $(id).addEventListener("change", () => requestRender());
-  for (const [id, fn] of [["steps", buildSteps], ["incline", buildIncline], ["spur", buildSpur]] as const) $(id).addEventListener("click", () => {
-    const r = fn(game);
-    if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
-    afterChange();
-  });
   // Sound. Browsers (Safari above all) only allow audio to start inside a user gesture, so sound is
   // "wanted" by default and starts on the first click or key press anywhere; the choice is remembered.
   // Every later gesture also revives a context Safari has suspended or interrupted on its own.
@@ -629,7 +625,6 @@ function setupUI() {
     if (soundWanted) sound.start().then(soundUI); else sound.stop().then(soundUI);
     soundUI();
   };
-  $("sound").addEventListener("click", (e) => { e.stopPropagation(); toggleSound(); });
   $("soundTop").addEventListener("click", (e) => { e.stopPropagation(); toggleSound(); });
   const wake = (e: Event) => {
     if (e instanceof KeyboardEvent && e.key.toLowerCase() === "m") return; // the M key toggles instead
@@ -645,19 +640,13 @@ function setupUI() {
   const vols = () => sound.setVolumes(Number(($<HTMLInputElement>("musicVol")).value), Number(($<HTMLInputElement>("ambVol")).value));
   $("musicVol").addEventListener("input", vols); $("ambVol").addEventListener("input", vols);
   setInterval(updateSound, 500);
-  $("library").addEventListener("click", () => {
-    const r = fundLibrary(game);
-    if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
-    afterChange();
-  });
-
   $("found").addEventListener("click", () => {
     if (!selected) return;
     const name = ($<HTMLInputElement>("companyName")).value.trim() || suggestName(industry, game.seed);
     const r = foundCompany(game, industry, selected.x, selected.y, name);
     if (!r.ok) game.log.push({ turn: game.turn, text: r.reason! });
     placing = false; ($<HTMLInputElement>("placing")).checked = false;
-    if (r.ok) { selected = null; hover = null; setTab("business"); }
+    if (r.ok) { selected = null; hover = null; setTab("overview"); }
     renderer.updateHeights();
     afterChange();
   });
@@ -669,21 +658,10 @@ function setupUI() {
     paperIdx = Math.max(0, Math.min(game.news.length - 1, paperIdx + Number(b.dataset.p)));
     renderPaper();
   });
-  // every section heading folds its section away (remembered between visits)
-  document.querySelectorAll<HTMLElement>("section > h2").forEach((h) => {
-    const sec = h.parentElement!, key = `mt.fold.${sec.id}`;
-    try { if (sec.id && localStorage.getItem(key) === "1") sec.classList.add("collapsed"); } catch { /* private mode */ }
-    h.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest("button")) return;
-      sec.classList.toggle("collapsed");
-      try { if (sec.id) localStorage.setItem(key, sec.classList.contains("collapsed") ? "1" : "0"); } catch { /* private mode */ }
-    });
-  });
   $("speeds").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-speed]");
     if (b) setSpeed(Number(b.dataset.speed));
   });
-  $("marketsBtn").addEventListener("click", () => toggleMarkets());
   $("regen").addEventListener("click", () => {
     // a typed seed replays that town; otherwise every press is a fresh one
     const v = ($<HTMLInputElement>("seed")).value.trim();
@@ -717,8 +695,10 @@ function setupUI() {
     }
     if (down && !dragged && e.target === canvas) {
       selected = pickTile(map, cam.x + e.offsetX / cam.zoom, cam.y + e.offsetY / cam.zoom);
-      inspect();
-      if (querying && selected) showQuery(selected.x, selected.y, e.offsetX, e.offsetY);
+      siteReport();
+      // before founding a click picks a site; otherwise it opens the card for the tile
+      if (selected && (game.company || !placing)) showQuery(selected.x, selected.y, e.offsetX, e.offsetY);
+      else $("query").hidden = true;
       requestRender();
     }
     down = null;
@@ -757,7 +737,6 @@ function setupUI() {
     const ty = Math.floor((e.clientY - r.top) / r.height * map.height);
     centerOn(Math.max(0, Math.min(map.width - 1, tx)), Math.max(0, Math.min(map.height - 1, ty)));
   });
-  $("queryBtn").addEventListener("click", () => setQuerying(!querying));
   $("query").addEventListener("click", (e) => { if ((e.target as HTMLElement).classList.contains("q-close")) $("query").hidden = true; });
   $("zoomIn").addEventListener("click", () => setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() + 1));
   $("zoomOut").addEventListener("click", () => setZoom(canvas.width / 2, canvas.height / 2, zoomIndex() - 1));
@@ -775,8 +754,8 @@ function setupUI() {
     else if (k === " ") { e.preventDefault(); if (e.shiftKey) nextYear(); else nextSeason(); return; }
     else if (k === "p") { if (playTimer) stopPlay(); else startPlay(); return; }
     else if (k >= "1" && k <= "4" && !e.ctrlKey && !e.metaKey) { setSpeed(Number(k)); return; }
-    else if (k === "escape") { if (!$("markets").hidden) toggleMarkets(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (querying) setQuerying(false); else { placing = false; ($<HTMLInputElement>("placing")).checked = false; selected = null; inspect(); requestRender(); } }
-    else if (k === "q") { setQuerying(!querying); return; }
+    else if (k === "escape") { if (!$("trends").hidden) toggleTrends(false); else if (!$("paper").hidden) openPaper(false); else if (proposal) stopPlacing(); else if (!$("query").hidden) $("query").hidden = true; else if (!$("layerMenu").hidden) $("layerMenu").hidden = true; else { selected = null; siteReport(); requestRender(); } }
+    else if (k === "t") { toggleTrends(); return; }
     else return;
     clampCam();
     requestRender();
@@ -797,20 +776,13 @@ function placeName(): string {
   return best;
 }
 
-/** Query tool on/off: while on, clicks open a card at the tile instead of placing works */
-function setQuerying(on: boolean) {
-  querying = on;
-  $("queryBtn").classList.toggle("on", on);
-  canvas.classList.toggle("querying", on);
-  if (on) { placing = false; ($<HTMLInputElement>("placing")).checked = false; }
-  else $("query").hidden = true;
-  requestRender();
-}
-
 /** open the query card for a tile, beside the click point but kept inside the map view */
 function showQuery(x: number, y: number, px: number, py: number) {
   const el = $("query");
   el.innerHTML = queryCard({ game, map, renderer }, x, y);
+  // what each community in the neighbourhood has built, and builds next (folded)
+  const dist = document.createElement("div");
+  if (districtPanel(game, dist, zoneAt(game, x, y))) el.insertAdjacentHTML("beforeend", `<details class="q-dist"><summary>Communities here</summary><div id="district">${dist.innerHTML}</div></details>`);
   el.hidden = false;
   const vp = $("viewport"), vw = vp.clientWidth, vh = vp.clientHeight, w = el.offsetWidth, h = el.offsetHeight;
   let left = px + 24 + w < vw - 8 ? px + 24 : Math.max(8, px - 24 - w);
@@ -833,10 +805,9 @@ function soundUI() {
   // a drawn speaker (emoji fonts aren't everywhere) and a word
   const waves = on ? `<path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6.5 6.5 0 0 1 0 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`
     : `<path d="M10.5 5.5l4 5M14.5 5.5l-4 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`;
-  top.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/>${soundWanted && !on ? "" : waves}</svg><span>${on ? "Sound" : soundWanted ? "Start sound" : "Muted"}</span>`;
+  top.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/>${soundWanted && !on ? "" : waves}</svg>`;
   top.title = on ? "Sound is on — click or press M to mute" : soundWanted ? "Browsers start audio on your first click or key press" : "Sound is off — click or press M to turn it on";
-  $("sound").textContent = on ? "Sound off" : "Sound on";
-  if (!on && !soundWanted) $("nowPlaying").textContent = "Music follows the era, the neighbourhood in view and how close you are.";
+  if (!on) $("nowPlaying").textContent = soundWanted ? "Sound starts on your first click." : "Sound is off (M).";
 }
 
 function updateSound() {
@@ -851,7 +822,8 @@ function industryNote() {
   const ind = INDUSTRIES[industry];
   if (!nameEdited && game) ($<HTMLInputElement>("companyName")).value = suggestName(industry, game.seed);
   const fp = footprintTiles(map, industry);
-  $("industryNote").textContent = `Starts as: ${ind.startsAs}. From $${fmt(ind.startCost)} plus land and grading. Needs ${fp}×${fp} tiles (${feet(fp * map.metersPerTile)} square) of ground with under ${feet(ind.site.maxReliefM)} of relief${ind.site.riverWithinM ? `, within ${feet(ind.site.riverWithinM)} of a river` : ""}.`;
+  $("industryNote").textContent = `${ind.startsAs} · from $${fmt(ind.startCost)} · flat ${fp}×${fp} site${ind.site.riverWithinM ? " by a river" : ""}`;
+  $("industryNote").title = `Plus land and grading. Needs ${fp}×${fp} tiles (${feet(fp * map.metersPerTile)} square) with under ${feet(ind.site.maxReliefM)} of relief${ind.site.riverWithinM ? `, within ${feet(ind.site.riverWithinM)} of a river` : ""}.`;
 }
 
 // ---------------------------------------------------------------- building projects
@@ -859,7 +831,6 @@ function industryNote() {
 function startPlacing(kind: ProjectKind, ind?: IndustryId) {
   const p = suggestProject(game, kind, ind);
   stopPlay();
-  if (querying) setQuerying(false);
   placing = false; ($<HTMLInputElement>("placing")).checked = false;
   proposal = p ?? { kind, x: game.company!.x, y: game.company!.y, size: 1, ok: false, reason: "No suitable spot found nearby — click the map to try one", cost: 0, industry: ind, displaced: 0 };
   if (p) centerOn(Math.round(p.x + p.size / 2), Math.round(p.y + p.size / 2), Math.max(cam.zoom, 0.75));
@@ -909,8 +880,8 @@ function nextYear() {
 
 function afterTurn() {
   afterChange();
-  if (!$("markets").hidden) marketsView(game, $("markets"));
-  if (querying && selected && !$("query").hidden) { const el = $("query"); el.innerHTML = queryCard({ game, map, renderer }, selected.x, selected.y); }
+  if (!$("trends").hidden) trendsView(game, $("trends"), setTab);
+  if (selected && !$("query").hidden) { const el = $("query"); el.innerHTML = queryCard({ game, map, renderer }, selected.x, selected.y); }
   showNews();
   if (game.over) { stopPlay(); showFinal(); }
 }
@@ -938,10 +909,12 @@ function setSpeed(k: number) {
   document.querySelectorAll<HTMLButtonElement>("#speeds button").forEach((b) => b.classList.toggle("on", Number(b.dataset.speed) === speed));
 }
 
-function toggleMarkets(force?: boolean) {
-  const el = $("markets");
-  if (force === false || (force === undefined && !el.hidden)) { el.hidden = true; return; }
-  marketsView(game, el);
+function toggleTrends(force?: boolean) {
+  const el = $("trends");
+  const open = force ?? el.hidden;
+  if (!open) { el.hidden = true; $("trendsBtn").classList.remove("on"); return; }
+  trendsView(game, el, setTab);
+  $("trendsBtn").classList.add("on");
 }
 
 function startPlay() { if (!game.over) setSpeed(lastSpeed); }
@@ -969,7 +942,7 @@ function showBestSite() {
   siteTried.push(pick);
   selected = { x: pick.x, y: pick.y };
   centerOn(pick.x + fp / 2, pick.y + fp / 2, 1);
-  inspect();
+  siteReport();
   requestRender();
 }
 
@@ -1053,10 +1026,10 @@ Object.assign(window, {
     get renderer() { return renderer; },
     cam,
     center: (x: number, y: number, z?: number) => centerOn(x, y, z),
-    select: (x: number, y: number) => { selected = { x, y }; inspect(); requestRender(); },
+    select: (x: number, y: number) => { selected = { x, y }; siteReport(); requestRender(); },
     overlay: (id: OverlayId) => setOverlay(id),
     chain: () => currentChain(),
-    industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); inspect(); requestRender(); },
+    industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); siteReport(); requestRender(); },
     next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterTurn(); },
     found: (x: number, y: number, id: IndustryId = industry) => { const r = foundCompany(game, id, x, y); renderer.updateHeights(); afterChange(); return r; },
     library: () => { const r = fundLibrary(game); afterChange(); return r; },
@@ -1065,7 +1038,7 @@ Object.assign(window, {
     tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
     tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
     get pending() { return renderer.pending; },
-    query: (x: number, y: number) => { if (!querying) setQuerying(true); selected = { x, y }; const [sx, sy] = tileScreen(x, y); showQuery(x, y, sx, sy); requestRender(); },
+    query: (x: number, y: number) => { selected = { x, y }; const [sx, sy] = tileScreen(x, y); showQuery(x, y, sx, sy); requestRender(); },
     get traffic() { return traffic; },
     /** place a test landmark of a kind at a named place (for checking sprites) */
     landmark: (kind: LandmarkKind, place: string) => { const r = placeLandmark(game, { id: `test-${kind}-${place}`, name: kind, kind, place }); renderer.invalidateAll(); afterChange(); return r; },

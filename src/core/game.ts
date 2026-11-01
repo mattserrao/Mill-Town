@@ -222,6 +222,21 @@ export interface PricePoint {
   raw: number;
   delivered?: number;
   revenue?: number; costs?: number; profit?: number; cash?: number;
+  /** your works: rated capacity and output (all works), men employed, cost per unit made */
+  capacity?: number; produced?: number; employees?: number; unitCost?: number;
+  /** your capacity and output by industry (output is what market share is measured on) */
+  capInd?: Partial<Record<IndustryId, number>>; prodInd?: Partial<Record<IndustryId, number>>;
+  /** every process your works run (ids, all works together), so the charts can mark when each arrived */
+  techs?: string[];
+  /** what each open rival works made this season, by rival id */
+  rivals?: Record<string, number>;
+  /** the valley: population, town morale, men out of work; your workforce's health and unrest (0–1) */
+  pop?: number; morale?: number; jobless?: number; health?: number; unrest?: number;
+}
+
+/** rated capacity of a works: its processes and expansions */
+export function worksCapacity(w: Works): number {
+  return Math.round(INDUSTRIES[w.industry].baseCapacity * (1 + techMods(w).capacity));
 }
 
 /** File this season's prices (called after the season is played). */
@@ -246,7 +261,23 @@ export function recordPrices(g: GameState) {
     if (tons) p.delivered = Math.round((paid / tons) * 100) / 100;
     const t = c.totals;
     p.revenue = t.revenue; p.costs = t.revenue - t.profit; p.profit = t.profit; p.cash = Math.round(c.cash);
+    const works = allWorks(c);
+    p.capacity = works.reduce((n, w) => n + worksCapacity(w), 0);
+    p.capInd = {};
+    p.prodInd = {};
+    for (const w of works) {
+      p.capInd[w.industry] = (p.capInd[w.industry] ?? 0) + worksCapacity(w);
+      p.prodInd[w.industry] = (p.prodInd[w.industry] ?? 0) + (w.lastSeason?.produced ?? 0);
+    }
+    p.produced = works.reduce((n, w) => n + (w.lastSeason?.produced ?? 0), 0);
+    p.employees = works.reduce((n, w) => n + w.employees, 0);
+    p.techs = [...new Set(works.flatMap((w) => w.techs))];
+    if (p.produced) p.unitCost = Math.round((p.costs / p.produced) * 100) / 100;
+    p.health = Math.round(c.health * 100) / 100; p.unrest = Math.round(c.unrest * 100) / 100;
   }
+  p.rivals = {};
+  for (const r of g.rivals) { const v = rivalOutput(g, r, year); if (v > 0 && !r.owned) p.rivals[r.id] = v; }
+  p.pop = totalPopulation(g); p.morale = Math.round(g.morale); p.jobless = g.jobless;
   if (g.prices[g.prices.length - 1]?.turn === g.turn) g.prices[g.prices.length - 1] = p;
   else g.prices.push(p);
 }
@@ -1052,12 +1083,22 @@ function rivalPlants(g: GameState, year: number): Plant[] {
     const def = RIVALS.find((d) => d.id === r.id);
     if (!def || !r.active || r.closed) continue;
     const ind = INDUSTRIES[def.industry];
-    let cap = 1, pol = 1;
-    for (const id of rivalTechs(def.industry, def.id, year, r.style)) { const t = ind.tech.find((x) => x.id === id); cap += t?.effects.capacity ?? 0; pol += t?.effects.pollution ?? 0; }
-    const opening = def.opens !== undefined && year < def.opens; // still being built
-    out.push({ x: r.x, y: r.y, fp: r.footprint, output: opening ? 0 : ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
+    let pol = 1;
+    for (const id of rivalTechs(def.industry, def.id, year, r.style)) pol += ind.tech.find((x) => x.id === id)?.effects.pollution ?? 0;
+    out.push({ x: r.x, y: r.y, fp: r.footprint, output: rivalOutput(g, r, year), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
   }
   return out;
+}
+
+/** A rival works' output this season: its own processes, expansions, damage (strikes included) and dated cutbacks. */
+export function rivalOutput(g: GameState, r: RivalState, year = g.world.year): number {
+  const def = RIVALS.find((d) => d.id === r.id);
+  if (!def || !r.active || r.closed) return 0;
+  if (def.opens !== undefined && year < def.opens) return 0; // still being built
+  const ind = INDUSTRIES[def.industry];
+  let cap = 1;
+  for (const id of rivalTechs(def.industry, def.id, year, r.style)) cap += ind.tech.find((x) => x.id === id)?.effects.capacity ?? 0;
+  return Math.round(ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r));
 }
 
 /** how hard a rival works is running in a year: full (0.85) until its decline, then its dated cutbacks */

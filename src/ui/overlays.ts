@@ -51,32 +51,32 @@ function ramp(stops: RGB[], t: number, a = 0.75, bands = BANDS): RGBA {
 }
 const css = (c: RGB | RGBA) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-export interface OverlayDef { id: OverlayId; label: string; group: "Land" | "Town" | "Business"; swatch: string }
+export interface OverlayDef { id: OverlayId; label: string; group: "Land" | "Town" | "Business" | "Best sites"; swatch: string; /** full name, for tooltips */ title?: string }
 
 const grad = (stops: RGB[]) => `linear-gradient(90deg, ${stops.map((s, k) => `${css(s)} ${(k / (stops.length - 1)) * 100}%`).join(", ")})`;
 const steps = (cols: RGB[]) => `linear-gradient(90deg, ${cols.map((c, k) => `${css(c)} ${(k / cols.length) * 100}% ${((k + 1) / cols.length) * 100}%`).join(", ")})`;
 
 export const OVERLAYS: OverlayDef[] = [
-  { id: "none", label: "None (the town)", group: "Land", swatch: "" },
+  { id: "none", label: "Town", group: "Land", title: "No layer: the town as it is", swatch: "" },
   { id: "elevation", label: "Elevation", group: "Land", swatch: grad(P.elevation) },
-  { id: "terrain", label: "Terrain class", group: "Land", swatch: steps(Object.values(TERRAIN).map((t) => t[0])) },
+  { id: "terrain", label: "Terrain", group: "Land", swatch: steps(Object.values(TERRAIN).map((t) => t[0])) },
   { id: "coal", label: "Coal seam", group: "Land", swatch: steps([[60, 48, 36], [12, 10, 10]]) },
-  { id: "districts", label: "Cities & neighbourhoods", group: "Town", swatch: steps([[255, 214, 90], [235, 235, 235], [150, 150, 160]]) },
+  { id: "districts", label: "Districts", title: "Cities & neighbourhoods", group: "Town", swatch: steps([[255, 214, 90], [235, 235, 235], [150, 150, 160]]) },
   { id: "population", label: "Population", group: "Town", swatch: grad(P.population) },
   { id: "ancestry", label: "Ancestry", group: "Town", swatch: steps(GROUPS.slice(1, 7).map((g) => g.colour as RGB)) },
   { id: "landValue", label: "Land value", group: "Town", swatch: grad(P.landValue) },
-  { id: "pollution", label: "Soot (long-term smoke)", group: "Town", swatch: grad(P.pollution) },
-  { id: "air", label: "Smoke this season", group: "Town", swatch: grad(P.air) },
-  { id: "river", label: "River water", group: "Town", swatch: grad(P.river) },
+  { id: "pollution", label: "Soot", title: "Soot: smoke over the years", group: "Town", swatch: grad(P.pollution) },
+  { id: "air", label: "Smoke", title: "Smoke this season", group: "Town", swatch: grad(P.air) },
+  { id: "river", label: "Water", title: "River water", group: "Town", swatch: grad(P.river) },
   { id: "health", label: "Health", group: "Town", swatch: grad(P.health) },
   { id: "unrest", label: "Unrest", group: "Town", swatch: grad(P.unrest) },
-  { id: "traffic", label: "Commuter traffic", group: "Town", swatch: grad(P.traffic) },
-  { id: "transport", label: "Rail & roads (by year)", group: "Town", swatch: steps([[200, 30, 40], [190, 110, 230], [250, 205, 60]]) },
-  { id: "commute", label: "Travel time to the works", group: "Town", swatch: steps(COMMUTE.map((b) => b.c)) },
+  { id: "traffic", label: "Commuters", title: "Commuter traffic", group: "Town", swatch: grad(P.traffic) },
+  { id: "transport", label: "Rail & roads", title: "Rail & roads open this year", group: "Town", swatch: steps([[200, 30, 40], [190, 110, 230], [250, 205, 60]]) },
+  { id: "commute", label: "Travel time", title: "Travel time to the works", group: "Town", swatch: steps(COMMUTE.map((b) => b.c)) },
   { id: "supply", label: "Supply chain", group: "Business", swatch: steps([[240, 150, 40], [80, 200, 240], [255, 80, 170]]) },
-  { id: "freight", label: "Freight (barges & trains)", group: "Business", swatch: grad(P.freight) },
+  { id: "freight", label: "Freight", title: "Freight: barges & trains", group: "Business", swatch: grad(P.freight) },
   { id: "rivals", label: "Competitors", group: "Business", swatch: steps([[255, 80, 70], [240, 150, 40], [255, 80, 170], [150, 160, 180]]) },
-  ...(Object.keys(INDUSTRIES) as IndustryId[]).map((k) => ({ id: `site:${k}` as OverlayId, label: `Site: ${INDUSTRIES[k].name}`, group: "Business" as const, swatch: steps(P.site) })),
+  ...(Object.keys(INDUSTRIES) as IndustryId[]).map((k) => ({ id: `site:${k}` as OverlayId, label: INDUSTRIES[k].name, title: `Best sites for ${INDUSTRIES[k].name}`, group: "Best sites" as const, swatch: steps(P.site) })),
 ];
 
 /** Vector overlays keep the town visible and draw on top of it. */

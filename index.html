@@ -7,136 +7,100 @@
   </head>
   <body>
     <header id="topbar">
-      <div class="brand">MILL TOWN <span id="version"></span></div>
-      <div id="calendar" class="stat"></div>
-      <div id="population" class="stat"></div>
-      <div id="cash" class="stat"></div>
-      <div id="standing" class="stat" title="Reputation · labour relations · influence"></div>
+      <div class="brand" id="brand">MILL TOWN</div>
+      <div id="calendar" class="kpi"></div>
+      <i class="sep"></i>
+      <div id="cash" class="kpi"></div>
+      <div id="profit" class="kpi"></div>
+      <div id="population" class="kpi"></div>
+      <i class="sep"></i>
+      <div id="standing"></div>
       <div class="spacer"></div>
-      <button id="marketsBtn" title="Prices, wages and costs over time">Markets</button>
-      <button id="soundTop" title="Sound on/off (M)"></button>
+      <button id="trendsBtn" title="Cash, profit, prices, market share, risks and the town over time (T)">Trends</button>
+      <button id="soundTop" title="Sound (M)"></button>
       <div id="gameMenu">
-        <button id="gameBtn" title="New town, seed">Game ▾</button>
+        <button id="gameBtn" title="Game menu">☰</button>
         <div id="gameDrop" hidden>
-          <label class="seed">Seed <input id="seed" type="text" size="8" /></label>
-          <button id="regen" title="Generate a new town (a fresh random seed, or the seed you typed)">New town</button>
-          <p class="hint">Leave the seed as it is for a fresh town, or type one to replay a town.</p>
+          <label class="seed">Seed <input id="seed" type="text" size="8" title="Type a seed to replay a town" /></label>
+          <button id="regen">New town</button>
+          <button id="nextYear" title="Play to next Spring (Shift+Space)">Play to next Spring</button>
+          <div class="menu-h">Sound</div>
+          <label class="vol">Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
+          <label class="vol">Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
+          <p class="hint" id="nowPlaying"></p>
+          <p class="hint keys">Drag or WASD to pan · scroll or ± to zoom · Space next season · P pause · 1–4 speed · T trends · M sound</p>
+          <p class="hint" id="version"></p>
         </div>
       </div>
+      <i class="sep"></i>
       <div id="timeControls">
-        <span id="speeds" title="Game speed (P pauses; 1–4 pick a speed). At 1× a game from 1850 to 1985 takes about two hours.">
-          <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="1× — a season every 13 s (about 2 hours a game)">1×</button><button data-speed="2" title="2× — a season every 6.5 s">2×</button><button data-speed="3" title="4× — a season every 3.3 s">4×</button><button data-speed="4" title="8× — as fast as the map can keep up">8×</button>
+        <span id="speeds" title="Game speed (P pauses; 1–4)">
+          <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="A season every 13 s">1×</button><button data-speed="2">2×</button><button data-speed="3">4×</button><button data-speed="4">8×</button>
         </span>
-        <button id="nextYear" title="Advance one year (Shift+Space)">Year ▶▶</button>
-        <button id="next" class="primary" title="Advance one season (Space)">Season ▶</button>
+        <button id="next" class="primary" title="Next season (Space)">Season ▶</button>
       </div>
     </header>
     <main>
-      <aside id="left">
-        <div id="leftScroll">
-        <section id="foundSection" class="callout">
-          <h2>Found your company</h2>
-          <ol class="steps">
-            <li>Choose an industry.</li>
-            <li>Click a site on the map. The Site report (right) says whether it works.</li>
-            <li>Press <b>Found company here</b>.</li>
-          </ol>
-          <select id="industry"></select>
-          <p class="hint" id="industryNote"></p>
-          <label class="namebox">Company name <input id="companyName" type="text" maxlength="40" /></label>
-          <label><input type="checkbox" id="placing" checked /> Show the works footprint under the cursor</label>
-          <button id="bestSite" title="Jump to the best-scoring site for this industry">Show me a good site</button>
-        </section>
-        <section id="secOverlay">
-          <h2>Overlay</h2>
-          <div id="overlays"></div>
-          <p id="legend" class="hint"></p>
-        </section>
-        <section id="secView">
-          <h2>View</h2>
-          <label><input type="checkbox" id="labels" checked /> Place names</label>
-          <label><input type="checkbox" id="grid" /> Grid</label>
-          <label><input type="checkbox" id="animate" checked /> Animate smoke &amp; fire</label>
-          <label>Time of day <select id="tod"><option value="day">Day</option><option value="cycle">Day/night cycle</option><option value="night">Night</option></select></label>
-          <p class="hint">Drag or WASD/arrows to pan · scroll, +/- or the ± buttons to zoom · click a tile to inspect</p>
-        </section>
-        <section id="secSound">
-          <h2>Sound</h2>
-          <button id="sound">Sound on</button>
-          <label>Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
-          <label>Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
-          <p class="hint" id="nowPlaying">Music follows the era, the neighbourhood in view and how close you are.</p>
-        </section>
-        </div>
-        <div id="leftDock">
-          <section id="secPaper">
-            <h2>Newspaper <span id="paperNav"></span></h2>
-            <div id="news"></div>
-          </section>
-          <section id="secLog">
-            <h2>Log</h2>
-            <ol id="log"></ol>
-          </section>
-        </div>
-      </aside>
       <div id="viewport">
         <canvas id="view"></canvas>
         <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
         <div id="zoom" class="badge"></div>
+        <div id="mapTools">
+          <button id="layerBtn" title="Map layers and view">Map: <span id="layerName">Town</span> ▾</button>
+          <div id="layerMenu" hidden>
+            <div id="overlays"></div>
+            <div class="ov-group">View</div>
+            <div class="chips">
+              <label class="chip"><input type="checkbox" id="labels" checked />Names</label>
+              <label class="chip"><input type="checkbox" id="grid" />Grid</label>
+              <label class="chip"><input type="checkbox" id="animate" checked />Animate</label>
+              <select id="tod" title="Time of day"><option value="day">Day</option><option value="cycle">Day &amp; night</option><option value="night">Night</option></select>
+            </div>
+          </div>
+          <div id="legendBox" hidden><div id="legend"></div></div>
+        </div>
+        <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button></div>
+        <div id="headline" title="Open the paper"></div>
+        <div id="paper" hidden>
+          <div class="pp-tabs"><button data-pp="paper" class="on">The paper</button><button data-pp="ledger">Ledger</button><span id="paperNav"></span><button class="pp-close" title="Close (Esc)">✕</button></div>
+          <div id="news"></div>
+          <ol id="log" hidden></ol>
+        </div>
         <div id="final" hidden></div>
         <div id="decision" hidden></div>
-        <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button><button id="queryBtn" title="Query tool (Q): click a tile to inspect its building, objects, land and neighbourhood">?</button></div>
         <div id="query" hidden></div>
         <div id="placeBar" hidden></div>
-        <div id="markets" hidden></div>
+        <div id="trends" hidden></div>
       </div>
-      <aside id="right" data-tab="company">
+      <aside id="right" data-tab="overview">
         <nav id="rightTabs">
-          <button data-tab="company" class="on">Company</button><button data-tab="business">Business</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
+          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="policy">Policy</button><button data-tab="rivals">Rivals</button>
         </nav>
-        <section id="secTile" data-tab="company">
-          <h2>Tile</h2>
-          <div id="inspector" class="kv"><p class="hint">Click a tile.</p></div>
-        </section>
-        <section id="siteSection" data-tab="company" hidden>
-          <h2>Site report</h2>
-          <div id="site" class="kv"></div>
+        <section id="foundSection" data-tab="overview">
+          <h2>Found your company</h2>
+          <label class="namebox">Industry <select id="industry"></select></label>
+          <p class="hint" id="industryNote"></p>
+          <label class="namebox">Name <input id="companyName" type="text" maxlength="40" /></label>
+          <button id="bestSite" title="Jump to the best-scoring site you can afford (press again for the next)">Show me a good site</button>
+          <p class="hint" id="siteHint">Click the map to pick a site.</p>
+          <div id="site" class="kv" hidden></div>
           <button id="found" class="primary" disabled>Found company here</button>
+          <label class="check"><input type="checkbox" id="placing" checked /> Show the footprint under the cursor</label>
         </section>
-        <section id="companySection" data-tab="company" hidden>
-          <h2>Company</h2>
-          <div id="company" class="kv"></div>
-          <button id="library" title="Fund a free public library near the works">Fund a library ($40,000)</button>
-          <button id="steps" title="Build a flight of public steps from hillside houses down to the street">Build public steps ($4,000)</button>
-          <button id="incline" title="Build an incline from a street near the works up to the hilltop houses">Build an incline ($60,000)</button>
-          <button id="spur" title="Lay a siding from the works to the nearest open railroad, so ore and coal can come by rail when the rivers are low, iced or full" hidden></button>
-          <div class="btn-row"><button id="showSupply" title="Show where your raw materials come from and where your goods go">Supply chain map</button><button id="showRivals" title="Show the rival works in your industry and related ones">Competitors map</button></div>
+        <div id="overview" data-tab="overview"></div>
+        <p class="hint tab-empty" data-tab="works" id="worksEmpty">Found a company first.</p>
+        <div id="works" data-tab="works"></div>
+        <section id="supplySection" data-tab="works" hidden>
+          <h2>Supply chain <button id="showSupply" class="link">on the map</button></h2>
+          <div id="supply"></div>
         </section>
-        <section id="townSection" data-tab="town">
+        <p class="hint tab-empty" data-tab="policy" id="policyEmpty">Found a company first.</p>
+        <div id="biz" data-tab="policy"></div>
+        <section id="townSection" data-tab="policy">
           <h2>The town</h2>
           <div id="town"></div>
         </section>
-        <section id="districtSection" data-tab="town" hidden>
-          <h2>Neighbourhood</h2>
-          <div id="district"></div>
-        </section>
-        <section id="worksSection" data-tab="business" hidden>
-          <h2>Your works &amp; technology</h2>
-          <div id="works"></div>
-        </section>
-        <p id="bizEmpty" class="hint tab-empty" data-tab="business">Found a company first: your works, technology, policies and actions appear here.</p>
-        <section id="businessSection" data-tab="business" hidden>
-          <h2>Running the business</h2>
-          <div id="biz"></div>
-        </section>
-        <section id="supplySection" data-tab="company" hidden>
-          <h2>Supply chain</h2>
-          <div id="supply"></div>
-        </section>
-        <section id="rivalsSection" data-tab="rivals">
-          <h2 id="rivalsTitle">Competitors</h2>
-          <div id="rivalsList"></div>
-        </section>
+        <div id="rivalsList" data-tab="rivals"></div>
       </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>

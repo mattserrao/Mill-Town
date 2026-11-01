@@ -166,6 +166,13 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      at line ends, standing cuts at your sidings, boats along the river and fewer in winter; new period figures,
      horses, streetcars, cars by decade, steam and diesel trains with varied cars, steamboats and towboats with wakes,
      lamps and headlights at night
+   - Interface pass (v0.14, `docs/UI-PLAN.md`): one sidebar; top bar with cash, last season's profit and four
+     meter bars; tabs Overview · Works · Policy · Rivals with one-row actions and effect chips (full text on hover);
+     policies as switches; the Map button holds the layers and view options; headline strip and a paper with the
+     ledger; a click opens the tile card; **Trends** replaces Markets (cash, profit, price vs cost, capacity and
+     men with process marks, market share by rival, risks; prices; the town). Rivals' output now follows their own
+     processes, expansions, damage and cutbacks; each season records capacity, output, men, cost per unit, rival
+     output, population, morale, the jobless, health and unrest
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
