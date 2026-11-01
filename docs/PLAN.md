@@ -10,7 +10,7 @@
 | Turns | Turn-based, 1 turn = 1 season |
 | Eras | Four, one head of the family each (v0.16): I Iron and the Founders (1850–92) · II Steel and the Trusts (1893–1919) · III Depression, New Deal and War (1920–46) · IV Renaissance and Collapse (1947–85) |
 | End | Collapse is the final test |
-| Industries | Steel, Power, Glass, Metalworking/Shipbuilding. Start with one; buy into others from Era II |
+| Industries | Steel, Power, Glass, Metalworking/Shipbuilding from 1850; Aluminium (1893), Coal chemicals and Research (1915), Medicine (1947), Nuclear (1949) (v0.18). Start with one; buy into others from Era II |
 | Generations | A named family (v0.16): the founder, then an heir at each new era who chooses the family's path — the business, a new industry, politics, the co-op, or finance |
 | Rivals | AI rivals, real figures (Carnegie, Frick, Jones & Laughlin, Westinghouse, PPG, Mellon, Dravo) |
 | Town | Grows on its own in response to the mill; the player doesn't zone |
@@ -27,7 +27,7 @@
 | Trust buy-out | Morgan's 1901 trust can buy (or swallow) a steel company for stock; a hostile owner can bid for an overdrawn one. Either forces an early succession; play goes on to 1985 |
 | Historical moments | Decisions when they touch your works (e.g. Homestead 1892 at your mill); elsewhere history plays out as written |
 | Rival AI | Rivals take the same actions, by personality (Carnegie integrates and cuts prices, Frick corners coke and breaks strikes, Mellon finances and buys) |
-| Collapse | Hard but possible to survive: modernise, diversify, keep labour peace |
+| Collapse | Almost no steel works survives (v0.18): the world market, the Clean Air Act and idle-plant costs close even a modernised mill unless the family has diversified |
 | Historical event actions | See `docs/EVENTS-PLAN.md` §6: no trust buy-out (1901 card instead); separate rivals; Frick stays at Homestead; add Mesta, National Tube, U.S. Steel Duquesne, Carrie Furnaces, Duquesne Light (Westinghouse → East Pittsburgh equipment maker); off-map places get stand-in sites on the map; streetcars still end 1955; coke = coal price for steel; build sell-a-works, layoffs, strike contagion, a morale meter and sports teams |
 
 ## Core loop
