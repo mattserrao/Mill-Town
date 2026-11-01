@@ -45,6 +45,8 @@ export function rivalSeason(g: GameState, rng: Rng) {
     }
     if (!rng.chance(0.07 + (r.grudge > 0 ? 0.1 : 0))) continue;
     let move = "";
+    // you hold a fifth or more of it: its owners grow their works and leave yours alone
+    if ((c?.holdings?.stakes[r.id] ?? 0) >= 20) { r.lastMove = `${y}: ${expand(r, 0.1)}`; continue; }
     switch (r.style ?? def.style) {
       case "aggressive":
         if (rivalOfYours && rng.chance(0.5)) {

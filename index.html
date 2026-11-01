@@ -21,8 +21,8 @@
       <div id="gameMenu">
         <button id="gameBtn" title="Game menu">☰</button>
         <div id="gameDrop" hidden>
-          <button id="saveBtn" title="Save this game under a new name (the game also saves itself every new year)">Save game</button>
-          <button id="menuBtn" title="Resume, start or load a game (Esc closes it)">Main menu</button>
+          <button id="saveBtn" title="Save this game under a new name (the game also saves itself every new year)">Save game <kbd>Ctrl S</kbd></button>
+          <button id="exitBtn" title="Save the game and go to the main menu">Save &amp; exit <kbd>Esc</kbd></button>
           <button id="nextYear" title="Play to next Spring (Shift+Space)">Play to next Spring</button>
           <label class="seed" hidden>Seed <input id="seed" type="text" size="8" /></label>
           <button id="regen" hidden>New town</button>
@@ -74,10 +74,11 @@
         <div id="placeBar" hidden></div>
         <div id="trends" hidden></div>
         <div id="menu" hidden></div>
+        <div id="toast" hidden></div>
       </div>
       <aside id="right" data-tab="overview">
         <nav id="rightTabs">
-          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="policy">Policy</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
+          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="holdings">Holdings</button><button data-tab="policy">Policy</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
         </nav>
         <section id="foundSection" data-tab="overview">
           <h2>Found your company</h2>
@@ -100,6 +101,7 @@
         <p class="hint tab-empty" data-tab="policy" id="policyEmpty">Found a company first.</p>
         <div id="biz" data-tab="policy"></div>
         <div id="town" data-tab="town"></div>
+        <div id="holdings" data-tab="holdings"></div>
         <div id="rivalsList" data-tab="rivals"></div>
       </aside>
     </main>

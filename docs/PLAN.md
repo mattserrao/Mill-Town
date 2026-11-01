@@ -188,6 +188,20 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      asked again. Autosave every new year, on leaving the page and on opening the menu; named saves from ☰ (12
      kept). A loaded game plays on exactly as the original would (the town's community-building cursor moved into
      the world state for this)
+   - Holdings, works look and fixes (v0.15, `src/core/holdings.ts`, `src/ui/holdings.ts`, `src/render/plants.ts`):
+     a **Holdings** tab for the conglomerate (works, businesses, stakes, shares; ↗ flies to each). 14 small
+     businesses in four groups (raw materials, transport, utilities, services) with income by era, effects on your
+     works (cheaper coal/ore/sand/limestone, river or rail freight, upkeep), three levels and resale at 70%; the
+     electric companies are bought out by Duquesne Light in 1903; flags on the map. Stakes of 10% in any open
+     works: a share of its profit; at 20% its owners stop moving against you; at 50% buy the rest; a closing
+     works wipes the stake (Watch warns four years ahead). Shares in eight historical companies whose prices
+     follow the panics, the Crash and the collapse, paying ~5% a year; Gulf and Air Brake bought out at a
+     premium. The works: older melting shops stand beside the newest, continuous casting and computer control
+     get their own buildings, a scaffold and crane while a process is built, rail cars by output, and each
+     expansion is a different wing (melt shop, finishing mill, furnaces and yards) with its own stack.
+     Street crowds: no more than two people per stretch of street, people step round crowds, use the whole
+     sidewalk and pass through the works gate along its whole edge. A layer clicked again (or its legend ✕)
+     goes back to the town. Save & exit: Ctrl+S, Esc or ☰ → Save & exit, with a "Saved" note
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI

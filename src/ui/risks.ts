@@ -12,7 +12,7 @@ import { money } from "./fx";
 import { roadPlans } from "../core/roads";
 
 export type Level = "bad" | "warn" | "good";
-export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" }
+export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" }
 
 /** your share of an industry's output in one season (0–1), or undefined before you made any */
 export function shareAt(p: PricePoint, ind: IndustryId): number | undefined {
@@ -92,6 +92,11 @@ export function risks(g: GameState): Risk[] {
     out.push({ level: good ? "good" : !lasting && Math.abs(m.mult - 1) >= 0.15 ? "bad" : "warn", title: m.source, detail: `${KIND_WORD[m.kind]}${m.good ? ` (${m.good})` : ""} ${m.mult > 1 ? "+" : "−"}${Math.round(Math.abs(m.mult - 1) * 100)}% · ${lasting ? "lasting" : `to ${calendar(m.until).year}`}` });
   }
 
+  // stakes in works that history is about to close
+  for (const [id, pct] of Object.entries(c.holdings?.stakes ?? {})) {
+    const d = RIVALS.find((r) => r.id === id);
+    if (d?.closes && d.closes - year <= 4 && d.closes >= year) out.push({ level: "bad", title: `Your ${pct}% of ${d.company.replace(/ \(.*\)$/, "")} at risk`, detail: `the works is due to close · sell before ${d.closes}`, go: "holdings" });
+  }
   // a road that would bring many more men within reach
   const road = roadPlans(g)[0];
   if (road && road.gain >= 150) out.push({ level: "good", title: `Road to ${road.to} would help`, detail: `+${road.gain.toLocaleString("en-US")} in reach · ${money(road.cost)} or influence`, go: "works" });
@@ -104,7 +109,7 @@ export const LEVEL_COLOUR: Record<Level, string> = { bad: "#e06a5a", warn: "#e0a
 
 export function riskRows(list: Risk[], buttons = true): string {
   if (!list.length) return `<p class="hint">Nothing to worry about this season.</p>`;
-  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals" }[r.go]}</button>` : ""}</div>`).join("");
+  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals", holdings: "Holdings" }[r.go]}</button>` : ""}</div>`).join("");
 }
 
 export const industryName = (id: IndustryId) => INDUSTRIES[id].name;

@@ -175,7 +175,7 @@ export class Renderer {
     const c = g.company;
     // only what the plant drawings depend on: layout, status, how full the yards are, and the year (soot, rival tech)
     const fillOf = (co: NonNullable<typeof c>) => Math.min(2, Math.round(((co.lastSeason?.produced ?? 0) / INDUSTRIES[co.industry].baseCapacity) * 2));
-    const extra = c ? [...c.others.map((w) => `${w.id}:${w.x},${w.y}:${w.techs.length}:${w.status}`), ...c.annexes.map((a) => `${a.kind}${a.x},${a.y}`)].join(";") : "";
+    const extra = c ? [...c.others.map((w) => `${w.id}:${w.x},${w.y}:${w.techs.length}:${w.status}:${w.research?.id ?? ""}`), ...c.annexes.map((a) => `${a.kind}${a.x},${a.y}`), c.research?.id ?? ""].join(";") : "";
     const key = `${c ? `${c.x},${c.y},${c.industry}` : ""}|${c?.status}|${c?.techs.join(",")}|${c ? fillOf(c) : 0}|${g.rivals.length}|${g.rivals.filter((r) => r.owned).length}|${g.rivals.map((r) => `${r.closed ? 1 : 0}${(r.strikeUntil ?? 0) > g.turn ? 1 : 0}`).join("")}|${extra}|${g.world.year}`;
     if (key === this.plantsKey) return;
     this.plantsKey = key;
@@ -202,12 +202,12 @@ export class Renderer {
     if (c) {
       const capacity = INDUSTRIES[c.industry].baseCapacity;
       const fill = Math.min(2, Math.round(((c.lastSeason?.produced ?? 0) / capacity) * 2));
-      add(c.x, c.y, c.footprint, { ind: c.industry, techs: c.techs, fp: c.footprint, side: c.riverSide, owner: "p", status: c.status, fill },
+      add(c.x, c.y, c.footprint, { ind: c.industry, techs: c.techs, fp: c.footprint, side: c.riverSide, owner: "p", status: c.status, fill, research: c.research?.id },
         c.status === "running" || c.status === "flooded", c.seasonsOperating / 4, false, { works: c });
-      for (const a of c.annexes) if (a.kind === "expand")
-        add(a.x, a.y, a.fp, { ind: c.industry, techs: c.techs, fp: a.fp, side: c.riverSide, owner: "p", status: c.status, fill }, c.status === "running", (g.world.year - a.year) * 1, true, { works: c });
+      c.annexes.filter((a) => a.kind === "expand").forEach((a, wing) =>
+        add(a.x, a.y, a.fp, { ind: c.industry, techs: c.techs, fp: a.fp, side: c.riverSide, owner: "p", status: c.status, fill, wing }, c.status === "running", (g.world.year - a.year) * 1, true, { works: c }));
       for (const w of c.others)
-        add(w.x, w.y, w.footprint, { ind: w.industry, techs: w.techs, fp: w.footprint, side: w.riverSide, owner: "p", status: w.status, fill: w.status === "running" ? 1 : 0 },
+        add(w.x, w.y, w.footprint, { ind: w.industry, techs: w.techs, fp: w.footprint, side: w.riverSide, owner: "p", status: w.status, fill: w.status === "running" ? fillOf(w as never) : 0, research: w.research?.id },
           w.status === "running" || w.status === "flooded", g.world.year - w.founded + (w.fromRival ? 10 : 0), false, { works: w });
     }
     for (const r of g.rivals) {

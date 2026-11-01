@@ -30,6 +30,10 @@ export interface PlantCtx {
   owner: string; // "p" or rival id
   status: string;
   fill: number;  // 0..2 stockpile level
+  /** the process being built (scaffolding and a crane go up at the back of the works) */
+  research?: string;
+  /** which expansion this is (0, 1, 2): each is a different kind of wing */
+  wing?: number;
 }
 
 export interface Palette { wall: string; roof: string; trim: string; steel: string }
@@ -92,14 +96,20 @@ export function layoutPlant(c: PlantCtx): PlantTile[] {
         else if (k === 2 && has(c, "hot_blast")) one(2, b, "stoves");
         else one(2, b, "casthouse");
       }
-      const shop = has(c, "bof") ? "bof" : has(c, "open_hearth") ? "openhearth" : has(c, "bessemer") ? "bessemer" : "puddle";
-      run(3, 0, fp - 1, shop);
-      if (has(c, "strip_mill")) { run(4, 0, fp - 1, "strip"); run(5, 0, fp - 1, "strip"); }
+      // every melting process the works owns stands in its own shop: the newest takes most of the row
+      const shops = (["puddle", "bessemer", "openhearth", "bof"] as const).filter((sh) => sh === "puddle" ? true : has(c, sh === "openhearth" ? "open_hearth" : sh));
+      const newest = shops[shops.length - 1], older = shops.length > 1 ? shops[shops.length - 2] : null;
+      if (older && fp >= 5) { const cut = Math.max(2, Math.floor(fp * 0.4)); run(3, 0, cut - 1, older); run(3, cut, fp - 1, newest); }
+      else run(3, 0, fp - 1, newest);
+      if (has(c, "continuous_cast")) { run(4, 0, fp - 1, "strip"); run(5, 0, fp - 1, "caster"); }
+      else if (has(c, "strip_mill")) { run(4, 0, fp - 1, "strip"); run(5, 0, fp - 1, "rolling"); }
       else { run(4, 0, fp - 1, "rolling"); run(5, 0, fp - 1, "rolling2"); }
       const cokeHeavy = c.owner === "frick";
-      for (let b = 0; b < fp; b++) set(6, b, { part: cokeHeavy ? "" : b % 3 === 0 ? "hotmetalcar" : b % 3 === 1 ? "ingotcar" : "", ground: "spur" });
+      // rail cars on the spur: more of them the harder the works runs
+      const every = c.fill >= 2 ? 2 : c.fill >= 1 ? 3 : 0;
+      for (let b = 0; b < fp; b++) set(6, b, { part: cokeHeavy || !every ? "" : b % every === 0 ? "hotmetalcar" : b % every === 1 && every === 3 ? "ingotcar" : every === 2 ? "ingotcar" : "", ground: "spur" });
       if (cokeHeavy) run(6, 0, fp - 1, has(c, "byproduct_coke") ? "cokebattery" : "cokeovens");
-      one(7, 0, "office"); one(7, 1, "gate", "paved"); run(7, 2, 3, "stockyard"); one(7, 4, "stack");
+      one(7, 0, has(c, "automation") ? "control" : "office"); one(7, 1, "gate", "paved"); run(7, 2, 3, "stockyard"); one(7, 4, "stack");
       if (has(c, "coke_furnace") || cokeHeavy) run(7, 5, fp - 1, has(c, "byproduct_coke") ? "cokebattery" : "cokeovens");
       else run(7, 5, fp - 1, "warehouse");
       break;
@@ -139,30 +149,72 @@ export function layoutPlant(c: PlantCtx): PlantTile[] {
       }
       run(2, 0, fp - 1, has(c, "heavy_machinery") ? "heavyshop" : has(c, "machine_shop") ? "machineshop" : "sawmill");
       run(3, 0, 2, "foundry"); run(3, 3, fp - 1, hull === "wood" ? "sawmill" : "plateshop");
-      for (let b = 0; b < fp; b++) set(4, b, { part: b % 3 === 0 ? "ingotcar" : "", ground: "spur" });
+      for (let b = 0; b < fp; b++) set(4, b, { part: c.fill && b % (c.fill >= 2 ? 2 : 3) === 0 ? "ingotcar" : "", ground: "spur" });
       one(fp - 1, 0, "office"); one(fp - 1, 1, "gate", "paved"); one(fp - 1, 2, "stack");
       run(fp - 1, 3, fp - 1, "warehouse");
       break;
     }
   }
+  // a process being built: scaffolding and a crane on two tiles at the back of the works
+  if (c.research) {
+    const back = c.ind === "steel" ? Math.min(7, fp - 1) : fp - 1;
+    for (const b of [fp - 2, fp - 1]) set(back, b, { part: "construction", ground: "yard" });
+  }
   return segments(out, fp);
 }
 
-/** An expansion beside a works: rows of the industry's main buildings, facing the same way. */
+/**
+ * An expansion beside a works. Each one is a different wing, facing the same way: the first a new melting
+ * (or main) shop, the second a finishing mill, the third the furnaces and yards that feed them. A stack stands
+ * at one corner and rail cars on a spur when the works is busy.
+ */
 export function layoutAnnex(c: PlantCtx): PlantTile[] {
   const fp = c.fp;
   const { toL, axisB } = orient(c.side, fp);
   const out: PlantTile[] = Array.from({ length: fp * fp }, () => ({ part: "", ground: "yard" as Ground }));
   let gid = 1;
-  const rows: string[] = c.ind === "steel"
-    ? [has(c, "bof") ? "bof" : has(c, "open_hearth") ? "openhearth" : has(c, "bessemer") ? "bessemer" : "puddle", has(c, "strip_mill") ? "strip" : "rolling", "rolling2", "stockyard"]
-    : c.ind === "glass" ? [has(c, "gas_furnace") ? (has(c, "bottle_machine") ? "bottleplant" : "tankfurnace") : "lehr", has(c, "plate_glass") ? "grinding" : "lehr", "warehouse"]
-    : c.ind === "power" ? (has(c, "steam_turbine") ? ["boilerhouse", "turbinehall"] : has(c, "dc_dynamo") ? ["powerhouse", "retort"] : ["retort", "warehouse"])
-    : [has(c, "heavy_machinery") ? "heavyshop" : has(c, "machine_shop") ? "machineshop" : "sawmill", "foundry", "plateshop", "warehouse"];
+  const wing = (c.wing ?? 0) % 3;
+  const shop = has(c, "bof") ? "bof" : has(c, "open_hearth") ? "openhearth" : has(c, "bessemer") ? "bessemer" : "puddle";
+  const car = c.fill >= 1 ? "ingotcar" : "";
+  // each row: a long building, or "tiles:" a row of single-tile parts repeating
+  const WINGS: Record<IndustryId, string[][]> = {
+    steel: [
+      [shop, shop, "spur", "stockyard"],
+      [has(c, "strip_mill") ? "strip" : "rolling", "rolling2", "spur", "warehouse"],
+      ["tiles:furnace,stoves,casthouse", "tiles:oreyard,coalyard", "spur", "stockyard"],
+    ],
+    glass: [
+      [has(c, "gas_furnace") ? (has(c, "bottle_machine") ? "bottleplant" : "tankfurnace") : "tiles:cone,glassshed", "lehr", "warehouse"],
+      [has(c, "plate_glass") ? "grinding" : "lehr", has(c, "float_glass") ? "floatline" : "lehr", "warehouse"],
+      ["tiles:batchhouse,sandyard", "tiles:sandyard", "warehouse"],
+    ],
+    power: [
+      has(c, "steam_turbine") ? ["boilerhouse", "turbinehall", "tiles:coalyard"] : has(c, "dc_dynamo") ? ["powerhouse", "retort", "tiles:coalyard"] : ["retort", "tiles:purifier", "tiles:coalyard"],
+      has(c, "dc_dynamo") ? ["tiles:switchyard", has(c, "interconnect") ? "tiles:pylon,switchyard" : "tiles:pylon", "warehouse"] : ["tiles:gasholder", "tiles:gasholder,purifier", "warehouse"],
+      ["tiles:coalyard", has(c, "steam_turbine") ? "boilerhouse" : "retort", "warehouse"],
+    ],
+    metalworks: [
+      [has(c, "heavy_machinery") ? "heavyshop" : has(c, "machine_shop") ? "machineshop" : "sawmill", "spur", "warehouse"],
+      ["foundry", "plateshop", "spur"],
+      ["tiles:platestack", "warehouse", "tiles:lumber,platestack"],
+    ],
+  };
+  const rows = WINGS[c.ind][wing];
   for (let a = 0; a < fp; a++) {
-    const part = rows[a % rows.length], g = gid++;
-    for (let b = 0; b < fp; b++) { const [lx, ly] = toL(a, b); out[ly * fp + lx] = { part, ground: "yard", axis: axisB, group: g }; }
+    const r = rows[a % rows.length];
+    if (r === "spur") {
+      for (let b = 0; b < fp; b++) { const [lx, ly] = toL(a, b); out[ly * fp + lx] = { part: car && b % (c.fill >= 2 ? 2 : 3) === 0 ? car : "", ground: "spur" }; }
+    } else if (r.startsWith("tiles:")) {
+      const parts = r.slice(6).split(",").map((x) => (x === "furnace" ? (has(c, "coke_furnace") ? "furnace_iron" : "furnace_stone") : x));
+      for (let b = 0; b < fp; b++) { const [lx, ly] = toL(a, b); out[ly * fp + lx] = { part: parts[b % parts.length], ground: "yard" }; }
+    } else {
+      const g = gid++;
+      for (let b = 0; b < fp; b++) { const [lx, ly] = toL(a, b); out[ly * fp + lx] = { part: r, ground: "yard", axis: axisB, group: g }; }
+    }
   }
+  // a stack at the far corner of the wing
+  const [sx, sy] = toL(fp - 1, fp - 1);
+  if (!out[sy * fp + sx].group) out[sy * fp + sx] = { part: "stack", ground: "yard" };
   return segments(out, fp);
 }
 
@@ -354,7 +406,7 @@ export function buildPlant(key: string): Sprite {
       winRow(p, b, "left", 3, 2, 4, "#e07a2a");
       break;
     }
-    case "puddle": case "bessemer": case "openhearth": case "bof": case "rolling": case "rolling2": case "strip": case "warehouse":
+    case "puddle": case "bessemer": case "openhearth": case "bof": case "rolling": case "rolling2": case "strip": case "caster": case "warehouse":
     case "glassshed": case "tankfurnace": case "lehr": case "grinding": case "bottleplant": case "floatline":
     case "retort": case "enginehouse": case "powerhouse": case "boilerhouse": case "turbinehall":
     case "sawmill": case "machineshop": case "heavyshop": case "foundry": case "plateshop": {
@@ -367,6 +419,7 @@ export function buildPlant(key: string): Sprite {
         rolling: { c: [0.06, 0.48], h: 22, roof: "monitor" },
         rolling2: { c: [0.54, 0.94], h: 18, roof: "gable" },
         strip: { c: [0.04, 0.96], h: 16, roof: "saw", wall: "#8a8a8e" },
+        caster: { c: [0.1, 0.9], h: 20, roof: "flat", wall: "#8e9298" },
         warehouse: { c: [0.15, 0.85], h: 16, roof: "gable" },
         glassshed: { c: [0.15, 0.85], h: 12, roof: "gable" },
         tankfurnace: { c: [0.12, 0.88], h: 20, roof: "monitor" },
@@ -421,6 +474,7 @@ export function buildPlant(key: string): Sprite {
       if (part === "boilerhouse") for (const t of [0.35, 0.75]) { const [u, vv] = axis === "u" ? [t, mid] : [mid, t]; stackAt(p, u, vv, 30, 66, "#8a8070", 0.06); }
       if (part === "foundry") { cylinder(p, 0.7, 0.4, 0.07, 16, 34, "#4a4240", "#141212"); const [x, y] = p.P(0.7, 0.48, 4); p.px(x - 1, y - 3, "#f08a2a", 3, 2); }
       if (part === "sawmill") { for (let k = 0; k < 4; k++) { const [x, y] = at(0.2 + k * 0.2, sp.c[1] + 0.06, 0); p.px(x - 4, y - 2, "#8a6a3a", 8, 2); } stackAt(p, 0.8, 0.4, 12, 22, "#7a6a5a", 0.03); }
+      if (part === "caster" && (s === "s" || s === "1")) { const [u, vv] = axis === "u" ? [0.3, mid] : [mid, 0.3]; box(p, u - 0.14, vv - 0.14, u + 0.14, vv + 0.14, 24, { wall: "#6e7278", top: "#4a4e54", z0: 20 }); const q = at(0.3, sp.c[1], 26); p.px(q[0] - 2, q[1] - 4, "#f0a040", 4, 3); } // ladle turret
       if (part === "heavyshop" && (s === "m")) { const q = at(0.5, mid, sp.h + 2); p.px(q[0] - 6, q[1] - 2, pal.trim, 12, 2); }
       break;
     }
@@ -531,6 +585,34 @@ export function buildPlant(key: string): Sprite {
       winRow(p, b, "right", 3, 3, 4, "#2a2426");
       const [x, y] = lerp(b.D(top), b.C(top), 0.5); p.px(x - 5, y - 4, pal.trim, 10, 3); // company name board
       p.px(x - 1, y - 9, "#efe9da", 3, 3); // clock
+      break;
+    }
+    case "control": {
+      // a modern office: glass curtain walls on a concrete base, a dish on the roof
+      const b = box(p, 0.15, 0.2, 0.85, 0.8, 26, { wall: "#7a8a96", top: "#5a646e", foundation: 2 });
+      for (let z = 4; z < 24; z += 5) winRow(p, b, "left", 6, z, 3, "#b8d0e0");
+      for (let z = 4; z < 24; z += 5) winRow(p, b, "right", 4, z, 3, "#9ab4c8");
+      const [x, y] = p.P(0.6, 0.5, 26); p.px(x - 3, y - 4, "#d8d8d0", 6, 3); p.px(x, y - 8, "#8a8a8a", 1, 4);
+      break;
+    }
+    case "construction": {
+      // a process going up: brick walls part-built inside a timber scaffold, a derrick crane, beams and bricks
+      const b = box(p, 0.15, 0.15, 0.85, 0.85, 10, { wall: shade(W, 0.95), foundation: 2 });
+      void b;
+      const pole = "#8a6a3e";
+      for (const [u, vv] of [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9], [0.5, 0.9], [0.9, 0.5]] as const) p.line(p.P(u, vv, 0), p.P(u, vv, 30), pole);
+      for (const z of [10, 20, 30]) { p.line(p.P(0.1, 0.9, z), p.P(0.9, 0.9, z), pole); p.line(p.P(0.9, 0.9, z), p.P(0.9, 0.1, z), pole); }
+      for (let k = 0; k < 3; k++) p.line(p.P(0.1 + k * 0.27, 0.9, 10), p.P(0.37 + k * 0.27, 0.9, 20), shade(pole, 0.8)); // bracing
+      // the crane: mast, jib and a load on the hook
+      const base = p.P(0.25, 0.3, 0), top = p.P(0.25, 0.3, 58), tip = p.P(0.95, 0.65, 52);
+      p.line(base, top, "#3a3a40"); p.line([base[0] + 1, base[1]], [top[0] + 1, top[1]], "#2a2a30");
+      p.line(top, tip, pal.trim); p.line(p.P(0.25, 0.3, 56), p.P(0.05, 0.15, 54), pal.trim);
+      p.line(tip, [tip[0], tip[1] + 22], "#2a2a2a");
+      p.px(tip[0] - 4, tip[1] + 22, pal.steel, 9, 2);
+      // materials
+      box(p, 0.05, 0.92, 0.35, 1.0, 3, { wall: "#9a4a32", top: "#b45a3a" });
+      box(p, 0.92, 0.05, 1.0, 0.45, 2, { wall: "#4a4a52", top: "#6a6a72" });
+      people(p, 0.2, 0.2, 0.8, 0.8, 4, v + 3);
       break;
     }
     case "gate": {

@@ -8,6 +8,9 @@ import { money } from "./fx";
 export interface MenuHandlers {
   /** opened from inside a game: offer "Back to the game" */
   inGame: boolean;
+  /** the game was just saved on the way here */
+  saved?: boolean;
+  onSave?: () => Promise<boolean>;
   onResume: () => void;
   onNew: (seed?: number) => void;
   onLoad: (id: string) => Promise<void>;
@@ -26,7 +29,8 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
   let body = "";
   if (view === "main") {
     body = `
-      ${h.inGame ? `<button class="mm-big primary" data-a="back">Back to the game</button>` : ""}
+      ${h.inGame ? `${h.saved ? `<p class="mm-ok">✓ Game saved. You can close this tab, or pick up where you left off.</p>` : ""}<button class="mm-big primary" data-a="back"><b>Back to the game</b><span>Esc</span></button>
+      <button class="mm-big" data-a="save"><b>Save as a new game</b><span>Keeps this point to load later</span></button>` : ""}
       <button class="mm-big ${h.inGame ? "" : "primary"}" data-a="resume" ${auto ? "" : "disabled"}>
         <b>Resume last game</b><span>${auto ? `${line(auto)} · saved ${ago(auto.savedAt)}` : "No game saved yet"}</span></button>
       <button class="mm-big" data-a="new"><b>New game</b><span>A new valley in 1850</span></button>
@@ -51,7 +55,7 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
     <div class="mm-sub">${view === "load" ? "Load a game" : view === "new" ? "New game" : "Pittsburgh &amp; the Mon Valley, 1850–1985"}</div>
     ${error ? `<p class="mm-err">${esc(error)}</p>` : ""}
     ${body}
-    <div class="mm-foot">Games are saved in this browser: every new year, when you leave, and from ☰ → Save game.</div>
+    <div class="mm-foot">Games are saved in this browser: every new year, when you leave, and with Ctrl+S or ☰ → Save game. Esc saves and comes back here.</div>
   </div>`;
   el.hidden = false;
 
@@ -59,6 +63,7 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
   el.querySelectorAll<HTMLButtonElement>("button[data-a]").forEach((b) => b.addEventListener("click", async () => {
     const a = b.dataset.a!;
     if (a === "back") h.onResume();
+    else if (a === "save") { b.disabled = true; b.innerHTML = "<b>Saving…</b>"; await h.onSave?.(); go("main"); }
     else if (a === "resume") await load(AUTOSAVE, b);
     else if (a === "new" || a === "main" || a === "load") go(a);
     else if (a === "start") {

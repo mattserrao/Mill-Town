@@ -95,6 +95,8 @@ export class Traffic {
   private railSpans: Span[] = [];
   /** street tiles a picket crowd stands in (vehicles keep out) */
   private blocked = new Set<number>();
+  /** street agents on each tile this frame (people and vehicles keep their distance instead of swarming) */
+  private occ = new Map<number, number>();
   private rng = new Rng("traffic");
   private last = 0;
   private dt = 0;
@@ -259,6 +261,8 @@ export class Traffic {
       train: Math.min(z >= 0.25 ? 6 : 10, tiles / 1500 + 1),
       boat: Math.min(z >= 0.25 ? 14 : 22, tiles / 900 + 2) * (season === "Winter" ? 0.45 : Math.min(1, 0.4 + 0.6 * river)),
     };
+    this.occ.clear();
+    for (const a of this.agents) if (!a.dying && !BIG.has(a.kind) && a.kind !== "train") { const k = a.y * this.m.width + a.x; this.occ.set(k, (this.occ.get(k) ?? 0) + 1); }
     let streetN = 0, trainN = 0, boatN = 0, mooredN = 0;
     for (const a of this.agents) { if (a.dying) continue; if (a.kind === "train") trainN++; else if (a.moored) mooredN++; else if (a.kind === "steamboat" || a.kind === "tow") boatN++; else streetN++; }
     // in winter some boats lie tied up along the banks
@@ -564,6 +568,7 @@ export class Traffic {
     const i = yy * m.width + x;
     const st = this.streetOk(w, i);
     if (!st) return false;
+    if ((this.occ.get(i) ?? 0) >= 2) return false; // already two on this stretch of street
     const night = this.night, surge = this.surge;
     // people and vehicles appear where the commute model sends them (a little everywhere, a lot on the busy routes)
     const busy = this.busy(g, x, yy);
@@ -572,7 +577,7 @@ export class Traffic {
     // at night, people on foot keep to the lit main streets
     const slump = this.slump.length ? this.slumpAt(x, yy) : 0;
     // ---- commuters: to the nearest works or downtown, or home from the works at the shift change
-    const commShare = night > 0.8 ? 0.22 : 0.33 + 0.4 * surge;
+    const commShare = night > 0.8 ? 0.2 : 0.28 + 0.22 * surge;
     let role: Role = "wander", dest: number | undefined, best = Infinity;
     if (st !== Street.Steps && rng.chance(commShare * (1 - slump * 0.6)) && this.centres.length) {
       const c = this.commuteTo(g, x, yy, surge > 0.05 && rng.chance(0.5));
@@ -606,6 +611,7 @@ export class Traffic {
     const a = this.newAgent(kind, x, yy, speed * (0.8 + rng.next() * 0.4), "");
     a.role = role;
     if (role === "in" || role === "out") { a.dest = dest; a.cm = g.commute; a.best = best; a.stall = 0; a.life = 14 + rng.int(0, 22); }
+    this.occ.set(i, (this.occ.get(i) ?? 0) + 1);
     if (role === "idle") { a.speed *= 0.6; a.wait = rng.next() * 4; }
     if (kind === "walker") a.look = poolLook(y, () => rng.next(), role === "in" || role === "out" || (role === "idle" && rng.chance(0.7)));
     else a.spec = this.vehicleSpec(kind, y);
@@ -742,6 +748,7 @@ export class Traffic {
     let guard = 0;
     while (a.t >= 1 && guard++ < 4) {
       a.t -= 1;
+      if (a.kind !== "train") { const W = this.m.width, o = a.y * W + a.x, n = a.ny * W + a.nx; this.occ.set(o, Math.max(0, (this.occ.get(o) ?? 1) - 1)); this.occ.set(n, (this.occ.get(n) ?? 0) + 1); }
       a.px = a.x; a.py = a.y; a.x = a.nx; a.y = a.ny;
       if (a.trail) { a.trail.unshift([a.x, a.y]); if (a.trail.length > (a.need ?? 0) + 2) a.trail.pop(); }
       if (a.kind !== "train") this.arrive(g, a);
@@ -763,7 +770,8 @@ export class Traffic {
     if (!c || !f) { a.role = "wander"; return; }
     const v = f[blockOf(blockGrid(this.m), a.x, a.y)];
     if (a.role === "in") {
-      if (Math.hypot(a.x + 0.5 - c.x, a.y + 0.5 - c.y) < c.r || v < 0.8) { a.dying = true; return; } // through the gate
+      // through the gate: anywhere on the works' edge (a seeded reach, so they don't all bunch at one spot)
+      if (Math.hypot(a.x + 0.5 - c.x, a.y + 0.5 - c.y) < c.r + 1 + a.seed * 3 || v < 0.8 + a.seed * 1.5) { a.dying = true; return; }
       if (v < (a.best ?? Infinity) - 0.01) { a.best = v; a.stall = 0; } else if (++a.stall! > 40) a.role = "wander";
     } else if (--a.life! <= 0) a.dying = true; // home
   }
@@ -795,6 +803,8 @@ export class Traffic {
       if (a.kind !== "walker" && this.blocked.size && this.blocked.has(y * m.width + x)) continue;
       const straight = x - a.x === a.x - a.px && y - a.y === a.y - a.py;
       let wgt = back(x, y) ? 0.04 : straight ? 2.5 : 1;
+      const crowd = this.occ.get(y * m.width + x) ?? 0;
+      if (crowd) wgt /= 1 + crowd * 1.6; // step round a crowd where there's another way
       if (f) {
         const v = f[blockOf(bg, x, y)];
         const sgn = a.role === "in" ? 1 : -1;
@@ -1111,7 +1121,7 @@ export class Traffic {
     const tl = Math.hypot(tx, ty);
     if (tl > 0.05) { tx /= tl; ty /= tl; a.hx = tx; a.hy = ty; } else { tx = a.hx; ty = a.hy; }
     // keep to the right-hand side of the street (people on the sidewalk); streetcars run down the middle
-    const side = a.kind === "walker" ? (a.role === "idle" ? 0.3 : 0.22 + a.seed * 0.06) : a.kind === "streetcar" || a.kind === "horsecar" ? 0 : 0.13;
+    const side = a.kind === "walker" ? (a.role === "idle" ? 0.24 + a.seed * 0.12 : 0.12 + a.seed * 0.24) : a.kind === "streetcar" || a.kind === "horsecar" ? 0 : 0.13;
     fx += -ty * side; fy += tx * side;
     return [fx, fy, tx, ty];
   }

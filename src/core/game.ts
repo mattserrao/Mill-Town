@@ -5,6 +5,7 @@ import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
 import { roadsSeason } from "./roads";
+import { freightMult, holdingsSeason, type Holdings, inputMult, upkeepMult } from "./holdings";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
@@ -91,6 +92,8 @@ export interface Company extends Works {
   redSeasons?: number;
   /** the receivers have taken the works: the game is over */
   bankrupt?: boolean;
+  /** businesses, stakes and shares beyond the works (holdings.ts) */
+  holdings?: Holdings;
 }
 
 export interface RivalState {
@@ -137,6 +140,8 @@ export interface SeasonReport {
   workersHired: number;
   migrants: number;
   notes: string[];
+  /** income from businesses, stakes and shares (company totals only) */
+  holdings?: number;
 }
 
 export interface GameState {
@@ -859,13 +864,13 @@ function settleWorks(g: GameState, p: WorksPlan, fr: ShipResult | undefined, riv
   // what was bought and hauled, less what better furnaces save (and more if someone has cornered the supply)
   // each good at its own price (Frick's coke, a mine disaster) and each lane at its own haulage rate
   let bought = 0;
-  if (fr) for (const l of fr.lanes) bought += l.delivered * (PRICE(year) * mod(g, "input", { ...ctx, good: l.good }) + l.costPerTon * mod(g, "freightCost", { gateway: l.mode === "rail" ? "rail" : l.gateway }));
+  if (fr) for (const l of fr.lanes) bought += l.delivered * (PRICE(year) * mod(g, "input", { ...ctx, good: l.good }) * inputMult(g, l.good, w.industry) + l.costPerTon * mod(g, "freightCost", { gateway: l.mode === "rail" ? "rail" : l.gateway }) * freightMult(g, l.mode));
   const inputCost = Math.round(bought * (1 - mods.efficiency) * pe.inputCostMult);
   // no work, no pay: strikers and locked-out men draw nothing from the company
   if (w.status === "strike") g.strikeAt.push([w.x, w.y]);
   const working = w.status !== "lockout" && w.status !== "strike";
   const wages = working ? Math.round(p.workersHired * wage) : 0;
-  const upkeep = Math.round(p.capacity * ind.basePrice * UPKEEP * (1 + (year - 1850) * 0.008));
+  const upkeep = Math.round(p.capacity * ind.basePrice * UPKEEP * (1 + (year - 1850) * 0.008) * upkeepMult(g));
   const profit = revenue - inputCost - wages - upkeep;
   if (standing.behind.length && w.seasonsOperating % 4 === 0) p.notes.push(`Behind the industry (${standing.behind.map((t) => t.name).join(", ")}): prices ${Math.round((1 - standing.factor) * 100)}% under the rivals'.`);
   w.employees = working ? p.workersHired : 0;
@@ -904,6 +909,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   const repay = c.debt > 0 ? Math.min(c.debt, Math.max(Math.round(c.debt * 0.05), Math.round(Math.max(0, before) * 0.25))) : 0;
   c.debt -= repay;
   const other = Math.round(biz.extraCost + biz.fines - sum("wages") * pe.storeIncomeShare + repay);
+  const held = holdingsSeason(g); // paid into cash there
   const profit = before - other;
   c.cash += profit;
   const main = reports[0];
@@ -943,7 +949,7 @@ function runCompany(g: GameState, rng: Rng, riverMult: number, floodRisk: number
   }
   plans.forEach((p, k) => { p.w.lastSeason = reports[k]; });
   c.totals = {
-    produced: sum("produced"), revenue: sum("revenue"), inputCost: sum("inputCost"), wages: sum("wages"), upkeep: sum("upkeep"), other, profit,
+    produced: sum("produced"), revenue: sum("revenue"), inputCost: sum("inputCost"), wages: sum("wages"), upkeep: sum("upkeep"), other, profit: profit + held, holdings: held,
     workersWanted: sum("workersWanted"), workersHired: sum("workersHired"), migrants, notes: main.notes,
   };
 }
