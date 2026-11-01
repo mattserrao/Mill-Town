@@ -232,6 +232,10 @@ routing, environment, growth and neighbourhood style.
 - Economy balance (v0.16 pass): a company that never invests goes under in every industry; one that keeps up keeps
   roughly half its peak cash through the collapse (taxes, pensions and cleanup); holdings are capped (one stake
   and one share purchase per company a year) but a determined investor still ends far richer than an operator
+- Memory (v0.16.1): the renderer's caches are bounded — generated house and plant sprites are cropped to what's
+  drawn and kept in a 64 MB least-recently-used cache; scaled copies only for the current and last zoom; drawn
+  map sections sized to about three screens and dropped for a zoom you've left. ~105–175 MB in all through 1985
+  (was ~500 MB at its peaks). Still to do: draw slopes separately so houses don't need a variant per slope
 - Rivals' output is estimated from the technology of their day; they don't yet react to congestion or unrest
 - A screen of new chunks takes ~0.5–1 s to draw after a big jump; after a turn only the chunks whose contents changed redraw
 - Season loop cost (~200–300 ms a season late in the game): the biggest costs are town growth (`growByDesire`,

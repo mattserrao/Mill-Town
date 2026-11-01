@@ -16,7 +16,7 @@ import { latLonToTile } from "../core/features";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
-import { buildSprites, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
+import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
 
 interface PlantRef { t: PlantTile; c: PlantCtx; years: number }
@@ -43,7 +43,13 @@ export interface Marks {
 const CS = 16;              // chunk size in tiles
 const PAD_TOP = 330;        // room for tall sprites (stacks, smoke, spires), zoom-1 px
 const PAD_X = 48;
-const BUDGET_PX = 48e6;     // cached chunk pixels
+/** cached chunk pixels: about three screens' worth at the current zoom, within these bounds */
+const BUDGET_MIN_PX = 12e6, BUDGET_MAX_PX = 40e6;
+/** generated house and plant sprites (the source canvas and its scaled buffers), least recently used first out */
+const GEN_BUDGET_BYTES = 64e6;
+/** chunks and scaled buffers of a zoom you've left are dropped this long after the change */
+const OTHER_ZOOM_MS = 3000;
+interface GenSprite { sp: Sprite; bufs: Map<number, SpriteBuf>; bytes: number }
 const FRAME_MS = 28;        // raster budget per frame
 
 interface Chunk { canvas: HTMLCanvasElement; ox: number; oy: number; key: string; px: number }
@@ -98,7 +104,16 @@ export class Renderer {
   private looks: SmokeLook[] = [];
   private looksKey = "";
   private plantsKey = "";
-  private generated = 0;
+  /** generated sprites by key (Map order = recency), and their total bytes */
+  private gen = new Map<string, GenSprite>();
+  private genBytes = 0;
+  /** generated sprites built so far (a rising count while standing still means the budget is too small) */
+  built = 0;
+  /** the raster scale in use, the one before it, and when it changed */
+  private curScale = 0;
+  private prevScale = 0;
+  private scaleAt = 0;
+  private budgetPx = BUDGET_MIN_PX;
   pending = 0;
 
   constructor(private map: GameMap) {
@@ -147,16 +162,30 @@ export class Renderer {
   }
 
   private sprite(key: string, s: number): SpriteBuf | null {
+    // houses and plants are generated per variant: kept in a byte-budgeted LRU
+    if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|"))) {
+      let e = this.gen.get(key);
+      if (e) { this.gen.delete(key); this.gen.set(key, e); }
+      else {
+        const sp = cropSprite(key.startsWith("H|") ? buildHouse(key) : buildPlant(key));
+        this.built++;
+        e = { sp, bufs: new Map(), bytes: sp.canvas.width * sp.canvas.height * 4 };
+        this.gen.set(key, e);
+        this.genBytes += e.bytes;
+      }
+      let b = e.bufs.get(s);
+      if (!b) {
+        b = scaleSprite(e.sp, s);
+        e.bufs.set(s, b);
+        e.bytes += b.px.byteLength; this.genBytes += b.px.byteLength;
+      }
+      if (this.genBytes > GEN_BUDGET_BYTES) this.trimGenerated(key);
+      return b;
+    }
     const k = `${key}@${s}`;
     let b = this.scaled.get(k);
     if (!b) {
-      let sp = this.base.get(key);
-      if (!sp && (key.startsWith("H|") || key.startsWith("P|"))) {
-        if (this.generated > 2500) this.dropGenerated();
-        sp = key.startsWith("H|") ? buildHouse(key) : buildPlant(key);
-        this.base.set(key, sp);
-        this.generated++;
-      }
+      const sp = this.base.get(key);
       if (!sp) return null;
       b = scaleSprite(sp, s);
       this.scaled.set(k, b);
@@ -164,10 +193,31 @@ export class Renderer {
     return b;
   }
 
-  private dropGenerated() {
-    for (const k of [...this.base.keys()]) if (k.startsWith("H|") || k.startsWith("P|")) this.base.delete(k);
-    for (const k of [...this.scaled.keys()]) if (k.startsWith("H|") || k.startsWith("P|")) this.scaled.delete(k);
-    this.generated = 0;
+  /** drop the least recently used generated sprites until under budget (never the one just asked for) */
+  private trimGenerated(keep: string) {
+    for (const [k, e] of this.gen) {
+      if (this.genBytes <= GEN_BUDGET_BYTES * 0.85) break;
+      if (k === keep) continue;
+      this.gen.delete(k);
+      this.genBytes -= e.bytes;
+    }
+  }
+
+  /** the zoom changed: keep scaled buffers for this scale and the last one only */
+  private setScale(s: number) {
+    if (s === this.curScale) return;
+    this.prevScale = this.curScale; this.curScale = s; this.scaleAt = performance.now();
+    const keep = (x: number) => x === s || x === this.prevScale;
+    for (const k of [...this.scaled.keys()]) if (!keep(Number(k.slice(k.lastIndexOf("@") + 1)))) this.scaled.delete(k);
+    for (const e of this.gen.values()) for (const [x, b] of e.bufs) if (!keep(x)) { e.bufs.delete(x); e.bytes -= b.px.byteLength; this.genBytes -= b.px.byteLength; }
+  }
+
+  /** memory held by the caches, for profiling (bytes) */
+  memory() {
+    let scaled = 0, chunks = 0;
+    for (const b of this.scaled.values()) scaled += b.px.byteLength;
+    for (const c of this.chunks.values()) chunks += c.px * 4;
+    return { built: this.built, generated: this.genBytes, generatedCount: this.gen.size, scaled, scaledCount: this.scaled.size, chunks, chunkCount: this.chunks.size, chunkBudget: this.budgetPx * 4 };
   }
 
   /** Resolve every plant's layout (player + rivals) for this world state. */
@@ -246,6 +296,7 @@ export class Renderer {
     this.updatePlants(g);
 
     const s = Math.min(1, cam.zoom);
+    this.setScale(s);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
     const tail = `|${view.overlayKey}|${view.grid}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
@@ -278,7 +329,11 @@ export class Renderer {
       this.chunks.delete(key);
       this.chunks.set(key, ch2);
     }
-    this.evict();
+    // the cache holds about three screens of chunks at this zoom
+    let visPx = 0;
+    for (const c of vis) visPx += this.chunks.get(`${s}:${c.cx},${c.cy}`)?.px ?? 0;
+    this.budgetPx = Math.max(BUDGET_MIN_PX, Math.min(BUDGET_MAX_PX, visPx * 3), visPx * 1.3);
+    this.evict(s);
 
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy) || a.cx - b.cx);
     // Upscaled zooms are nearest-neighbour (the flag is reset whenever the canvas is resized, and by
@@ -343,11 +398,16 @@ export class Renderer {
     return sig;
   }
 
-  private evict() {
+  private evict(s: number) {
     let total = 0;
-    for (const c of this.chunks.values()) total += c.px;
+    const old = performance.now() - this.scaleAt > OTHER_ZOOM_MS, prefix = `${s}:`;
     for (const [k, c] of this.chunks) {
-      if (total <= BUDGET_PX) break;
+      // a zoom you left a few seconds ago: its chunks go
+      if (old && !k.startsWith(prefix)) { this.chunks.delete(k); continue; }
+      total += c.px;
+    }
+    for (const [k, c] of this.chunks) {
+      if (total <= this.budgetPx) break;
       this.chunks.delete(k);
       total -= c.px;
     }
