@@ -264,6 +264,17 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
        leaves part unsold (run to orders, run full and stock the yards, or bank the furnaces; dump the stock); the
        rivals expand when prices are high and bank furnaces when low; busy mills make coal and coke dear; a steel
        slump lowers morale. Works tab "Buy into…" lists every works for sale with its value
+   - Menus (v0.19, `docs/V019-UI-PLAN.md`): one vocabulary (Reputation, Labour, Influence, Morale, with icons, on
+     every chip), one money format and one action row (cost or "Free", the reason on hover) built by `src/ui/actions.ts`
+     everywhere. Top bar in four groups (time · cash and profit · meters · views, with a Paper button); tabs
+     Overview (net worth, output, margin, market; Watch to 5) · Works (each works with its next 3 upgrades; the
+     yards, the environment, Build) · Policy (the men; the works; labour and public actions) · Money (was Holdings:
+     your works and holdings, finance, a Buy list in three tabs, a sell-or-list dialog) · Town (the valley, your
+     neighbourhood, roads and bridges, gifts, the next five great works) · Rivals (a ⋯ menu of moves on each rival).
+     Politics actions moved to the Struggle, whose owners are grouped by company and whose ledger shows six marks.
+     One overlay header with ✕ for Trends, the Struggle, the paper, the tile card and the dialog; Esc closes the top
+     one. ☰: Save · Load · Settings · Keys · Save & exit; the Map menu holds only layers. The supply chain lists each
+     product once, under the map legend. Running text in a proportional face, nothing grey under 11 px
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI

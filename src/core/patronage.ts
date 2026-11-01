@@ -132,4 +132,4 @@ export function fund(g: GameState, id: string): { ok: boolean; text: string } {
 }
 
 export const giveText = (give: GreatWork["give"]) =>
-  Object.entries(give).map(([k, v]) => `${{ reputation: "Rep", labour: "Lab", influence: "Inf", morale: "Mor" }[k]} +${v}`);
+  Object.entries(give).map(([k, v]) => `${{ reputation: "Reputation", labour: "Labour", influence: "Influence", morale: "Morale" }[k]} +${v}`);

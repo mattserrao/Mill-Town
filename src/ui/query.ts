@@ -57,7 +57,7 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     title = spec ? `${STYLE_NAMES[spec.style]} ${sub === 2 ? "company double house" : sub === 3 ? "shanty" : sub === 1 ? (use === Use.Houses ? "mansion" : "estate") : sub === 4 ? "boarding house" : kind}` : title;
     if (w.built[i]) bRows.push(["Built", String(w.built[i])]);
     bRows.push(["Households", w.pop[i] ? `${fmt(w.pop[i])} people` : "Empty"]);
-    if (w.eth[i] && w.pop[i]) bRows.push(["Family background", GROUPS[w.eth[i]].name]);
+    if (w.eth[i] && w.pop[i]) bRows.push(["Background", GROUPS[w.eth[i]].name]);
     if (spec) bRows.push(["Condition", `${spec.boarded ? "boarded up, " : ""}${SOOT[spec.soot]}${spec.corner ? " · corner lot" : ""}`]);
   } else if (use === Use.Civic) {
     const was = w.was[i], now = w.eth[i];
@@ -116,13 +116,13 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     ["Elevation", `${feet(m.elevation[i])}, slope ${m.slope[i]}°`],
     ["Coal", ["None", "Pittsburgh seam underground", "Pittsburgh seam outcrop"][m.coal[i]]],
     ["Land value", `$${fmt(w.landValue[i])}`],
-    ["Soot (years of smoke)", smokeWord(w.pollution[i])],
-    ["Smoke this season", smokeWord(g.env.air[blockOf(blockGrid(m), x, y)] * SOOT_SCALE)],
+    ["Soot", smokeWord(w.pollution[i])],
+    ["Smoke now", smokeWord(g.env.air[blockOf(blockGrid(m), x, y)] * SOOT_SCALE)],
     ["Owner", w.owner[i] === 0 ? "Private / town" : w.owner[i] === 1 ? g.company?.name ?? "You" : RIVALS.find((r) => g.rivals.find((rs) => rs.ownerId === w.owner[i])?.id === r.id)?.company ?? "Rival"],
   ];
   if (g.company && g.access) {
     const mins = walkMinutes(g, i);
-    lRows.push(["Walk to your works", isFinite(mins) ? `${mins.toFixed(0)} min (${Math.round(commuteWeight(mins) * 100)}% would take the job)` : "over an hour"]);
+    lRows.push(["Walk to works", isFinite(mins) ? `${mins.toFixed(0)} min · ${Math.round(commuteWeight(mins) * 100)}% would come` : "over an hour"]);
   }
   const b = blockOf(blockGrid(m), x, y);
   if (m.terrain[i] === Terrain.Water) lRows.push(["River water", riverWord(g.env.river[i])]);
@@ -130,11 +130,11 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     lRows.push(["Health", `${Math.round(g.env.health[b] * 100)}%${g.env.health[b] < 0.6 ? " — sickly" : ""}`]);
     lRows.push(["Unrest", unrestWord(g.env.unrest[b])]);
   }
-  if (w.street[i]) lRows.push(["Commuter traffic", trafficWord(g.env.traffic[b] / (g.env.trafficNorm || 1))]);
-  lRows.push(["Position", `tile ${x}, ${y} · ${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`]);
+  if (w.street[i]) lRows.push(["Traffic", trafficWord(g.env.traffic[b] / (g.env.trafficNorm || 1))]);
+  lRows.push(["Position", `${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`]);
 
   return `
-    <div class="q-head"><div><div class="q-title">${esc(title)}</div><div class="q-sub">${esc(rep.area.name)}${rep.area.named ? "" : ""}</div></div><button class="q-close" title="Close (Esc)">×</button></div>
+    <div class="q-head"><div><div class="q-title">${esc(title)}</div><div class="q-sub">${esc(rep.area.name)}${rep.area.named ? "" : ""}</div></div><button class="x q-close" title="Close (Esc)">✕</button></div>
     ${bRows.length ? `<h4>Building</h4>${kv(bRows)}` : ""}
     <h4>On this tile</h4><p class="q-list">${thingList.length ? thingList.map(esc).join(" · ") : "Nothing else"}</p>
     <h4>Land</h4>${kv(lRows)}
@@ -171,15 +171,16 @@ export function neighbourhoodHtml(rep: AreaReport, year: number): string {
     <h4>Neighbourhood — ${esc(rep.area.named ? rep.area.name : "this area")}, ${year}</h4>
     ${character ? `<p class="q-list q-character">${esc(character)}</p>` : ""}
     <div class="q-kv"><div class="k">People</div><div class="v">${fmt(rep.pop)}</div>
-      ${homes ? `<div class="k">Homes (lots)</div><div class="v">${esc(homes)}</div>` : ""}
-      ${rep.avgBuilt ? `<div class="k">Typical house built</div><div class="v">${rep.avgBuilt}</div>` : ""}
-      ${places ? `<div class="k">Churches &amp; halls</div><div class="v">${esc(places)}</div>` : ""}
-      ${rep.shops ? `<div class="k">Shops &amp; businesses</div><div class="v">${rep.shops}</div>` : ""}
-      <div class="k">Air · land value</div><div class="v">${rep.pollution < 0.05 ? "clean" : rep.pollution < 0.3 ? "smoky" : "heavy smoke"} · $${fmt(rep.landValue)} avg</div>
+      ${homes ? `<div class="k">Homes</div><div class="v">${esc(homes)}</div>` : ""}
+      ${rep.avgBuilt ? `<div class="k">Houses built</div><div class="v">${rep.avgBuilt}</div>` : ""}
+      ${places ? `<div class="k">Churches</div><div class="v">${esc(places)}</div>` : ""}
+      ${rep.shops ? `<div class="k">Shops</div><div class="v">${rep.shops}</div>` : ""}
+      <div class="k">Air · land</div><div class="v">${rep.pollution < 0.05 ? "clean" : rep.pollution < 0.3 ? "smoky" : "heavy smoke"} · $${fmt(rep.landValue)} avg</div>
     </div>
+    <details class="q-dist"><summary>Who lives here</summary>
     ${bar}
     ${arrivals}
-    ${growthChart(rep)}`;
+    ${growthChart(rep)}</details>`;
 }
 
 /** stacked area of each community's population over the recorded years (inline SVG) */

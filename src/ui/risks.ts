@@ -14,7 +14,7 @@ import { complianceOf } from "../core/enviro";
 import { marginDebt } from "../core/holdings";
 
 export type Level = "bad" | "warn" | "good";
-export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" | "struggle" }
+export interface Risk { level: Level; title: string; detail: string; /** a tab or view that deals with it */ go?: "works" | "policy" | "rivals" | "holdings" | "struggle" | "town" }
 
 /** your share of an industry's output in one season (0–1), or undefined before you made any */
 export function shareAt(p: PricePoint, ind: IndustryId): number | undefined {
@@ -72,7 +72,7 @@ export function risks(g: GameState): Risk[] {
     if (mk && mk.price < 0.9) out.push({ level: mk.price < 0.8 ? "bad" : "warn", title: `Glut: ${INDUSTRIES[ind].name.toLowerCase()} prices ${Math.round((mk.price - 1) * 100)}%`, detail: `${Math.round((mk.supply / Math.max(1, mk.demand)) * 100)}% of demand on offer · run to orders, bank the furnaces, or wait`, go: "policy" });
   }
   const yards = works.reduce((s2, w) => s2 + (w.stock ?? 0), 0);
-  if (yards > 0) out.push({ level: "warn", title: `${yards.toLocaleString("en-US")} unsold in the yards`, detail: "it costs 1.5% of its value a season to carry · dump it or wait for the market", go: "policy" });
+  if (yards > 0) out.push({ level: "warn", title: `${yards.toLocaleString("en-US")} unsold in the yards`, detail: "it costs 1.5% of its value a season to carry · dump it or wait for the market", go: "works" });
   const md = marginDebt(g);
   if (md > 0) out.push({ level: md > c.cash ? "bad" : "warn", title: "Shares on margin", detail: `${money(md)} borrowed from the brokers · a fall of a quarter brings a call`, go: "holdings" });
   if (c.public?.missed) out.push({ level: c.public.missed >= 3 ? "bad" : "warn", title: `${c.public.missed} dividend${c.public.missed > 1 ? "s" : ""} missed`, detail: `outsiders hold ${c.public.outside}% · the shares slide, raiders circle`, go: "holdings" });
@@ -122,7 +122,7 @@ export function risks(g: GameState): Risk[] {
   }
   // a road that would bring many more men within reach
   const road = roadPlans(g)[0];
-  if (road && road.gain >= 150) out.push({ level: "good", title: `Road to ${road.to} would help`, detail: `+${road.gain.toLocaleString("en-US")} in reach · ${money(road.cost)} or influence`, go: "works" });
+  if (road && road.gain >= 150) out.push({ level: "good", title: `Road to ${road.to} would help`, detail: `+${road.gain.toLocaleString("en-US")} in reach · ${money(road.cost)} or influence`, go: "town" });
 
   const rank: Record<Level, number> = { bad: 0, warn: 1, good: 2 };
   return out.sort((a, b) => rank[a.level] - rank[b.level]);
@@ -132,7 +132,7 @@ export const LEVEL_COLOUR: Record<Level, string> = { bad: "#e06a5a", warn: "#e0a
 
 export function riskRows(list: Risk[], buttons = true): string {
   if (!list.length) return `<p class="hint">Nothing to worry about this season.</p>`;
-  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals", holdings: "Holdings", struggle: "Struggle" }[r.go]}</button>` : ""}</div>`).join("");
+  return list.map((r) => `<div class="risk"><i style="background:${LEVEL_COLOUR[r.level]}"></i><div><b>${esc(r.title)}</b><span>${esc(r.detail)}</span></div>${buttons && r.go ? `<button data-go="${r.go}">${{ works: "Works", policy: "Policy", rivals: "Rivals", holdings: "Money", struggle: "Struggle", town: "Town" }[r.go]}</button>` : ""}</div>`).join("");
 }
 
 export const industryName = (id: IndustryId) => INDUSTRIES[id].name;

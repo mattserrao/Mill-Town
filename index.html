@@ -10,37 +10,56 @@
       <div class="brand" id="brand">MILL TOWN</div>
       <div id="calendar" class="kpi"></div>
       <div id="timeControls">
-        <span id="speeds" title="Game speed (P pauses; 1–4)">
-          <button data-speed="0" title="Pause (P)">❚❚</button><button data-speed="1" title="A season every 13 s">1×</button><button data-speed="2">2×</button><button data-speed="3">4×</button><button data-speed="4">8×</button>
+        <span id="speeds">
+          <button id="playBtn" title="Play / pause (P)">▶</button><button id="speedBtn" title="Game speed: click to change (keys 1–4)">1×</button>
         </span>
-        <button id="next" class="primary" title="Next season (Space)">Season ▶</button>
+        <button id="next" class="primary" title="Next season (Space) · Shift-click or Shift+Space: on to next Spring">Next season ▶</button>
       </div>
       <i class="sep"></i>
-      <div id="familyKpi" class="kpi" title="The head of the family (S: the Struggle)" hidden></div>
-      <i class="sep"></i>
       <div id="cash" class="kpi"></div>
-      <div id="profit" class="kpi"></div>
-      <div id="population" class="kpi"></div>
       <i class="sep"></i>
       <div id="standing"></div>
       <div class="spacer"></div>
       <button id="struggleBtn" title="Labour, politics and the other owners (S)">Struggle</button>
-      <button id="trendsBtn" title="Cash, profit, prices, market share, risks and the town over time (T)">Trends</button>
-      <button id="soundTop" title="Sound (M)"></button>
+      <button id="trendsBtn" title="Cash, profit, prices, market share and the town over time (T)">Trends</button>
+      <button id="paperBtn" title="The paper and the ledger (N)">Paper<span id="paperCount"></span></button>
       <div id="gameMenu">
         <button id="gameBtn" title="Game menu">☰</button>
         <div id="gameDrop" hidden>
           <button id="saveBtn" title="Save this game under a new name (the game also saves itself every new year)">Save game <kbd>Ctrl S</kbd></button>
-          <button id="exitBtn" title="Save the game and go to the main menu">Save &amp; exit <kbd>Esc</kbd></button>
-          <button id="nextYear" title="Play to next Spring (Shift+Space)">Play to next Spring</button>
+          <button id="loadBtn" title="Load a saved game (this one is saved first)">Load game…</button>
+          <button class="fold" data-fold="settings">Settings <i>▸</i></button>
+          <div class="fold-body" id="settings" hidden>
+            <div class="set-row"><span>Sound</span><button id="soundTop" title="Sound (M)"></button></div>
+            <label class="vol">Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
+            <label class="vol">Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
+            <p class="hint" id="nowPlaying"></p>
+            <div class="set-row"><span>Map</span>
+              <div class="chips">
+                <label class="chip"><input type="checkbox" id="labels" checked />Names</label>
+                <label class="chip"><input type="checkbox" id="grid" />Grid</label>
+                <label class="chip"><input type="checkbox" id="animate" checked />Animate</label>
+              </div>
+            </div>
+            <div class="set-row"><span>Time of day</span><select id="tod"><option value="day">Day</option><option value="cycle">Day &amp; night</option><option value="night">Night</option></select></div>
+            <p class="hint" id="version"></p>
+          </div>
+          <button class="fold" data-fold="keys">Keys <i>▸</i></button>
+          <div class="fold-body" id="keys" hidden>
+            <dl class="keys">
+              <dt>Space</dt><dd>Next season (Shift: next Spring)</dd>
+              <dt>P · 1–4</dt><dd>Play/pause · speed</dd>
+              <dt>Drag · WASD</dt><dd>Move the map</dd>
+              <dt>Scroll · + −</dt><dd>Zoom</dd>
+              <dt>S · T · N</dt><dd>Struggle · Trends · Paper</dd>
+              <dt>M</dt><dd>Sound on/off</dd>
+              <dt>Esc</dt><dd>Close; with nothing open, save and exit</dd>
+              <dt>Ctrl S</dt><dd>Save</dd>
+            </dl>
+          </div>
+          <button id="exitBtn" title="Save the game and go to the main menu">Save &amp; exit to menu <kbd>Esc</kbd></button>
           <label class="seed" hidden>Seed <input id="seed" type="text" size="8" /></label>
           <button id="regen" hidden>New town</button>
-          <div class="menu-h">Sound</div>
-          <label class="vol">Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
-          <label class="vol">Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
-          <p class="hint" id="nowPlaying"></p>
-          <p class="hint keys">Drag or WASD to pan · scroll or ± to zoom · Space next season · P pause · 1–4 speed · T trends · M sound</p>
-          <p class="hint" id="version"></p>
         </div>
       </div>
 
@@ -54,20 +73,13 @@
           <button id="layerBtn" title="Map layers and view">Map: <span id="layerName">Town</span> ▾</button>
           <div id="layerMenu" hidden>
             <div id="overlays"></div>
-            <div class="ov-group">View</div>
-            <div class="chips">
-              <label class="chip"><input type="checkbox" id="labels" checked />Names</label>
-              <label class="chip"><input type="checkbox" id="grid" />Grid</label>
-              <label class="chip"><input type="checkbox" id="animate" checked />Animate</label>
-              <select id="tod" title="Time of day"><option value="day">Day</option><option value="cycle">Day &amp; night</option><option value="night">Night</option></select>
-            </div>
           </div>
-          <div id="legendBox" hidden><div id="legend"></div></div>
+          <div id="legendBox" hidden><div id="legend"></div><div id="supply" hidden></div></div>
         </div>
         <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button></div>
         <div id="headline" title="Open the paper"></div>
         <div id="paper" hidden>
-          <div class="pp-tabs"><button data-pp="paper" class="on">The paper</button><button data-pp="ledger">Ledger</button><span id="paperNav"></span><button class="pp-close" title="Close (Esc)">✕</button></div>
+          <div class="pp-tabs ovl-head"><button data-pp="paper" class="on">The paper</button><button data-pp="ledger">Ledger</button><span id="paperNav"></span><button class="x pp-close" title="Close (Esc)">✕</button></div>
           <div id="news"></div>
           <ol id="log" hidden></ol>
         </div>
@@ -79,11 +91,12 @@
         <div id="placeBar" hidden></div>
         <div id="trends" hidden></div>
         <div id="menu" hidden></div>
+        <div id="dialog" hidden></div>
         <div id="toast" hidden></div>
       </div>
       <aside id="right" data-tab="overview">
         <nav id="rightTabs">
-          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="holdings">Holdings</button><button data-tab="policy">Policy</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
+          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="policy">Policy</button><button data-tab="holdings">Money</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
         </nav>
         <section id="foundSection" data-tab="overview">
           <h2>Found your company</h2>
@@ -100,10 +113,6 @@
         <div id="overview" data-tab="overview"></div>
         <p class="hint tab-empty" data-tab="works" id="worksEmpty">Found a company first.</p>
         <div id="works" data-tab="works"></div>
-        <section id="supplySection" data-tab="works" hidden>
-          <h2>Supply chain <button id="showSupply" class="link">on the map</button></h2>
-          <div id="supply"></div>
-        </section>
         <p class="hint tab-empty" data-tab="policy" id="policyEmpty">Found a company first.</p>
         <div id="biz" data-tab="policy"></div>
         <div id="town" data-tab="town"></div>

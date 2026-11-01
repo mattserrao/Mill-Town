@@ -48,9 +48,9 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
     body = `
       ${h.inGame ? `${h.saved ? `<p class="mm-ok">✓ Game saved. You can close this tab, or pick up where you left off.</p>` : ""}<button class="mm-big primary" data-a="back"><b>Back to the game</b><span>Esc</span></button>
       <button class="mm-big" data-a="save"><b>Save as a new game</b><span>Keeps this point to load later</span></button>` : ""}
-      <button class="mm-big ${h.inGame ? "" : "primary"}" data-a="resume" ${auto ? "" : "disabled"}>
+      <button class="mm-big ${h.inGame || !auto ? "" : "primary"}" data-a="resume" ${auto ? "" : "disabled"}>
         <b>Resume last game</b><span>${auto ? `${line(auto)} · saved ${ago(auto.savedAt)}` : "No game saved yet"}</span></button>
-      <button class="mm-big" data-a="new"><b>New game</b><span>A new valley in 1850</span></button>
+      <button class="mm-big ${!h.inGame && !auto ? "primary" : ""}" data-a="new"><b>New game</b><span>A new valley in 1850</span></button>
       <button class="mm-big" data-a="load" ${saves.length ? "" : "disabled"}><b>Load game</b><span>${saves.length ? `${saves.length} saved game${saves.length > 1 ? "s" : ""}` : "No saved games"}</span></button>`;
   } else if (view === "new") {
     body = `
@@ -83,7 +83,7 @@ export async function mainMenu(el: HTMLElement, h: MenuHandlers, view: "main" | 
     <div class="mm-sub">${view === "load" ? "Load a game" : view === "new" ? "New game" : "Pittsburgh &amp; the Mon Valley, 1850–1985"}</div>
     ${error ? `<p class="mm-err">${esc(error)}</p>` : ""}
     ${body}
-    <div class="mm-foot">Games are saved in this browser: every new year, when you leave, and with Ctrl+S or ☰ → Save game. Esc saves and comes back here.</div>
+    <div class="mm-foot">Games save in this browser every new year and when you leave.</div>
   </div>`;
   el.hidden = false;
 

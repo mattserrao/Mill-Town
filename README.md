@@ -84,8 +84,14 @@ in the terminal running `npm run dev`.
 - **Landmarks** fill in on their real dates and places: ~60 more hospitals, high schools, colleges and libraries,
   ballparks and arenas, memorials and the downtown towers (the Frick, Koppers, Gulf, Alcoa and U.S. Steel
   buildings, PPG Place), with renames (Duquesne University, Chatham, Carnegie Mellon) and demolitions
-- Top bar: the date and the clock (pause, speeds, next season) first; on narrower windows the meters lose their
-  bars and then shorten their labels, and the brand, the valley's population and the family chip give way
+- **Menus** (v0.19, `docs/V019-UI-PLAN.md`): a top bar in four groups — the date and the clock (play/pause, one
+  speed button, Next season; shift-click for the next Spring), cash with last season's profit, the four meters
+  (Reputation, Labour, Influence, Morale, each with its icon) and the views (Struggle, Trends, Paper with an unread
+  count, ☰). Tabs Overview · Works · Policy · Money · Town · Rivals show what you can act on now, about five rows
+  a section with "Show all"; moves against a rival sit in a ⋯ menu on its row, politics in the Struggle, roads and
+  gifts in Town; selling or listing the company has its own dialog. ☰ holds Save, Load, Settings (sound, map labels,
+  grid, animation, time of day), Keys and Save & exit; the Map menu holds only the layers (Best sites is one layer
+  with an industry picker). Esc closes whatever is on top. Running text is set in a proportional face
 - Main menu (at start, and ☰ → Save & exit): **Resume last game**, **New game** (blank seed for a fresh town, or a
   seed to replay one) and **Load game**. Games are saved in the browser (IndexedDB): the autosave every new year,
   when you leave the page and when you open the menu; ☰ → **Save game** keeps a named save (the newest 12 are

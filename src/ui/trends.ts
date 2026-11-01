@@ -7,7 +7,7 @@ import { RIVALS } from "../core/rivals";
 import { relationOf } from "../core/economy";
 import { nameNow } from "../core/rivals";
 import { calendar } from "../core/time";
-import { riskRows, risks, shareAt } from "./risks";
+import { shareAt } from "./risks";
 
 interface Series {
   name: string; colour: string; values: (number | undefined)[];
@@ -136,7 +136,6 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
         ${box("trGrowth", "Capacity, output and men", last?.capacity ? `${count(last.capacity)} cap · ${count(last.employees ?? 0)} men` : "")}
         ${box("trShare", `Share of ${INDUSTRIES[c.industry].name.toLowerCase()} output`, sh !== undefined ? pct(sh * 100) : "")}
         ${box("trMarket", `The ${INDUSTRIES[c.industry].name.toLowerCase()} market: demand and supply`, last?.mkt?.[c.industry] ? `${count(last.mkt[c.industry]![0])} wanted · ${count(last.mkt[c.industry]![1])} offered` : "from 1893")}
-        <div class="tr-box"><h4>Watch</h4><div class="tr-risks">${riskRows(risks(g))}</div></div>
       </div>`;
     }
   } else if (tab === "prices") {
@@ -159,7 +158,7 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
     <div class="tr-tabs">${([["business", "Business"], ["prices", "Prices & wages"], ["town", "Town"]] as const).map(([k, n]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${n}</button>`).join("")}</div>
     <span class="spacer"></span>
     <div class="tr-range">${(["all", "30", "10"] as const).map((r) => `<button data-r="${r}" class="${r === range ? "on" : ""}">${r === "all" ? (tab === "business" ? "All" : "Since 1850") : `${r} yrs`}</button>`).join("")}</div>
-    <button class="tr-close" title="Close (Esc)">✕</button></div>${body}`;
+    <button class="x tr-close" title="Close (Esc)">✕</button></div>${body}`;
   el.hidden = false;
   el.querySelector(".tr-close")!.addEventListener("click", () => { el.hidden = true; });
   el.querySelectorAll<HTMLButtonElement>("button[data-r]").forEach((b) => b.addEventListener("click", () => { range = b.dataset.r as typeof range; trendsView(g, el, onGo); }));
