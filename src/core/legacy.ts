@@ -2,8 +2,8 @@
 // it left the town) and History's verdict (what the men, the public and the record say) — set beside the real
 // dynasties of the valley.
 
+import { companyWorth } from "./holdings";
 import { allWorks, cal, type GameState, totalPopulation } from "./game";
-import { holdingsValue } from "./holdings";
 import { lawsOf, LAWS } from "./politics";
 import { martyrsOf, standing } from "./ledger";
 import { priceLevel } from "./time";
@@ -26,8 +26,9 @@ export function legacy(g: GameState): Legacy {
   const c = g.company, lines: string[] = [];
   if (!c) return { fortune: 0, valley: 0, verdict: 0, total: 0, title: "No company, no legacy", lines };
   const y = cal(g).year, era = priceLevel(y);
-  const hv = holdingsValue(g);
-  const wealth = Math.max(0, c.cash) + hv.biz + hv.stakes + hv.shares - c.debt;
+  // the family's fortune is the whole concern: works, holdings and cash, less what it owes (v0.18.2)
+  // (the family owns its share of it: outside shareholders own the rest)
+  const wealth = companyWorth(g).total * (1 - (c.public?.outside ?? 0) / 100);
   // Fortune: $10M (in 1985 dollars of the game) is a great fortune; $100M a dynasty's
   const fortune = clamp(wealth <= 0 ? 0 : 20 * Math.log10(1 + wealth / (100000 * era)) + 20);
   // The Valley: the town's size against its peak, its morale and health, the great works the family founded

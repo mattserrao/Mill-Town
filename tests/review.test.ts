@@ -10,13 +10,16 @@ import { parseMap, type MapMeta } from "../src/core/map";
 import { commission, techBlocked, techCost, techStanding } from "../src/core/market";
 import { buildProject, projectBlocked, suggestProject } from "../src/core/projects";
 import { evaluateSite, footprintTiles, popSAT } from "../src/core/site";
-import { BUSINESSES, buyBiz, buyShares, buyStake, holdingsValue, LISTED } from "../src/core/holdings";
+import { BUSINESSES, buyBiz, buyShares, buyStake, holdingsValue, LISTED, listedOpen } from "../src/core/holdings";
 import { resolveDecision, takeAction } from "../src/core/business";
 import { Rng } from "../src/core/rng";
 import { ledgerOf, martyrsOf, topMarks } from "../src/core/ledger";
 import { type Path, resolveSuccession } from "../src/core/family";
 import { LAWS, lawsOf, polOf } from "../src/core/politics";
 import { sieges } from "../src/core/labour";
+import { companyBids, sellCompany } from "../src/core/ownership";
+import { companyWorth } from "../src/core/holdings";
+import { worksValue } from "../src/core/value";
 
 const base = new URL("../public/maps/", import.meta.url);
 const meta = JSON.parse(readFileSync(new URL("mon-valley.json", base), "utf8")) as MapMeta;
@@ -33,7 +36,7 @@ function bestSite(g: GameState, ind: IndustryId) {
 }
 
 /** idle: never invests; invests: processes and expansions; tycoon: + holdings; crush / recognise: invests, and fights or deals with labour; politics / coop / newind: invests, and the heir takes that path in 1893 */
-type Owner = "idle" | "invests" | "tycoon" | "crush" | "recognise" | "politics" | "coop" | "newind";
+type Owner = "idle" | "invests" | "tycoon" | "crush" | "recognise" | "politics" | "coop" | "newind" | "seller" | "speculator";
 
 function play(ind: IndustryId, who: Owner, seed: number) {
   const g = newGame(map, seed);
@@ -43,7 +46,7 @@ function play(ind: IndustryId, who: Owner, seed: number) {
   const c = g.company!;
   const t0 = Date.now();
   let seasons = 0, decisions = 0, demands = 0, slowest = 0, moves = 0, answers = 0;
-  const yearly: Record<number, { cash: number; profit: number; men: number; tax?: number; pensions?: number }> = {};
+  const yearly: Record<number, { cash: number; profit: number; men: number; tax?: number; pensions?: number; worth?: number; works?: number; price?: number }> = {};
   let peak = { cash: 0, year: 1850 }, bankrupt: number | null = null;
   const answered = new Map<string, string | undefined>();
   const strikeYears: number[] = [];
@@ -75,6 +78,10 @@ function play(ind: IndustryId, who: Owner, seed: number) {
       for (const w of allWorks(c)) for (const t of INDUSTRIES[w.industry].tech) if (!techBlocked(g, w, t) && c.cash > techCost(t, y) * 1.1) commission(g, w, t.id);
       if (!projectBlocked(g, "expand") && c.cash > 1_500_000 * (1 + (y - 1850) * 0.02)) { const p = suggestProject(g, "expand"); if (p?.ok) buildProject(g, p); }
     }
+    // seller: invests, sells the company in 1955 and puts the money into shares; speculator: margin in the 1920s
+    if (who === "seller" && y === 1955 && allWorks(c).length) { const b = companyBids(g).sort((a, b2) => b2.price - a.price)[0]; if (b) { c.biz.actionsLeft = Math.max(1, c.biz.actionsLeft); sellCompany(g, b.id); } }
+    if (who === "seller" && !allWorks(c).length && cal(g).season === "Spring") for (const L of LISTED) if (listedOpen(g, L)) buyShares(g, L.id, 20);
+    if (who === "speculator" && y >= 1920 && y < 1934) for (const L of LISTED) if (listedOpen(g, L) && c.cash > 200000) buyShares(g, L.id, 20, true);
     if (who === "tycoon") {
       for (const d of BUSINESSES) if (c.cash > 300000 && c.biz.actionsLeft > 0) buyBiz(g, d.id);
       for (const r of g.rivals) if (r.active && !r.closed && !r.owned && c.cash > 2_000_000 && c.biz.actionsLeft > 0) buyStake(g, r.id);
@@ -89,7 +96,7 @@ function play(ind: IndustryId, who: Owner, seed: number) {
     if (sieges(g).length && strikeYears[strikeYears.length - 1] !== y) strikeYears.push(y);
     if (c.cash > peak.cash) peak = { cash: Math.round(c.cash), year: y };
     if (c.bankrupt && bankrupt === null) bankrupt = y;
-    if (cal(g).season === "Spring" && (y % 5 === 0 || y >= 1975)) yearly[y] = { cash: Math.round(c.cash), profit: c.totals?.profit ?? 0, men: c.totals?.workersHired ?? 0, tax: c.totals?.tax, pensions: c.totals?.pensions };
+    if (cal(g).season === "Spring" && (y % 5 === 0 || y >= 1975)) yearly[y] = { worth: companyWorth(g).total, works: allWorks(c).reduce((s, w) => s + worksValue(g, w), 0), price: g.markets?.[c.industry]?.price, cash: Math.round(c.cash), profit: c.totals?.profit ?? 0, men: c.totals?.workersHired ?? 0, tax: c.totals?.tax, pensions: c.totals?.pensions };
   }
   const hv = holdingsValue(g);
   const L = lawsOf(g);

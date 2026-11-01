@@ -19,7 +19,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 /** what a rival works is producing relative to its standard: expansions, damage, the collapse */
 export function rivalMult(g: GameState, r: RivalState): number {
-  let m = (1 + r.expand) * (r.partial ?? 1);
+  let m = (1 + r.expand) * (r.partial ?? 1) * (r.bank ?? 1);
   for (const d of r.damage) if (d.until > g.turn) m *= d.mult;
   return m;
 }

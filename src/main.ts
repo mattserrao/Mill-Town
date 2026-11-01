@@ -1,3 +1,4 @@
+import { companyWorth } from "./core/holdings";
 import { distance, feet } from "./core/units";
 import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, foundingCapital, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
 import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
@@ -608,6 +609,9 @@ function overviewPanel() {
       ${card("Market share", sh !== undefined ? `${Math.round(sh * 100)}%` : "—", sh !== undefined && sh0 !== undefined ? `<em><span class="${sh >= sh0 ? "up" : "down"}">${sh >= sh0 ? "▲" : "▼"}</span> ${Math.round(sh0 * 100)}% ten years ago</em>` : "<em>of the industry's output</em>")}
       ${card("Price / unit", price ? `$${price.toFixed(2)}` : "—", `<em>${st.factor === 1 ? "level with rivals" : `${st.factor > 1 ? "+" : "−"}${Math.round(Math.abs(st.factor - 1) * 100)}% vs rivals`}</em>`, st.factor < 1 ? "down" : "")}
       ${card("Cost / unit", uc ? `$${uc.toFixed(2)}` : "—", `<em>${uc && price ? `margin ${Math.round((1 - uc / price) * 100)}%` : ""}</em>`, uc && price && uc > price ? "down" : "")}
+      ${(() => { const nw = companyWorth(game); return card("Net worth", short(nw.total), `<em>works ${short(nw.works)} · holdings ${short(nw.holdings)}</em>`, nw.total < 0 ? "down" : ""); })()}
+      ${(() => { const mk = game.markets?.[c.industry], stock = allWorks(c).reduce((s2, w) => s2 + (w.stock ?? 0), 0);
+        return card("Market", mk ? `${mk.price >= 1 ? "+" : "−"}${Math.abs(Math.round((mk.price - 1) * 100))}%` : "—", `<em>${mk ? `${mk.demand >= mk.supply ? "short" : "glut"} · ${Math.round((mk.supply / Math.max(1, mk.demand)) * 100)}% of demand offered${stock ? ` · ${fmt(stock)} in yards` : ""}` : "no market before 1893"}</em>`, mk && mk.price < 0.9 ? "down" : ""); })()}
     </div>
     <h4 class="mh">Watch <button class="link" id="ovTrends">Trends ▸</button></h4>
     <div class="risks">${riskRows(list.slice(0, 5))}</div>

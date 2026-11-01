@@ -130,11 +130,12 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
       const sh = last ? shareAt(last, c.industry) : undefined;
       const uc = last?.unitCost, price = last?.yours[c.industry] ?? last?.market[c.industry];
       body = `<div class="tr-grid">
-        ${box("trCash", "Cash", money(c.cash))}
+        ${box("trCash", "Cash and net worth", money(c.cash))}
         ${box("trProfit", "Revenue, costs, profit — per season", last?.profit !== undefined ? money(last.profit) : "")}
         ${box("trMargin", "Price and cost per unit", uc && price ? `margin ${Math.round((1 - uc / price) * 100)}%` : "")}
         ${box("trGrowth", "Capacity, output and men", last?.capacity ? `${count(last.capacity)} cap · ${count(last.employees ?? 0)} men` : "")}
         ${box("trShare", `Share of ${INDUSTRIES[c.industry].name.toLowerCase()} output`, sh !== undefined ? pct(sh * 100) : "")}
+        ${box("trMarket", `The ${INDUSTRIES[c.industry].name.toLowerCase()} market: demand and supply`, last?.mkt?.[c.industry] ? `${count(last.mkt[c.industry]![0])} wanted · ${count(last.mkt[c.industry]![1])} offered` : "from 1893")}
         <div class="tr-box"><h4>Watch</h4><div class="tr-risks">${riskRows(risks(g))}</div></div>
       </div>`;
     }
@@ -169,7 +170,7 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
   const ix = (id: IndustryId, v: number | undefined) => (v === undefined ? undefined : (v / INDUSTRIES[id].basePrice) * 100);
 
   if (tab === "business" && c) {
-    chart(cv("trCash"), years, [{ name: "Cash", colour: "#e0a243", values: pts.map((p) => p.cash), fill: true, width: 2 }], $("trCashL"));
+    chart(cv("trCash"), years, [{ name: "Cash", colour: "#e0a243", values: pts.map((p) => p.cash), fill: true, width: 2 }, { name: "Net worth", colour: "#7cc87c", values: pts.map((p) => p.worth ?? p.cash), width: 2 }], $("trCashL"));
     chart(cv("trProfit"), years, [
       { name: "Revenue", colour: "#7ac8e0", values: yearly(pts.map((p) => p.revenue)), shown: pts.map((p) => p.revenue) },
       { name: "Costs", colour: "#e07a64", values: yearly(pts.map((p) => p.costs)), shown: pts.map((p) => p.costs) },
@@ -187,6 +188,10 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
       for (const t of p.techs ?? []) if (!had.has(t)) { const def = INDUSTRY_IDS.map((i) => INDUSTRIES[i].tech.find((x) => x.id === t)).find(Boolean); if (def) marks.push({ k, label: def.name.split(/[ -]/)[0] }); }
       if (p.techs) had = new Set(p.techs);
     });
+    chart(cv("trMarket"), years, [
+      { name: "Demand", colour: "#7cc87c", width: 2, values: pts.map((p) => p.mkt?.[c.industry]?.[0]) },
+      { name: "Supply", colour: "#e07a64", width: 2, values: pts.map((p) => p.mkt?.[c.industry]?.[1]) },
+    ], $("trMarketL"), { fmt: count });
     chart(cv("trGrowth"), years, [
       { name: "Capacity", colour: "#e0a243", width: 2, values: pts.map((p) => p.capacity) },
       { name: "Output", colour: "#7ac8e0", values: yearly(pts.map((p) => p.produced)), shown: pts.map((p) => p.produced) },
