@@ -492,3 +492,40 @@ button.link.go:hover:not(:disabled) { color: var(--accent); }
 .dyn tr.you td { font-weight: bold; }
 .pol-row .seg button.illegal { text-decoration: line-through; opacity: 0.5; }
 .bz-managed { border: 1px solid var(--accent); padding: 4px 8px; margin-bottom: 6px; color: var(--accent); font-size: 11px; }
+
+/* new game: later starts */
+.mm-h { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.mm-opts { display: flex; flex-direction: column; gap: 4px; }
+.mm-opts.mm-two { flex-direction: row; }
+.mm-opts.mm-two label { flex: 1; }
+.mm-opts label { display: block; border: 1px solid var(--line); background: var(--panel2); padding: 5px 8px; cursor: pointer; }
+.mm-opts label.on { border-color: var(--accent); }
+.mm-opts input { margin-right: 6px; }
+.mm-opts span { display: block; color: var(--muted); font-size: 11px; margin-left: 20px; }
+.mm-seed select { flex: 1; font: inherit; background: var(--panel2); color: var(--text); border: 1px solid var(--line); padding: 5px 6px; }
+.mm-prog { height: 10px; background: var(--panel2); border: 1px solid var(--line); margin: 10px 0 6px; }
+.mm-prog b { display: block; height: 100%; background: var(--accent); }
+
+/* the top bar fits from 1100 px up: the clock sits by the date; meters, labels and the brand give way first */
+#topbar { gap: 10px; }
+#topbar > * { flex: none; }
+#topbar .spacer { flex: 1 1 0; min-width: 0; }
+#timeControls #next { padding-left: 8px; padding-right: 8px; }
+.m-short { display: none; }
+@media (max-width: 1560px) {
+  .meter .mbar { display: none; }
+  .meter { padding: 2px 6px; gap: 4px; }
+}
+@media (max-width: 1360px) {
+  #topbar { gap: 7px; padding: 4px 8px; }
+  .brand { display: none; }
+  .m-long { display: none; }
+  .m-short { display: inline; }
+  #population { display: none; }
+  #speeds button { padding: 4px 5px; }
+}
+@media (max-width: 1220px) {
+  #familyKpi { display: none !important; }
+  .kpi small { letter-spacing: 0; }
+  #standing { gap: 4px; }
+}

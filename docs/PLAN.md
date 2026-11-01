@@ -215,6 +215,11 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      ahead), the owners' association, Morgan's 1901 offer and takeover bids; a political career for an heir in
      office; income tax from 1909, pensions from 1950, Superfund cleanup from 1980; a legacy score with the family
      tree and the real dynasties at the end. The Struggle view (S)
+   - Later starts and the top bar (v0.17, `src/core/autoplay.ts`): New game can start in 1893, 1920 or 1947 as the
+     Industrialist or the Politician; the years before are simulated with an AI owner (historical decisions, union
+     demands met halfway, long strikes settled, processes bought, credit instead of receivership) and the player
+     arrives at that era's succession with the paths of their faction. The top bar puts the clock beside the date
+     and fits from 1,100 px (meters drop their bars, then shorten; brand, population and family chip give way)
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI
