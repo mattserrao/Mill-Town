@@ -574,6 +574,7 @@ export function setPolicy(g: GameState, next: Partial<Policy>): { ok: boolean; t
   if (next.halfHoliday && g.rules.halfHoliday?.blocked) return { ok: false, text: g.rules.halfHoliday.blocked };
   if (next.wages === "scale" && g.rules.scale?.blocked) return { ok: false, text: g.rules.scale.blocked };
   if (!fresh) c.biz.actionsLeft--;
+  c.biz.flags.policySet = true;
   const wasUnion = c.biz.policy.union;
   Object.assign(c.biz.policy, next);
   if (next.union === "recognise" && wasUnion !== "recognise") {

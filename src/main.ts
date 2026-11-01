@@ -685,8 +685,14 @@ function overviewPanel() {
   const st = techStanding(game, c);
   const card = (k: string, v: string, sub: string, cls = "") => `<div class="card"><small>${k}</small><b class="${cls}">${v}</b>${sub}</div>`;
   const list = [...struggleRisks(game), ...risks(game)].sort((a, b) => ({ bad: 0, warn: 1, good: 2 }[a.level] - { bad: 0, warn: 1, good: 2 }[b.level]));
+  const lg = legacy(game);
   el.innerHTML = `
     <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" && !c.bankrupt ? "up" : "down"}">● ${status}</span></div>
+    ${firstSeasons()}
+    <div class="legacy" title="What the family will be remembered for: its fortune, the valley it leaves, and history's verdict on how it treated the men and the public. The score at the end of the game, compared with the real dynasties.">
+      <small>Legacy</small><b>${lg.total}</b><span>${esc(lg.title)}</span>
+      <i title="Fortune ${lg.fortune}">★ ${lg.fortune}</i><i title="The valley ${lg.valley}">⌂ ${lg.valley}</i><i title="History's verdict ${lg.verdict}">⚖ ${lg.verdict}</i>
+    </div>
     <div class="cards">
       ${(() => { const nw = companyWorth(game); return card("Net worth", short(nw.total), spark(hist.map((p) => p.worth ?? p.cash), "#7cc87c") + `<em>works ${short(nw.works)} · cash ${short(nw.cash)}</em>`, nw.total < 0 ? "down" : ""); })()}
       ${card("Output", s ? fmt(s.produced) : "—", `<em>of ${fmt(cap)}${cap && s ? ` · ${Math.round((s.produced / cap) * 100)}% used` : ""}${sh !== undefined ? ` · ${Math.round(sh * 100)}% of the industry` : ""}</em>`)}
@@ -712,7 +718,31 @@ function overviewPanel() {
     ${c.lastSeason?.notes.length ? `<p class="hint">${c.lastSeason.notes.map(esc).join(" ")}</p>` : ""}` : ""}`;
   $("ovTrends").addEventListener("click", () => toggleTrends(true));
   document.getElementById("watchAll")?.addEventListener("click", () => { watchAll = !watchAll; overviewPanel(); });
+  document.getElementById("clOff")?.addEventListener("click", () => { checklistOff = true; try { localStorage.setItem("mt.checklist", "off"); } catch { /* private mode */ } overviewPanel(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => (b.dataset.go === "struggle" ? toggleStruggle(true) : setTab(b.dataset.go!))));
+}
+
+/**
+ * The first seasons: a short checklist for a new owner (shown until every step is done or it is dismissed,
+ * and only in a company's first three years — a later start arrives with all of it behind it).
+ */
+let checklistOff = (() => { try { return localStorage.getItem("mt.checklist") === "off"; } catch { return false; } })();
+function firstSeasons(): string {
+  const c = game.company;
+  if (!c || checklistOff || cal(game).year - c.founded > 3 || game.flags.laterStart || (game.family?.heads.length ?? 1) > 1) return "";
+  const b = c.biz;
+  const steps: [boolean, string, string, string | undefined][] = [
+    [true, "Found the works", "Done: the furnaces are lit.", undefined],
+    [c.techs.length > 1 || !!c.research, "Commission a process", "Works tab → Processes: each one lifts your price against the rivals. The industry moves on without you.", "works"],
+    [!!b.flags.policySet, "Set your policies", "Policy tab: wages, hours, safety and the union. Three actions a season; changes made in one season cost one.", "policy"],
+    [(c.seasonsOperating ?? 0) >= 4 || paperRead > 0, "Read the paper and the Watch list", "The headline strip opens the paper; Watch (below) is what could hurt you next, worst first.", undefined],
+    [(game.publicWorks.roads?.length ?? 0) > 0 || Object.keys(c.hood ?? {}).length > 0 || !!c.library, "Do something for the town", "Town tab: a road, a water main, a library. The men who live near the works are your men.", "town"],
+  ];
+  const done = steps.filter((s) => s[0]).length;
+  if (done === steps.length) return "";
+  return `<div class="checklist"><div class="cl-head"><small>Your first seasons · ${done}/${steps.length}</small><button class="link" id="clOff" title="Hide this">✕</button></div>
+    ${steps.map(([ok, t, d, go]) => `<div class="cl-step ${ok ? "ok" : ""}"><span>${ok ? "✓" : "○"}</span><div><b>${t}</b>${ok ? "" : `<em>${d}</em>${go ? ` <button class="link" data-go="${go}">${go[0].toUpperCase() + go.slice(1)} ▸</button>` : ""}`}</div></div>`).join("")}
+  </div>`;
 }
 
 const KIND_TITLE: Record<Flow["kind"], string> = { input: "In", utilityIn: "Utilities in", utilityOut: "Your customers", output: "Out" };
