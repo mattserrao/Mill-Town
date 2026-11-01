@@ -943,7 +943,7 @@ export class Renderer {
     const cw = ctx.canvas.width, ch = ctx.canvas.height;
     const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
     const elevAt = (x: number, y: number) => m.elevation[Math.max(0, Math.min(m.height - 1, Math.floor(y))) * m.width + Math.max(0, Math.min(m.width - 1, Math.floor(x)))];
-    const live = m.spans.map((sp) => ({ sp, st: stageOf(sp, year) })).filter((o) => o.st)
+    const live = [...m.spans, ...(g.spans ?? [])].map((sp) => ({ sp, st: stageOf(sp, year) })).filter((o) => o.st)
       .sort((p, q) => (p.sp.a[0] + p.sp.a[1] + p.sp.b[0] + p.sp.b[1]) - (q.sp.a[0] + q.sp.a[1] + q.sp.b[0] + q.sp.b[1]));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1289,7 +1289,7 @@ export class Renderer {
       items.push({ name: inc.name, x: mid[0] + 1.5, y: mid[1] + 0.5, col: "#ffb0a0", min: 0.5 });
     }
     const seen = new Set<string>();
-    for (const sp of m.spans) {
+    for (const sp of [...m.spans, ...(g.spans ?? [])]) {
       if (sp.kind !== "road" || seen.has(sp.name) || !stageOf(sp, g.world.year)) continue;
       seen.add(sp.name);
       items.push({ name: sp.name, x: (sp.a[0] + sp.b[0]) / 2, y: (sp.a[1] + sp.b[1]) / 2, col: "#d8c8a8", min: 0.75 });

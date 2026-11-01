@@ -4,11 +4,12 @@
 // the rivers and the rail lines open that year; off-map trade enters and leaves at real gateways
 // (the Ohio downriver, the Allegheny and Mon upriver, the Yough to Connellsville, the railroads east and west).
 
-import { type GameState, PRICE_TREND, type RivalState } from "./game";
+import { type GameState, PRICE_TREND, type RivalState, rivalOutput } from "./game";
 import { latLonToTile } from "./features";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import type { GameMap } from "./map";
 import { RIVALS, type RivalDef } from "./rivals";
+import { rivalTechs } from "./market";
 import { navigable } from "./site";
 import { Terrain } from "./terrain";
 import { GATEWAYS as FREIGHT_GATEWAYS, type GatewayId as FreightGateway, type Lane, sourceRiver } from "./freight";
@@ -126,7 +127,6 @@ export function capacityOf(industry: IndustryId, techs: string[]): number {
   return Math.round(ind.baseCapacity * (1 + cap));
 }
 
-const techsAt = (ind: IndustryId, year: number) => INDUSTRIES[ind].tech.filter((t) => t.year <= year - 2).map((t) => t.id);
 
 export function playerWorks(g: GameState): WorksRef | null {
   const c = g.company;
@@ -136,8 +136,8 @@ export function playerWorks(g: GameState): WorksRef | null {
 
 export function rivalWorks(g: GameState, r: RivalState): WorksRef {
   const def = RIVALS.find((d) => d.id === r.id)!;
-  const techs = techsAt(def.industry, g.world.year);
-  return { industry: def.industry, x: r.x, y: r.y, fp: r.footprint, techs, produced: Math.round(capacityOf(def.industry, techs) * 0.85), name: shortName(def), rival: r.id };
+  const techs = rivalTechs(def.industry, def.id, g.world.year, r.style);
+  return { industry: def.industry, x: r.x, y: r.y, fp: r.footprint, techs, produced: rivalOutput(g, r), name: shortName(def), rival: r.id };
 }
 
 export const shortName = (d: RivalDef) => d.company.replace(/ \(.*\)$/, "");
@@ -357,7 +357,7 @@ export function competitors(g: GameState, industry: IndustryId, from?: { x: numb
   const order: Record<Relation, number> = { competitor: 0, supplier: 1, customer: 2, lender: 3, other: 4 };
   return RIVALS.map((def) => {
     const st = g.rivals.find((r) => r.id === def.id && r.active);
-    const techs = techsAt(def.industry, year);
+    const techs = rivalTechs(def.industry, def.id, year, st?.style);
     const at = st ? { x: st.x + st.footprint / 2, y: st.y + st.footprint / 2 } : g.map.landmarks.find((l) => l.name === def.site) ?? { x: 0, y: 0 };
     let near = def.site, nd = Infinity;
     for (const l of g.map.landmarks) if (l.kind === "town") { const d = Math.hypot(l.x - at.x, l.y - at.y); if (d < nd) { nd = d; near = l.name; } }
@@ -366,7 +366,7 @@ export function competitors(g: GameState, industry: IndustryId, from?: { x: numb
       owned: g.rivals.some((r) => r.id === def.id && r.owned),
       relation: relationOf(industry, def.industry, def.id),
       state: st,
-      capacity: st ? Math.round(capacityOf(def.industry, techs) * 0.85) : 0,
+      capacity: st && !st.closed ? rivalOutput(g, st) : 0,
       km: from ? (Math.hypot(at.x - from.x, at.y - from.y) * g.map.metersPerTile) / 1000 : undefined,
       near,
       product: def.id === "frick" ? "Connellsville coke" : def.id === "mellon" ? "Banking and loans" : productName(def.industry, techs, year),

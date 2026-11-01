@@ -75,7 +75,7 @@ export function newBusiness(year: number): Business {
 }
 
 /** river capacity bonuses won by lobbying (locks and dams), shared by every shipper */
-export interface PublicWorks { locks: Partial<Record<GatewayId, number>> }
+export interface PublicWorks { locks: Partial<Record<GatewayId, number>>; /** roads the city has promised you (roads.ts) */ roads?: import("./roads").PendingRoad[] }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const era = priceLevel; // wage and price level

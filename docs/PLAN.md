@@ -166,6 +166,22 @@ rivals enter at historical dates → eras shift markets → Era III collapse.
      at line ends, standing cuts at your sidings, boats along the river and fewer in winter; new period figures,
      horses, streetcars, cars by decade, steam and diesel trains with varied cars, steamboats and towboats with wakes,
      lamps and headlights at night
+   - Interface pass (v0.14, `docs/UI-PLAN.md`): one sidebar; top bar with cash, last season's profit and four
+     meter bars; tabs Overview · Works · Policy · Rivals with one-row actions and effect chips (full text on hover);
+     policies as switches; the Map button holds the layers and view options; headline strip and a paper with the
+     ledger; a click opens the tile card; **Trends** replaces Markets (cash, profit, price vs cost, capacity and
+     men with process marks, market share by rival, risks; prices; the town). Rivals' output now follows their own
+     processes, expansions, damage and cutbacks; each season records capacity, output, men, cost per unit, rival
+     output, population, morale, the jobless, health and unrest
+   - Roads, bridges and great works (v0.14, `src/core/roads.ts`, `src/core/patronage.ts`): the game suggests roads
+     from the works to the large neighbourhoods (1,200+ people) that would bring the most men within reach for the
+     money, and bridges across the river where the trip goes round by an old bridge or a ferry; you see the route on
+     the map, then pay or lobby the city (influence; it builds it in 4–8 seasons). Roads are pikes (horsecars and
+     streetcars run on them, houses settle along them); new bridges are drawn as real spans and carry traffic.
+     The Town tab lists the great works (universities, colleges, schools, libraries, hospitals, museums, the
+     conservatory, the zoo, parks…): each can be founded up to 15 years before history builds it, for cash and an
+     action, opening at once with your name on it (reputation, influence, labour or morale); every landmark
+     standing is listed and a click flies to it
 2. Logistics: ~~barges/rail as transport capacity; input sourcing from off-map gateways~~ (v0.8); ~~player-built docks; one route model for inputs~~ (v0.10); next: finished-goods shipping out
 3. Town simulation: housing tiers, services, wages and unrest, company town buildings, land value feedback
 4. ~~Tech tree UI and research; market prices~~ (v0.10); next: era transitions in the UI

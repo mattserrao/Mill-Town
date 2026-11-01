@@ -3,7 +3,8 @@
 
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { type GameMap, inBounds, recomputeElevation, resetMap, tilesFor } from "./map";
+import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
+import { roadsSeason } from "./roads";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
@@ -204,6 +205,11 @@ export interface GameState {
   jobless: number;
   /** dated landmarks on the map */
   landmarks: PlacedLandmark[];
+  /** bridges you (or the city, for you) built: drawn like the real spans */
+  spans?: Span[];
+  roadsBuilt?: number;
+  /** landmarks and parks you funded ahead of history: id or park name → year */
+  funded?: Record<string, number>;
   /** sports teams (sports.ts) */
   teams: TeamState[];
   /** rival effects waiting for their rival to open */
@@ -222,6 +228,21 @@ export interface PricePoint {
   raw: number;
   delivered?: number;
   revenue?: number; costs?: number; profit?: number; cash?: number;
+  /** your works: rated capacity and output (all works), men employed, cost per unit made */
+  capacity?: number; produced?: number; employees?: number; unitCost?: number;
+  /** your capacity and output by industry (output is what market share is measured on) */
+  capInd?: Partial<Record<IndustryId, number>>; prodInd?: Partial<Record<IndustryId, number>>;
+  /** every process your works run (ids, all works together), so the charts can mark when each arrived */
+  techs?: string[];
+  /** what each open rival works made this season, by rival id */
+  rivals?: Record<string, number>;
+  /** the valley: population, town morale, men out of work; your workforce's health and unrest (0–1) */
+  pop?: number; morale?: number; jobless?: number; health?: number; unrest?: number;
+}
+
+/** rated capacity of a works: its processes and expansions */
+export function worksCapacity(w: Works): number {
+  return Math.round(INDUSTRIES[w.industry].baseCapacity * (1 + techMods(w).capacity));
 }
 
 /** File this season's prices (called after the season is played). */
@@ -246,7 +267,23 @@ export function recordPrices(g: GameState) {
     if (tons) p.delivered = Math.round((paid / tons) * 100) / 100;
     const t = c.totals;
     p.revenue = t.revenue; p.costs = t.revenue - t.profit; p.profit = t.profit; p.cash = Math.round(c.cash);
+    const works = allWorks(c);
+    p.capacity = works.reduce((n, w) => n + worksCapacity(w), 0);
+    p.capInd = {};
+    p.prodInd = {};
+    for (const w of works) {
+      p.capInd[w.industry] = (p.capInd[w.industry] ?? 0) + worksCapacity(w);
+      p.prodInd[w.industry] = (p.prodInd[w.industry] ?? 0) + (w.lastSeason?.produced ?? 0);
+    }
+    p.produced = works.reduce((n, w) => n + (w.lastSeason?.produced ?? 0), 0);
+    p.employees = works.reduce((n, w) => n + w.employees, 0);
+    p.techs = [...new Set(works.flatMap((w) => w.techs))];
+    if (p.produced) p.unitCost = Math.round((p.costs / p.produced) * 100) / 100;
+    p.health = Math.round(c.health * 100) / 100; p.unrest = Math.round(c.unrest * 100) / 100;
   }
+  p.rivals = {};
+  for (const r of g.rivals) { const v = rivalOutput(g, r, year); if (v > 0 && !r.owned) p.rivals[r.id] = v; }
+  p.pop = totalPopulation(g); p.morale = Math.round(g.morale); p.jobless = g.jobless;
   if (g.prices[g.prices.length - 1]?.turn === g.turn) g.prices[g.prices.length - 1] = p;
   else g.prices.push(p);
 }
@@ -362,6 +399,9 @@ export function foundCompany(g: GameState, industry: IndustryId, x: number, y: n
 // ---------------------------------------------------------------- commuting
 
 const MAX_WALK_MIN = 60;
+
+/** Rebuild the commute model now (after a new road or bridge), not just at the new year. */
+export function buildCommuteNow(g: GameState) { g.commute = buildCommute(g.map, g.world, centersFor(g)); }
 
 /** Recompute walking times from the works (after streets, steps or inclines change). */
 export function updateAccess(g: GameState) {
@@ -646,6 +686,7 @@ export function advanceTurn(g: GameState): void {
   g.world.year = c1.year;
   const s1 = g.turn % 4;
   if (c1.year !== c0.year) g.commute = buildCommute(g.map, g.world, centersFor(g));
+  roadsSeason(g);
   {
     const plants: [number, number][] = g.rivals.map((r) => [Math.round(r.x + r.footprint / 2), Math.round(r.y + r.footprint / 2)]);
     if (g.company) plants.push([Math.round(g.company.x + g.company.footprint / 2), Math.round(g.company.y + g.company.footprint / 2)]);
@@ -665,7 +706,7 @@ export function advanceTurn(g: GameState): void {
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
-    for (const pk of PARKS) if (pk.year === c1.year) log(g, `${pk.name} is laid out as a public park.`);
+    for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     recordHistory(g.map, g.world, g.history);
     updateHealth(g.map, g.world, g.env, hospitals(g));
@@ -1052,12 +1093,22 @@ function rivalPlants(g: GameState, year: number): Plant[] {
     const def = RIVALS.find((d) => d.id === r.id);
     if (!def || !r.active || r.closed) continue;
     const ind = INDUSTRIES[def.industry];
-    let cap = 1, pol = 1;
-    for (const id of rivalTechs(def.industry, def.id, year, r.style)) { const t = ind.tech.find((x) => x.id === id); cap += t?.effects.capacity ?? 0; pol += t?.effects.pollution ?? 0; }
-    const opening = def.opens !== undefined && year < def.opens; // still being built
-    out.push({ x: r.x, y: r.y, fp: r.footprint, output: opening ? 0 : ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
+    let pol = 1;
+    for (const id of rivalTechs(def.industry, def.id, year, r.style)) pol += ind.tech.find((x) => x.id === id)?.effects.pollution ?? 0;
+    out.push({ x: r.x, y: r.y, fp: r.footprint, output: rivalOutput(g, r, year), pollutionPerUnit: ind.pollutionPerUnit * Math.max(0.1, pol), owner: r.id });
   }
   return out;
+}
+
+/** A rival works' output this season: its own processes, expansions, damage (strikes included) and dated cutbacks. */
+export function rivalOutput(g: GameState, r: RivalState, year = g.world.year): number {
+  const def = RIVALS.find((d) => d.id === r.id);
+  if (!def || !r.active || r.closed) return 0;
+  if (def.opens !== undefined && year < def.opens) return 0; // still being built
+  const ind = INDUSTRIES[def.industry];
+  let cap = 1;
+  for (const id of rivalTechs(def.industry, def.id, year, r.style)) cap += ind.tech.find((x) => x.id === id)?.effects.capacity ?? 0;
+  return Math.round(ind.baseCapacity * cap * rivalRunning(def, year) * rivalMult(g, r));
 }
 
 /** how hard a rival works is running in a year: full (0.85) until its decline, then its dated cutbacks */
