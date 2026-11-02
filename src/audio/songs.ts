@@ -1,8 +1,10 @@
-// The song book: five tunes for every style (each its own key, tempo, chords, lead instrument and melody),
-// with names, and the rotation that moves from tune to tune — with quiet mood pieces in between.
+// The song book: the real tunes of each style from the tune book (src/audio/tunes), each played by the style's band;
+// styles with no tunes get five generated variants. Plus the choice of mood piece between songs.
 
+import { parseAbc, type ParsedTune } from "./abc";
 import type { Inst } from "./synth";
 import { STYLES, type Style } from "./music";
+import { TUNES } from "./tunes";
 
 const PLACES = ["Monongahela", "Allegheny", "Hazelwood", "Homestead", "Braddock", "Duquesne", "McKeesport", "Lawrenceville", "Bloomfield",
   "Troy Hill", "Polish Hill", "Carson Street", "Coal Hill", "Sawmill Run", "Turtle Creek", "Nine Mile Run", "Smithfield Street",
@@ -32,7 +34,14 @@ const ALT_LEADS: Record<string, Inst[]> = {
 };
 const familyOf = (st: Style) => (st.leads ? "" : ["ragtime", "swing", "bebop", "doowop", "soul"].includes(st.id) ? "jazz" : ["funk", "synthpop"].includes(st.id) ? "modern" : ["german", "march"].includes(st.id) ? "brass" : "folk");
 
-export interface Song { id: string; title: string; family: string; style: Style }
+export interface Song {
+  id: string; title: string; family: string; style: Style;
+  /** a real tune (otherwise the melody is generated) */
+  tune?: ParsedTune;
+  /** who takes the lead the second time through */
+  lead2nd?: Inst;
+  credit?: string;
+}
 
 const KEY = [0, 2, -2, 3, 5], TEMPO = [1, 0.94, 1.06, 0.9, 1.08], DENS = [0, 0.08, -0.07, 0.05, -0.04];
 
@@ -50,7 +59,27 @@ function variant(base: Style, k: number): Song {
   return { id: style.id, title, family: base.id, style };
 }
 
-export const SONGS: Song[] = Object.values(STYLES).flatMap((st) => [0, 1, 2, 3, 4].map((k) => variant(st, k)));
+function fromTune(base: Style, tu: (typeof TUNES)[number], k: number): Song {
+  const tune = parseAbc(tu.abc);
+  const lead = tu.lead ?? base.lead;
+  const leads = base.leads ?? ALT_LEADS[familyOf(base)] ?? [base.lead];
+  const alt = leads.filter((l) => l !== lead && l !== base.comp && l !== "synth");
+  const style: Style = {
+    ...base, id: `${base.id}:${tu.id}`, label: `“${tu.title}” (${base.label.toLowerCase()})`, bpm: tu.bpm ?? base.bpm, lead,
+    meter: tune.beatsPerBar, sub: tune.sub === 3 ? 3 : base.sub === 3 ? 2 : base.sub,
+  };
+  // half the tunes change lead the second time through (unless the style has a harmony line)
+  const lead2nd = !base.lead2 && alt.length && k % 2 === 1 ? alt[k % alt.length] : undefined;
+  return { id: style.id, title: tu.title, family: base.id, style, tune, lead2nd, credit: tu.credit };
+}
+
+const byFamily = new Map<string, (typeof TUNES)[number][]>();
+for (const tu of TUNES) { const l = byFamily.get(tu.family) ?? []; l.push(tu); byFamily.set(tu.family, l); }
+
+export const SONGS: Song[] = Object.values(STYLES).flatMap((st) => {
+  const tunes = byFamily.get(st.id);
+  return tunes?.length ? tunes.map((tu, k) => fromTune(st, tu, k)) : [0, 1, 2, 3, 4].map((k) => variant(st, k));
+});
 export const SONGS_BY_FAMILY: Record<string, Song[]> = {};
 for (const s of SONGS) (SONGS_BY_FAMILY[s.family] ??= []).push(s);
 

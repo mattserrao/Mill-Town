@@ -41,6 +41,33 @@ export const GROUPS: Group[] = [
   { id: 12, name: "Lithuanian", colour: [180, 200, 70], church: 5, hall: "Lithuanian Citizens Club", wave: european(window(1885, 1985, bell(1906, 9, 0.5))), music: "polka" },
 ];
 
+/** Croatian & Serbian share a group: most of its parishes were Croatian (Latin rite), about a third Serbian Orthodox */
+export const latinRite = (i: number) => ((Math.imul(i, 2654435761) >>> 0) % 10) < 7;
+
+/** Parish and congregation names each community gave its churches (typical of the Pittsburgh parishes). */
+export const PARISH_NAMES: Record<number, string[]> = {
+  1: ["First Presbyterian", "Trinity Episcopal", "Second Presbyterian", "Christ Methodist", "Calvary Episcopal", "Third Presbyterian"],
+  2: ["St. Patrick", "St. Brigid", "St. Malachy", "St. Agnes", "St. Paul", "St. Mary of Mercy"],
+  3: ["St. Michael", "St. Philomena", "Most Holy Name", "St. Augustine", "St. John's Lutheran", "St. Mary"],
+  4: ["Bethel AME", "Ebenezer Baptist", "Wesley Center AME Zion", "Grace Memorial", "Central Baptist", "Macedonia Baptist"],
+  5: ["St. Matthew", "Ss. Cyril & Methodius", "St. Elizabeth", "St. Joachim", "Holy Trinity", "St. Gabriel"],
+  6: ["St. Stanislaus Kostka", "Immaculate Heart of Mary", "St. Adalbert", "St. Josaphat", "Holy Family", "St. Hedwig"],
+  7: ["St. Ann", "First Hungarian Reformed", "St. Emeric", "St. Stephen", "St. Ladislaus", "Holy Trinity"],
+  8: ["St. John the Baptist", "St. Mary (Greek Catholic)", "Holy Ghost", "St. Nicholas", "Ss. Peter & Paul", "St. Michael"],
+  9: ["St. Nicholas", "Sacred Heart", "St. Mary", "St. Anthony", "Holy Trinity", "St. Joseph"],
+  10: ["St. Peter", "Our Lady of Mount Carmel", "St. Anthony of Padua", "Immaculate Conception", "St. Rocco", "Holy Rosary"],
+  11: ["Rodef Shalom", "Beth Hamedrash Hagodol", "Shaare Torah", "Tree of Life", "Poale Zedeck", "Beth Jacob"],
+  12: ["St. Casimir", "St. George", "Holy Cross", "St. Anthony", "St. Joseph", "Immaculate Conception"],
+};
+const SERBIAN_NAMES = ["St. Sava", "Holy Trinity", "St. Nicholas", "St. George", "Holy Resurrection", "St. Elijah"];
+
+/** a church's own name, steady per lot */
+export function parishName(gid: number, i: number, onion = false): string {
+  const list = gid === 9 && onion ? SERBIAN_NAMES : PARISH_NAMES[gid];
+  if (!list) return "";
+  return list[(Math.imul(i + 7, 40503) >>> 0) % list.length];
+}
+
 export const G = { OLD: 1, IRISH: 2, GERMAN: 3, BLACK: 4, SLOVAK: 5, POLISH: 6, HUNGARIAN: 7, RUSYN: 8, CROAT: 9, ITALIAN: 10, JEWISH: 11, LITH: 12 } as const;
 
 /**

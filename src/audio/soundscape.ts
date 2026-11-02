@@ -1,7 +1,15 @@
-// Ambient sound: continuous beds (wind, river, mill rumble, town murmur, traffic) mixed by what's on screen
-// and how close the camera is, plus one-shot sounds (whistles, bells, hooves, horns, hammers, birds).
+// Ambient sound: continuous beds (wind, river, birds, crickets, mill rumble, furnace, town murmur, traffic) mixed by
+// what's on screen and how close the camera is, plus one-shot sounds (whistles, bells, hooves, horns, hammers).
+// Beds and one-shots are field recordings (public/audio/amb, see CREDITS.md); until they load, synthesized
+// stand-ins play. One-shots are placed left or right in the stereo field.
 
+import { AMB_FILES } from "./ambfiles";
 import { mtof, noiseSource } from "./synth";
+
+/** how loud each recorded bed sits against the synthesized bed it replaces */
+const BED_GAIN: Record<string, number> = { wind: 1.6, river: 1.4, mill: 1.3, murmur: 1.5, hum: 1.2, furnace: 1.4, birds: 1, crickets: 1 };
+/** recorded file behind each bed */
+const BED_FILE: Record<string, string> = { wind: "wind", river: "river", mill: "mill", murmur: "crowd", hum: "traffic", furnace: "furnace", birds: "birds", crickets: "crickets" };
 
 export interface Scene {
   zoom: number;
@@ -18,17 +26,20 @@ export interface Scene {
   traffic: number;   // street vehicles on screen
 }
 
-interface Bed { src: AudioScheduledSourceNode; gain: GainNode; filt: BiquadFilterNode; lfo?: OscillatorNode }
+interface Bed { src: AudioScheduledSourceNode; gain: GainNode; filt: BiquadFilterNode; lfo?: OscillatorNode; rec?: boolean }
 
 export class Soundscape {
   readonly out: GainNode;
   private beds: Record<string, Bed> = {};
   private nextEvent: Record<string, number> = {};
+  private bufs = new Map<string, AudioBuffer>();
+  private loadAll: Promise<void>;
 
   constructor(private ctx: BaseAudioContext, dest: AudioNode) {
     this.out = ctx.createGain();
     this.out.connect(dest);
     const t = ctx.currentTime;
+    this.loadAll = this.load();
     this.beds.wind = this.bed("lowpass", 500, 0.5, 0.08, 0.6);
     this.beds.river = this.bed("bandpass", 650, 0.7, 0.35, 0.35);
     this.beds.mill = this.bed("lowpass", 140, 1.2, 0.5, 0.15);
@@ -36,6 +47,55 @@ export class Soundscape {
     this.beds.hum = this.bed("lowpass", 260, 0.7, 0.2, 0.2);
     this.beds.furnace = this.bed("bandpass", 320, 0.5, 6, 0.35);
     void t;
+  }
+
+  /** resolves when every recording has loaded (or failed) */
+  ready(): Promise<void> { return this.loadAll; }
+
+  private async load() {
+    await Promise.all(Object.entries(AMB_FILES).map(async ([k, f]) => {
+      try {
+        const r = await fetch(f.url);
+        if (!r.ok) return;
+        this.bufs.set(k, await this.ctx.decodeAudioData(await r.arrayBuffer()));
+        const bed = Object.keys(BED_FILE).find((b) => BED_FILE[b] === k);
+        if (bed) this.useRecording(bed, k);
+      } catch (e) { console.warn("ambience", k, e); }
+    }));
+  }
+
+  /** swap a bed's noise for its recording, looped from a random point */
+  private useRecording(bed: string, file: string) {
+    const buf = this.bufs.get(file)!;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const f = AMB_FILES[file];
+    const a = f.loopStart ?? 0, e = f.loopEnd ?? buf.duration;
+    if (f.loopStart !== undefined) { src.loopStart = a; src.loopEnd = e; }
+    const gain = this.beds[bed]?.gain ?? (() => { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.out); return g; })();
+    const trim = ctx.createGain(); trim.gain.value = BED_GAIN[bed] ?? 1;
+    src.connect(trim); trim.connect(gain);
+    src.start(ctx.currentTime, a + Math.random() * (e - a));
+    const old = this.beds[bed];
+    if (old) { try { old.src.stop(); old.lfo?.stop(); } catch { /* not started */ } }
+    this.beds[bed] = { src, gain, filt: old?.filt ?? ctx.createBiquadFilter(), rec: true };
+  }
+
+  /** play a recorded one-shot; false if it isn't loaded */
+  private shot(name: string | string[], v: number, pan = 0, rate = 1): boolean {
+    const names = (Array.isArray(name) ? name : [name]).filter((n) => this.bufs.has(n));
+    if (!names.length) return false;
+    const ctx = this.ctx, t = ctx.currentTime + 0.02;
+    const src = ctx.createBufferSource();
+    src.buffer = this.bufs.get(names[Math.floor(Math.random() * names.length)])!;
+    src.playbackRate.value = rate * (0.97 + Math.random() * 0.06);
+    const g = ctx.createGain(); g.gain.value = v;
+    let node: AudioNode = g;
+    if (pan && typeof ctx.createStereoPanner === "function") { const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); g.connect(p); node = p; }
+    node.connect(this.out);
+    src.connect(g); src.start(t);
+    return true;
   }
 
   private bed(type: BiquadFilterType, freq: number, q: number, lfoRate: number, lfoDepth: number): Bed {
@@ -57,7 +117,8 @@ export class Soundscape {
     const t = this.ctx.currentTime;
     const near = Math.min(1, Math.max(0, (s.zoom - 0.2) / 1.0)); // 0 far … 1 close
     const far = 1 - near;
-    const set = (k: string, v: number, time = 1.5) => { const g = this.beds[k].gain.gain; g.cancelScheduledValues(t); g.setTargetAtTime(Math.max(0, v), t, time / 3); };
+    const set = (k: string, v: number, time = 1.5) => { const b = this.beds[k]; if (!b) return; const g = b.gain.gain; g.cancelScheduledValues(t); g.setTargetAtTime(Math.max(0, v), t, time / 3); };
+    const side = () => (Math.random() * 2 - 1) * 0.7;
     const winter = s.season === "Winter";
     set("wind", 0.05 + far * 0.18 + s.country * 0.06 + (winter ? 0.08 : 0));
     set("river", s.water * (0.08 + near * 0.25));
@@ -72,20 +133,30 @@ export class Soundscape {
       if (t >= this.nextEvent[k]) { fire(); this.nextEvent[k] = t + mean * (0.5 + Math.random()); }
     };
     const vol = (x: number) => Math.min(1, x);
-    if (s.industry > 0.05) every("clank", 2.5 / (s.industry * (0.3 + near)), () => this.clank(vol(s.industry * (0.3 + near * 0.7))));
+    // recorded birdsong and crickets replace the synthesized chirps once they've loaded
+    const dayBirds = s.country > 0.2 && s.night < 0.5 && !winter;
+    set("birds", dayBirds ? (0.15 + s.country * 0.35) * (0.5 + near * 0.5) * (s.season === "Autumn" ? 0.5 : 1) : 0);
+    const nightBugs = s.night > 0.5 && (s.season === "Summer" || s.season === "Spring") && s.country + s.town > 0.2;
+    set("crickets", nightBugs ? (0.12 + near * 0.15) * (s.season === "Summer" ? 1 : 0.4) : 0, 3);
+    if (s.industry > 0.05) every("clank", 2.5 / (s.industry * (0.3 + near)), () => this.shot(["clank-1", "clank-2", "clank-3"], vol(s.industry * (0.2 + near * 0.6)), side()) || this.clank(vol(s.industry * (0.3 + near * 0.7))));
     if (s.industry > 0.05 && near > 0.3) every("hiss", 9, () => this.hiss(vol(s.industry * near)));
-    if (s.industry > 0.05) every("mill_whistle", 45, () => this.whistle(s.year < 1900 ? 480 : 380, 2.2, vol(0.5 * s.industry + 0.1), s.year >= 1900));
-    if (s.boats > 0) every("boat", 30 / s.boats, () => (s.year < 1935 ? this.whistle(330, 1.6, vol(0.25 + near * 0.3), false, 415) : this.horn(110, 2.2, vol(0.25 + near * 0.3))));
-    if (s.trains > 0) every("train", 25 / s.trains, () => (s.year < 1950 ? this.whistle(523, 2.5, vol(0.2 + near * 0.3), true, 659) : this.horn(233, 1.8, vol(0.25 + near * 0.3), 277)));
+    if (s.industry > 0.05) every("mill_whistle", 45, () => this.shot("steam-whistle", vol(0.25 * s.industry + 0.08), side(), s.year < 1900 ? 1.06 : 0.94) || this.whistle(s.year < 1900 ? 480 : 380, 2.2, vol(0.5 * s.industry + 0.1), s.year >= 1900));
+    if (s.boats > 0) every("boat", 30 / s.boats, () => (s.year < 1935
+      ? this.shot("steam-whistle", vol(0.18 + near * 0.2), side(), 0.8) || this.whistle(330, 1.6, vol(0.25 + near * 0.3), false, 415)
+      : this.shot("boat-horn", vol(0.25 + near * 0.3), side()) || this.horn(110, 2.2, vol(0.25 + near * 0.3))));
+    if (s.trains > 0) every("train", 25 / s.trains, () => (s.year < 1950
+      ? this.shot(["steam-train", "steam-train-pass"], vol(0.25 + near * 0.35), side()) || this.whistle(523, 2.5, vol(0.2 + near * 0.3), true, 659)
+      : this.shot("train-horn", vol(0.25 + near * 0.3), side()) || this.horn(233, 1.8, vol(0.25 + near * 0.3), 277)));
     if (s.town > 0.1 && near > 0.35) {
-      if (s.year < 1920) every("hooves", 3 / (s.town * near), () => this.hooves(vol(near * 0.5)));
-      if (s.year >= 1890 && s.year < 1955) every("streetcar", 14 / s.town, () => this.bell(1568, 0.18, vol(near * 0.3), 2));
-      if (s.year >= 1915 && s.traffic > 0) every("carhorn", 18 / (s.traffic / 20 + 0.2), () => this.horn(s.year < 1940 ? 415 : 350, 0.35, vol(near * 0.25), s.year < 1940 ? undefined : 440));
-      if (s.night < 0.5) every("voices", 6 / s.town, () => this.voice(vol(near * 0.12)));
+      if (s.year < 1920) every("hooves", 5 / (s.town * near), () => this.shot("hooves", vol(near * 0.45), side()) || this.hooves(vol(near * 0.5)));
+      if (s.year >= 1890 && s.year < 1955) every("streetcar", 14 / s.town, () => this.shot("trolley-bell", vol(near * 0.35), side()) || this.bell(1568, 0.18, vol(near * 0.3), 2));
+      if (s.year >= 1915 && s.traffic > 0) every("carhorn", 18 / (s.traffic / 20 + 0.2), () => this.shot(s.year < 1940 ? "klaxon" : "car-horn", vol(near * 0.25), side()) || this.horn(s.year < 1940 ? 415 : 350, 0.35, vol(near * 0.25), s.year < 1940 ? undefined : 440));
+      if (s.night < 0.5 && !this.bufs.has("crowd")) every("voices", 6 / s.town, () => this.voice(vol(near * 0.12)));
+      else if (s.night < 0.5) every("voices", 9 / s.town, () => this.shot(["voices-1", "voices-2", "voices-3"], vol(near * 0.3), side()));
     }
-    if (s.churches > 0) every("bells", 40 / s.churches, () => this.churchBells(vol(0.2 + near * 0.3)));
-    if (s.country > 0.2 && s.night < 0.5 && !winter) every("bird", 3 / s.country, () => this.bird(vol(0.1 + near * 0.15)));
-    if (s.night > 0.5 && s.season === "Summer" && s.country + s.town > 0.2) every("cricket", 0.8, () => this.cricket(vol(0.08 + near * 0.08)));
+    if (s.churches > 0) every("bells", 40 / s.churches, () => this.shot("church-bells", vol(0.15 + near * 0.3), side() * 0.6) || this.churchBells(vol(0.2 + near * 0.3)));
+    if (dayBirds && !this.bufs.has("birds")) every("bird", 3 / s.country, () => this.bird(vol(0.1 + near * 0.15)));
+    if (s.night > 0.5 && s.season === "Summer" && s.country + s.town > 0.2 && !this.bufs.has("crickets")) every("cricket", 0.8, () => this.cricket(vol(0.08 + near * 0.08)));
   }
 
   // ------------------------------------------------------------ one-shots

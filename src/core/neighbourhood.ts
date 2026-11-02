@@ -5,7 +5,7 @@
 // A neighbourhood view adds up the cells around a place to show how it was seeded and how it grew.
 
 import { distance } from "./units";
-import { ANCHORS, anchorAt, GROUPS } from "./ancestry";
+import { ANCHORS, anchorAt, G, GROUPS, latinRite, parishName } from "./ancestry";
 import { latLonToTile } from "./features";
 import type { GameMap } from "./map";
 import { Use, type World } from "./town";
@@ -113,7 +113,7 @@ export function areaReport(m: GameMap, w: World, h: History | undefined, area: A
       homes.set(label, (homes.get(label) ?? 0) + 1);
       if (w.built[i]) { builtSum += w.built[i]; builtN++; }
     } else if (u === Use.Commerce) shops++;
-    else if (u === Use.Civic) places.push({ label: civicLabel(w.sub[i], w.eth[i]), group: w.eth[i] });
+    else if (u === Use.Civic) places.push({ label: civicLabel(w.sub[i], w.eth[i], i, w.was[i]), group: w.eth[i] });
   }
   // history from the cells whose centres fall inside the area
   const series: AreaReport["series"] = [];
@@ -157,18 +157,23 @@ function homeLabel(use: number, sub: number, pop: number): string {
   return use === Use.Rowhouses ? "Brick rowhouses" : use === Use.Houses ? "Frame houses" : "Cottages";
 }
 
-export function civicLabel(sub: number, eth: number): string {
+export function civicLabel(sub: number, eth: number, i = -1, was = 0): string {
   const g = GROUPS[eth];
   const who = g && eth ? (eth === 1 ? "Protestant" : g.name.split(" (")[0]) : "";
+  // the name the builders gave it (it keeps it when another congregation takes it over)
+  const builder = was || eth;
+  const onion = sub === 1 && !(builder === G.CROAT && i >= 0 && latinRite(i));
+  const name = i >= 0 && builder ? parishName(builder, i, onion) : "";
+  const kind = (rest: string) => (name ? `${name} (${rest})` : `${rest} church`).trim();
   switch (sub) {
-    case 2: return "School";
+    case 2: return name && builder !== 1 && builder !== 4 && builder !== 11 ? `${name} School` : "School";
     case 3: return "Firehouse";
     case 4: return "Library";
-    case 6: return "Synagogue";
-    case 7: return "AME church";
-    case 8: return g && eth ? g.hall : "Social hall";
-    case 1: return `${who} church (onion domes)`.trim();
-    case 5: return `${who} church (twin towers)`.trim();
-    default: return `${who} church`.trim();
+    case 6: return name ? `${name} synagogue` : "Synagogue";
+    case 7: return name || "AME church";
+    case 8: return g && eth ? g.hall : builder && GROUPS[builder] ? GROUPS[builder].hall : "Social hall";
+    case 1: return builder === G.CROAT ? kind(onion ? "Serbian Orthodox" : "Croatian") : kind(who || "onion domes");
+    case 5: return kind(who);
+    default: return builder === 1 ? (name || "Protestant church") : kind(who);
   }
 }

@@ -1,4 +1,7 @@
-// Small Web Audio instrument set, all synthesized: no samples. Works on AudioContext and OfflineAudioContext.
+// Small Web Audio instrument set. Recorded samples play where an instrument has them and they've loaded
+// (src/audio/sampler.ts); otherwise these synthesized voices stand in. Works on AudioContext and OfflineAudioContext.
+
+import { playSample } from "./sampler";
 
 export type Inst =
   | "fiddle" | "accordion" | "clarinet" | "brass" | "tuba" | "flute" | "piano" | "mandolin" | "tamburica"
@@ -36,6 +39,8 @@ function env(g: GainNode, t: number, a: number, d: number, s: number, dur: numbe
 
 /** Play one note. Returns end time. */
 export function note(ctx: BaseAudioContext, out: AudioNode, inst: Inst, t: number, midi: number, dur: number, vel = 0.7): number {
+  const sampled = playSample(ctx, out, inst, t, midi, dur, vel);
+  if (sampled) return sampled;
   const f = mtof(midi);
   const g = ctx.createGain();
   g.connect(out);
