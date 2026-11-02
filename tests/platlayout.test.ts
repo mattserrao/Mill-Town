@@ -50,4 +50,18 @@ describe("plat layout (v0.26)", () => {
     expect(count((i) => w.use[i] === Use.Farm && (w.sub[i] === FarmSub.Garden || w.sub[i] === FarmSub.Orchard))).toBeGreaterThan(20);
     expect(count((i) => w.use[i] === Use.Empty && w.sub[i] === LotSub.Yard)).toBeGreaterThan(0);
   });
+
+  it("give cores and mill towns market squares", () => {
+    expect(count((i) => w.use[i] === Use.Commerce && (w.sub[i] & 31) === 5)).toBeGreaterThanOrEqual(8);
+    expect(bs.filter((b) => b.civ?.includes("market")).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("build each plat in its majority community's style", () => {
+    expect(bs.filter((b) => (b.kit ?? 0) > 0).length).toBeGreaterThan(10);
+  });
+
+  it("announce the founding of named plats", () => {
+    const items = g.news.flatMap((n) => n.items);
+    expect(items.filter((h) => h.category === "Society" && /Laid Out|Streetcar|Incorporated|Villa Lots/.test(h.name)).length).toBeGreaterThan(5);
+  });
 });

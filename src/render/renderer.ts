@@ -806,6 +806,8 @@ export class Renderer {
       }
       default: {
         if (use === Use.Empty && w.sub[i] === LotSub.Cleared) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 918); return r < 0.08 ? 0x8a7a6a : r < 0.16 ? 0x5a4e40 : hash(gx >> 1, gy >> 1, 919) < 0.5 ? 0x8a7a58 : 0x7e6e50; }; break; }
+        if (use === Use.Empty && w.sub[i] === LotSub.Weeds) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 921); return r < 0.25 ? 0x8a7a50 : r < 0.6 ? 0x7a8a46 : hash(gx >> 1, gy >> 1, 922) < 0.5 ? 0x6a8a3c : 0x94884e; }; break; }
+        if (use === Use.Empty && w.sub[i] === LotSub.Scrub) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 923) < 0.5 ? 0x5a7a34 : 0x668a3a); break; }
         if (use === Use.Empty && w.sub[i] === LotSub.Yard) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 920) < 0.5 ? 0x74a646 : 0x80b050); break; }
         const pal = t === Terrain.Floodplain ? PAL.meadow : PAL.grass;
         base = (_u, _v, _h, gx, gy) => {
@@ -959,7 +961,9 @@ export class Renderer {
     // the community's style: houses whose families belong to the community that holds this part of town
     const kc = w.kit[((y / 8) | 0) * Math.ceil(W / 8) + ((x / 8) | 0)];
     // churches, halls, schools and community shops: the community that built them (it stays theirs to look at after they leave)
-    const kit = housing ? (kc && w.eth[i] === kc ? kc : 0) : (w.was[i] || w.eth[i] || 0);
+    // under the seed-block model the plat's majority community sets the style, not the 8×8 cell (v0.26)
+    const pk = g.growthModel === "sleuth" && w.blockId?.[i] ? (g.sleuth?.blocks[w.blockId[i] - 1]?.kit ?? 0) : kc;
+    const kit = housing ? (pk && w.eth[i] === pk ? pk : 0) : (w.was[i] || w.eth[i] || 0);
     // at a quarter size the six variants and the community's kit are a pixel or two apart: fewer keys, the same look
     const small = this.curScale <= 0.25;
     const v = vv >= 0 ? (small ? vv & 1 : vv) : small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6);
@@ -998,6 +1002,8 @@ export class Renderer {
         break;
       }
       case Use.Empty:
+        if (sub === LotSub.Weeds) { if (n(3) < 0.4) out.push({ key: "tree:bush0", u: 0.25 + n(6) * 0.5, v: 0.25 + n(7) * 0.5 }); break; }
+        if (sub === LotSub.Scrub) { for (let k = 0; k < 2; k++) if (n(3 + k) < 0.75) out.push({ key: n(5 + k) < 0.5 ? `tree:bush${k}` : `tree:maple${Math.floor(n(9 + k) * 2)}`, u: 0.2 + n(11 + k) * 0.6, v: 0.2 + n(13 + k) * 0.6 }); break; }
         if (sub === LotSub.Cleared) { if (n(3) < 0.12) out.push({ key: "tree:bush0", u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
         if (sub !== LotSub.Yard) { if (!w.street[i] && t !== Terrain.Water && n(3) < 0.18) out.push({ key: n(4) < 0.5 ? "tree:bush0" : `tree:oak${Math.floor(n(5) * 3)}`, u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
         if (n(8) < 0.35) out.push({ key: `tree:${n(9) < 0.5 ? "oak" : "maple"}${Math.floor(n(10) * 3)}`, u: 0.3 + n(11) * 0.4, v: 0.3 + n(12) * 0.4 });
@@ -1467,7 +1473,7 @@ export class Renderer {
   }
 
   /** Place names. `reserved`: canvas-pixel rects (minimap, zoom buttons) to keep labels off. */
-  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, reserved: { x: number; y: number; w: number; h: number }[] = []) {
+  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, reserved: { x: number; y: number; w: number; h: number }[] = [], plats = false) {
     const m = this.map;
     ctx.textAlign = "center";
     const items: { name: string; x: number; y: number; col: string; min: number }[] = [];
@@ -1485,6 +1491,11 @@ export class Renderer {
     for (const inc of g.world.inclines) {
       const mid = inc.path[Math.floor(inc.path.length / 2)];
       items.push({ name: inc.name, x: mid[0] + 1.5, y: mid[1] + 0.5, col: "#ffb0a0", min: 0.5 });
+    }
+    // v0.26: plat names and founding years: on the Plats & wards layer from half size; on the map, named plats close up
+    for (const b of g.sleuth?.blocks ?? []) {
+      if (!b.land || (!plats && (b.type === "patch" || b.type === "company" || m.landmarks.some((l) => l.name.startsWith(b.name))))) continue;
+      items.unshift({ name: `${b.name} ${b.opened}`, x: b.x + 0.5, y: b.y + 0.5, col: plats ? "#ffe6a8" : "#e8d8b8", min: plats ? 0.375 : 1.5 });
     }
     const seen = new Set<string>();
     for (const sp of [...m.spans, ...(g.spans ?? [])]) {

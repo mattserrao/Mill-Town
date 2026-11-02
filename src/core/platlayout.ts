@@ -51,7 +51,7 @@ export const enum ParkSub { Park = 0, Paved = 1, Green = 2, Bandstand = 3 }
 /** Farm sub-types at a plat's edge */
 export const enum FarmSub { Fields = 0, Garden = 1, Orchard = 2, Scrapyard = 3, Brickyard = 4 }
 /** Empty-lot sub-types inside plats */
-export const enum LotSub { Open = 0, Cleared = 1, Yard = 2 }
+export const enum LotSub { Open = 0, Cleared = 1, Yard = 2, Weeds = 3, Scrub = 4 }
 /** a closed shop keeps its kind in the low bits */
 export const SHOP_CLOSED = 32;
 
@@ -220,8 +220,11 @@ export function churchFor(byGroup: number[]): number {
 }
 
 /** what a plat of this size and age has set aside (a list of kinds), by type */
-export function civicDue(t: SeedType, pop: number, land: number, year: number): ("church" | "school" | "park" | "cemetery")[] {
-  const out: ("church" | "school" | "park" | "cemetery")[] = [];
+export type CivicKind = "market" | "church" | "school" | "park" | "cemetery";
+export function civicDue(t: SeedType, pop: number, land: number, year: number): CivicKind[] {
+  const out: CivicKind[] = [];
+  // a market house on its own square for the cores and mill towns (cleared from houses if it has to be)
+  if ((t === "core" || t === "mill") && pop >= 1000 && year < 1950) out.push("market");
   if (t !== "patch" && pop >= 700) out.push("church");
   if ((t === "plat" || t === "mill" || t === "suburb" || t === "core") && pop >= 1200 && year >= 1870) out.push("school");
   if ((t === "suburb" || t === "core" || land >= 400) && land >= 200 && t !== "patch" && t !== "company") out.push("park");
@@ -230,7 +233,7 @@ export function civicDue(t: SeedType, pop: number, land: number, year: number): 
 }
 
 /** turn tile i into a civic lot of `kind` (churches for the plat's largest community) */
-export function buildCivic(w: World, i: number, kind: "church" | "school" | "park" | "cemetery", gid: number) {
+export function buildCivic(w: World, i: number, kind: Exclude<CivicKind, "market">, gid: number) {
   w.pop[i] = 0; w.built[i] = w.year;
   if (kind === "church") { w.use[i] = Use.Civic; w.sub[i] = GROUPS[gid]?.church ?? CivicSub.Church; w.eth[i] = gid; w.was[i] = gid; }
   else if (kind === "school") { w.use[i] = Use.Civic; w.sub[i] = CivicSub.School; w.eth[i] = 0; }
@@ -244,14 +247,14 @@ export function buildCivic(w: World, i: number, kind: "church" | "school" | "par
 export function fringeSub(g: GameState, x: number, y: number): number {
   const m = g.map, w = g.world, W = m.width;
   let industry = false;
-  for (let dy = -6; dy <= 6 && !industry; dy += 2) for (let dx = -6; dx <= 6; dx += 2) {
+  for (let dy = -9; dy <= 9 && !industry; dy += 3) for (let dx = -9; dx <= 9; dx += 3) {
     const xx = x + dx, yy = y + dy;
     if (!inBounds(m, xx, yy)) continue;
     const j = yy * W + xx;
     if (w.use[j] === Use.Industry || w.use[j] === Use.Rival || m.rail[j]) { industry = true; break; }
   }
   const r = tileNoise(w.seed + 31, x >> 1, y >> 1, 905);
-  if (industry && r < 0.12) return r < 0.06 ? FarmSub.Scrapyard : FarmSub.Brickyard;
+  if (industry && r < 0.26) return r < 0.12 ? FarmSub.Scrapyard : FarmSub.Brickyard;
   return r < 0.72 ? FarmSub.Garden : FarmSub.Orchard;
 }
 

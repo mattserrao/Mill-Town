@@ -25,14 +25,14 @@ import { blockGrid, blockOf, sampleBlock } from "./blocks";
 import { bump, pushHeadline } from "./business";
 import { districts } from "./districts";
 import { latLonToTile, regionTarget } from "./features";
-import type { GameState } from "./game";
+import { type GameState, log } from "./game";
 import { lotBlocked } from "./growth";
 import { inBounds } from "./map";
 import { NG } from "./neighbourhood";
 import { Rng, tileNoise } from "./rng";
 import { RIVALS } from "./rivals";
 import { SEED_TYPES, seedsFor, type PlacedSeed, type SeedType } from "./seeds";
-import { buildCivic, churchFor, civicDue, fringeOk, fringeSub, isYard, LotSub, mainAxis, platAngle, platStreet, seamStreet, SHOP_CLOSED, squareTiles } from "./platlayout";
+import { buildCivic, churchFor, civicDue, ParkSub, fringeOk, fringeSub, isYard, LotSub, mainAxis, platAngle, platStreet, seamStreet, SHOP_CLOSED, squareTiles } from "./platlayout";
 import { habitable, Terrain } from "./terrain";
 import { densityCap, HouseSub, POP_CAP, ShopSub, Street, terrainCap, Use, useForPop, type World } from "./town";
 
@@ -69,6 +69,8 @@ export interface Block {
   civ?: string[];
   /** no room for civic land last time: look again from this year */
   civTry?: number;
+  /** the community whose house style the plat builds in (≥ 45% of at least 150 people), 0 for none (v0.26) */
+  kit?: number;
   /** villas built (suburbs) */
   villas?: number;
   /** houses standing empty since the closures, and when they emptied: [tile, year] */
@@ -195,8 +197,25 @@ function openBlock(g: GameState, s: PlacedSeed | { id: string; name: string; typ
     layOutSquare(g, b);
     grow(g, b, Math.min(16, Math.max(4, Math.round(b.size * 0.05))), new Rng(`${g.seed}:open:${s.id}`));
     sampleFields(g, b, g.commute?.access);
+    if (works !== "player") announce(g, b, !!s.name);
   }
   return b;
+}
+
+/** a plat's founding: a headline for the named cores, mill towns, plats and suburbs; a log line for the rest (v0.26) */
+function announce(g: GameState, b: Block, named: boolean) {
+  const y = g.world.year;
+  if (!named || b.type === "patch" || b.type === "company" || b.type === "hillside") {
+    log(g, b.type === "company" ? `Company rows go up at ${b.name.replace(/ company rows$/, "")}.` : b.type === "patch" ? `A coal patch starts at ${b.name.replace(/ patch$/, "")}.` : `${b.name} is laid out in lots.`);
+    return;
+  }
+  const [head, body] =
+    b.type === "suburb" ? (y >= 1890 ? [`${b.name} Opens with the Streetcar`, `Lots at ${b.name} go on sale along the new car line: a house on a lawn, half an hour from the smoke.`]
+      : [`Villa Lots Offered at ${b.name}`, `A land company lays out ${b.name} on the high ground for the families who can leave the river towns behind.`])
+    : b.type === "mill" ? [`${b.name} Laid Out Beside the Works`, `Surveyors stake streets for a mill town at ${b.name}, ${y}. Lots go on sale to the men who will work the furnaces.`]
+    : b.type === "core" ? [`${b.name} Incorporated`, `${b.name} becomes a borough, ${y}, with a market square and a main street of its own.`]
+    : [`${b.name} Laid Out in Lots`, `A new plat, ${b.name}, is surveyed and its lots offered for sale, ${y}.`];
+  pushHeadline(g, head, body, "Society");
 }
 
 function nameFor(g: GameState, b: Block): string {
@@ -684,6 +703,7 @@ function layOutSquare(g: GameState, b: Block) {
     if (w.pop[t.i] || w.street[t.i] || w.use[t.i] > Use.Farm) continue;
     w.use[t.i] = t.use; w.sub[t.i] = t.sub; w.built[t.i] = w.year; placed++;
   }
+  if (sq.some((t) => w.use[t.i] === Use.Commerce && w.sub[t.i] === ShopSub.Market && w.blockId![t.i] === b.id)) (b.civ ??= []).push("market");
   // the church lot: on the main street beside the square
   if (placed && b.type !== "patch") {
     for (const t of sq) {
@@ -719,11 +739,29 @@ function platYear(g: GameState, b: Block) {
     if (b.civTry && year < b.civTry) continue;
     const at = civicLots(g, b, kind);
     if (!at.length) { b.civTry = year + 4; continue; }
-    for (const i of at) buildCivic(w, i, kind, churchFor(b.byGroup));
+    for (const [k, i] of at.entries()) {
+      if (w.pop[i]) { b.pop -= w.pop[i]; b.byGroup[w.eth[i]] -= w.pop[i]; b.built--; }
+      if (kind !== "market") buildCivic(w, i, kind, churchFor(b.byGroup));
+      else { w.pop[i] = 0; w.built[i] = year; w.street[i] = 0; w.use[i] = k === 0 ? Use.Commerce : Use.Park; w.sub[i] = k === 0 ? ShopSub.Market : ParkSub.Paved; }
+    }
     (b.civ ??= []).push(kind);
     if (kind === "church") b.res = [];
     resync(g, b, tiles);
     w.version++;
+  }
+  // ---- the plat's house style: its majority community's
+  { let best = 0, bp = 0; for (let k = 1; k < b.byGroup.length; k++) if (b.byGroup[k] > bp) { bp = b.byGroup[k]; best = k; }
+    const kit = b.pop >= 150 && bp / b.pop >= 0.45 ? best : 0; if ((b.kit ?? 0) !== kit) { b.kit = kit; w.version++; } }
+  // ---- cleared lots go to weeds, then sumac and scrub
+  if (year >= 1977) {
+    let ch = false;
+    for (const i of tiles) {
+      if (w.use[i] !== Use.Empty) continue;
+      // a summer's weeds, then sumac and ailanthus a few years on (the game ends before real woods come back)
+      if (w.sub[i] === LotSub.Cleared && year - w.built[i] >= 1 && tileNoise(w.seed, i, 0, 924) < 0.7) { w.sub[i] = LotSub.Weeds; ch = true; }
+      else if (w.sub[i] === LotSub.Weeds && year - w.built[i] >= 4 + tileNoise(w.seed, i, 1, 925) * 3) { w.sub[i] = LotSub.Scrub; ch = true; }
+    }
+    if (ch) w.version++;
   }
   // ---- main-street shops: one for every 400 people, on lots fronting its main street
   if (turn && b.pop >= 300 && year < 1975 && b.type !== "patch" && b.type !== "hillside") {
@@ -792,6 +830,22 @@ function civicLots(g: GameState, b: Block, kind: string): number[] {
   const open = (i: number) => w.blockId![i] === b.id && !w.street[i] && !m.road[i] && w.use[i] <= Use.Farm && !w.pop[i] && !b.res?.includes(i) && m.terrain[i] !== Terrain.Water;
   const d = (i: number) => Math.hypot((i % W) - b.x, ((i / W) | 0) - b.y);
   const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
+  if (kind === "market") {
+    // a 2×2 square within 10 tiles of the seed, beside a street: open land first, else frame houses bought and cleared
+    const ok = (i: number) => w.blockId![i] === b.id && !w.street[i] && !m.road[i] && !b.res?.includes(i) && m.terrain[i] !== Terrain.Water && m.terrain[i] !== Terrain.Cliff
+      && (w.use[i] <= Use.Farm || w.use[i] === Use.Cottage || w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) && w.sub[i] !== HouseSub.Estate;
+    let best: number[] = [], bs = -Infinity;
+    for (const i of tiles) {
+      if (!ok(i) || d(i) > 10) continue;
+      const x = i % W, y = (i / W) | 0;
+      if (!inBounds(m, x + 1, y + 1)) continue;
+      const cl = [i, i + 1, i + W, i + W + 1];
+      if (!cl.every(ok) || !cl.some(onStreet)) continue;
+      const score = -d(i) - cl.reduce((s, j) => s + (w.pop[j] ? 2 : 0) + (w.use[j] === Use.Rowhouses ? 2 : 0), 0);
+      if (score > bs) { bs = score; best = cl; }
+    }
+    return best;
+  }
   if (kind === "church") {
     if (b.res?.length && w.blockId![b.res[0]] === b.id && !w.pop[b.res[0]] && w.use[b.res[0]] <= Use.Farm) return [b.res[0]];
     const c = tiles.filter((i) => (open(i) || w.use[i] === Use.Houses) && frontsMain(g, b, i));

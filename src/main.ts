@@ -34,7 +34,7 @@ import { type LandmarkKind, placeLandmark } from "./core/landmarks";
 import { allDecisions, allEffects } from "./core/eventdata";
 import { applyEffects } from "./core/effects";
 import { buildProject, checkProject, PROJECTS, type ProjectKind, type Proposal, suggestProject } from "./core/projects";
-import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId } from "./ui/overlays";
+import { isVectorOverlay, makeOverlay, overlayLegend, OVERLAYS, type OverlayCache, type OverlayId, setWardMode, type WardMode } from "./ui/overlays";
 import { capacityOf, competitors, type Flow, playerWorks, supplyChain, type WorksRef } from "./core/economy";
 import { drawRivals, drawSupply, FLOW_COLOUR, RELATION_COLOUR } from "./render/flows";
 import { esc, fmt } from "./core/text";
@@ -397,7 +397,7 @@ function requestRender() {
     ctx.save();
     ctx.scale(dpr, dpr);
     const cc = camCss(), rr = reservedRects(true);
-    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cc, game, rr);
+    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cc, game, rr, overlay === "wards");
     drawHoldings(cc);
     if (overlay === "supply") {
       const sc = currentChain();
@@ -893,7 +893,12 @@ function setupUI() {
     e.preventDefault();
     setOverlay("none");
   });
-  $("legendBox").addEventListener("click", (e) => { if ((e.target as HTMLElement).closest(".lg-close")) setOverlay("none"); });
+  $("legendBox").addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest(".lg-close")) setOverlay("none");
+    const wm = t.closest<HTMLElement>("[data-wardmode]");
+    if (wm) { setWardMode(wm.dataset.wardmode as WardMode); $("legend").innerHTML = overlayLegend(overlay, game); }
+  });
   document.addEventListener("click", (e) => { if (!(e.target as HTMLElement).closest("#mapTools")) $("layerMenu").hidden = true; });
   // the headline strip opens the paper; the paper has a ledger tab (the log)
   $("headline").addEventListener("click", () => openPaper(true));
@@ -1546,6 +1551,7 @@ if (new URLSearchParams(location.search).has("dev") || import.meta.env.DEV) Obje
     center: (x: number, y: number, z?: number) => centerOn(x, y, z),
     select: (x: number, y: number) => { selected = { x, y }; siteReport(); requestRender(); },
     overlay: (id: OverlayId) => setOverlay(id),
+    wardMode: (m: WardMode) => { setWardMode(m); $("legend").innerHTML = overlayLegend(overlay, game); requestRender(); return document.querySelectorAll("[data-wardmode]").length; },
     chain: () => currentChain(),
     industry: (id: IndustryId) => { industry = id; ($<HTMLSelectElement>("industry")).value = id; industryNote(); siteReport(); requestRender(); },
     next: (n = 1) => { for (let k = 0; k < n; k++) advanceTurn(game); afterTurn(); },
