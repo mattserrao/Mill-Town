@@ -525,13 +525,24 @@ function unsettle(g: GameState, b: Block, count: number, rng: Rng, empty = false
   const w = g.world, r = rt(g), tiles = r.tiles[b.id - 1];
   b.full = 0;
   if (empty) b.builtTo = 0;
-  for (let k = 0; k < count * 3 && count > 0 && tiles.length; k++) {
+  for (let k = 0; k < count * 8 + 20 && count > 0 && tiles.length; k++) {
     const i = tiles[rng.int(0, tiles.length - 1)], p = w.pop[i];
     if (!p || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
     const take = empty ? p : Math.min(p - 1, Math.max(1, Math.ceil(p * 0.05)), count);
     if (take <= 0) continue;
     w.pop[i] = p - take; b.pop -= take; b.byGroup[w.eth[i]] -= take; count -= take;
     if (!w.pop[i]) b.built--;
+  }
+}
+
+/** board up `homes` houses (the collapse: families leave, the house stands empty) */
+function emptyHomes(g: GameState, b: Block, homes: number, rng: Rng) {
+  const w = g.world, tiles = rt(g).tiles[b.id - 1];
+  if (homes > 0) { b.full = 0; b.builtTo = 0; }
+  for (let k = 0; k < homes * 8 + 20 && homes > 0 && tiles.length; k++) {
+    const i = tiles[rng.int(0, tiles.length - 1)], p = w.pop[i];
+    if (!p || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
+    w.pop[i] = 0; b.pop -= p; b.byGroup[w.eth[i]] -= p; b.built--; homes--;
   }
 }
 
@@ -650,8 +661,10 @@ export function sleuthNatural(g: GameState) {
   for (const b of g.sleuth.blocks) {
     if (!b.pop) continue;
     if (year >= 1975) {
-      if (steel.some(([px, py]) => Math.abs(px - b.x) < 45 && Math.abs(py - b.y) < 45)) {
-        unsettle(g, b, Math.round(b.built * 0.008), rng, true);
+      // a steel town: any of its land within ~1.3 km of a steel works (v0.24's 45 tiles), judged by the block's
+      // seed and the far corners of its land
+      if (steelTown(g, b, steel)) {
+        emptyHomes(g, b, Math.round(b.built * 0.008 + rng.next() * 0.9), rng);
         unsettle(g, b, Math.round(b.pop * 0.0075), rng);
       }
       continue;
@@ -673,6 +686,13 @@ export function sleuthYear(g: GameState) {
 
   void y;
   annexations(g);
+}
+
+function steelTown(g: GameState, b: Block, steel: [number, number][]): boolean {
+  const tiles = rt(g).tiles[b.id - 1], W = g.map.width;
+  const pts: [number, number][] = [[b.x, b.y]];
+  for (let k = 0; k < tiles.length; k += Math.max(1, Math.floor(tiles.length / 24))) pts.push([tiles[k] % W, (tiles[k] / W) | 0]);
+  return steel.some(([px, py]) => pts.some(([x, y]) => Math.abs(px - x) < 45 && Math.abs(py - y) < 45));
 }
 
 function turnoverBlock(g: GameState, b: Block, rng: Rng, season: number) {
