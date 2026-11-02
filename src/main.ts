@@ -956,6 +956,13 @@ function setupUI() {
   const vols = () => sound.setVolumes(Number(($<HTMLInputElement>("musicVol")).value), Number(($<HTMLInputElement>("ambVol")).value));
   $("musicVol").addEventListener("input", vols); $("ambVol").addEventListener("input", vols);
   setInterval(updateSound, 500);
+  // Street life: how busy the streets are (Low / Medium / High), remembered
+  {
+    const sel = $<HTMLSelectElement>("streetLife");
+    try { const v = localStorage.getItem("mt.streetlife"); if (v === "0" || v === "1" || v === "2") sel.value = v; } catch { /* private mode */ }
+    Traffic.streetLife = Number(sel.value);
+    sel.addEventListener("change", () => { Traffic.streetLife = Number(sel.value); try { localStorage.setItem("mt.streetlife", sel.value); } catch { /* private mode */ } requestRender(); });
+  }
   $("found").addEventListener("click", () => {
     if (!selected) return;
     const name = ($<HTMLInputElement>("companyName")).value.trim() || suggestName(industry, game.seed);

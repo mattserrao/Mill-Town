@@ -73,6 +73,18 @@ const KIT_GRAPES = new Set([5, 7, 9, 10]);
 const KIT_CHICKENS = new Set([5, 6, 8, 9, 10]);
 const KIT_FLOWERS = new Set([2, 4]);
 
+/** each community's colours: hall flags (top to bottom) and the awning of its shops */
+const KIT_FLAG: Record<number, string[]> = {
+  1: ["#b8302a", "#f0ece0", "#2e3e7a"], 2: ["#2e8a4a", "#f0ece0", "#e0802a"], 3: ["#1e1e1e", "#c8302a", "#e8c040"],
+  4: ["#6a3a8a", "#f0ece0", "#6a3a8a"], 5: ["#f0ece0", "#2e5aa8", "#d03030"], 6: ["#f0ece0", "#f0ece0", "#d03030"],
+  7: ["#d03030", "#f0ece0", "#3a8a4a"], 8: ["#2e5aa8", "#2e5aa8", "#e8c840"], 9: ["#d03030", "#f0ece0", "#2e5aa8"],
+  10: ["#2e8a4a", "#f0ece0", "#d03030"], 11: ["#b02a24", "#b02a24", "#b02a24"], 12: ["#e8c040", "#3a8a4a", "#d03030"],
+};
+const KIT_AWNING: Record<number, [string, string]> = {
+  2: ["#2e6a3e", "#f0ece0"], 3: ["#3a3a3a", "#e8c040"], 4: ["#6a3a8a", "#f0ece0"], 5: ["#2e5aa8", "#f0ece0"], 6: ["#c02a2a", "#f0ece0"],
+  7: ["#2e7a3e", "#e8d8c0"], 8: ["#2e5aa8", "#e8c840"], 9: ["#c02a2a", "#2e4a8a"], 10: ["#2e7a3e", "#e8c8a0"], 12: ["#3a7a3e", "#e8c040"],
+};
+
 const ROOF = ["#5b4636", "#4b4a4f", "#6a3d30", "#57524a", "#3e4248"];
 const AWNING: [string, string][] = [["#b03a2e", "#e8e0d0"], ["#2e5a3a", "#e8e0d0"], ["#2e3e6a", "#e8d8a0"], ["#8a5a1a", "#f0e0b0"]];
 
@@ -603,7 +615,7 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
       const wall = s.sub === 10 || s.sub === 11 ? BRICK[(s.v + 2) % 6] : st === 0 ? CLAP_BY_STYLE[0][s.v % 4] : BRICK[(s.v + 1) % 6];
       const b = box(p, u0, v0, u1, v1, 20, { wall, z0, foundation: s.fnd });
       gable(p, b, f.ridge, 6, ROOF[(s.v + 1) % 5]);
-      const awn: [string, string] = s.sub === 9 ? ["#c8a060", "#f4ecd8"] : s.sub === 10 ? ["#b0302a", "#f4f0e8"] : s.sub === 11 ? ["#2e4a8a", "#f4f0e8"] : ["#b0302a", "#f4f0e8"];
+      const awn: [string, string] = s.sub !== 11 && s.kit && KIT_AWNING[s.kit] ? KIT_AWNING[s.kit] : s.sub === 9 ? ["#c8a060", "#f4ecd8"] : s.sub === 10 ? ["#b0302a", "#f4f0e8"] : s.sub === 11 ? ["#2e4a8a", "#f4f0e8"] : ["#b0302a", "#f4f0e8"];
       facade(p, b, face, { n: 3, stories: 2, storyH: 9, style: st, boarded: s.boarded, shop: awn });
       // the sign over the door
       const q = f.pt(p, 0.5, -0.02, 0);
@@ -616,7 +628,7 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
       const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.04, 0.52);
       const b = box(p, u0, v0, u1, v1, 21, { wall: BRICK[(s.v + 4) % 6], z0, foundation: s.fnd });
       gable(p, b, f.ridge, 6, ROOF[s.v % 5]);
-      facade(p, b, face, { n: 4, stories: 2, storyH: 9, style: Math.max(1, st), door: 1, boarded: s.boarded, shop: ["#3a2a1a", "#c9a24a"] });
+      facade(p, b, face, { n: 4, stories: 2, storyH: 9, style: Math.max(1, st), door: 1, boarded: s.boarded, shop: s.kit && KIT_AWNING[s.kit] ? [KIT_AWNING[s.kit][0], "#c9a24a"] : ["#3a2a1a", "#c9a24a"] });
       const q = f.pt(p, 0.92, -0.02, 0);
       p.px(q[0], q[1] - 18, "#3a2a1a", 1, 18); p.px(q[0] - 5, q[1] - 18, "#e8c060", 6, 4); p.px(q[0] - 4, q[1] - 17, "#8a2a1a", 4, 2);
       break;
@@ -763,6 +775,17 @@ function shopSprite(s: HouseSpec, p: Painter): Sprite {
   return finish(p, s);
 }
 
+/** a smooth copper dome, centre-bottom at (x, y): lit on the left, shaded on the right */
+function dome(p: Painter, x: number, y: number, r: number, h: number) {
+  for (let dy = 0; dy < h; dy++) {
+    const w = Math.round(r * Math.sqrt(1 - (dy / h) ** 2));
+    if (w <= 0) continue;
+    p.px(x - w, y - dy, "#5a8a7a", w, 1);
+    p.px(x, y - dy, "#3e6a5a", w, 1);
+    if (dy > h * 0.3 && dy < h * 0.8) p.px(x - Math.max(1, w >> 1), y - dy, "#86b8a4", 1, 1);
+  }
+}
+
 function civicSprite(s0: HouseSpec): Sprite {
   const p = new Painter(1, 210);
   const s = prepareLot(p, { ...s0, kind: "shop" });
@@ -771,18 +794,28 @@ function civicSprite(s0: HouseSpec): Sprite {
   const z0 = s.lift;
   const face = f.streetFace ?? f.backFace!;
   switch (s.sub) {
-    case 0: { // church: stone gothic or brick with square tower and spire
-      const stone = s.v % 2 ? "#b8ad98" : "#9c7a64";
+    case 0: { // church: stone gothic or brick with square tower and spire — by the community that built it
+      // old stock: pale stone Presbyterian with a white steeple; Irish: grey stone Gothic, Celtic cross;
+      // German: red brick with a very tall spire (St. Mary's, Lawrenceville; St. Michael's, South Side)
+      const k = s.kit ?? 0;
+      const stone = k === 1 ? "#d8d0bc" : k === 2 ? "#9a9890" : k === 3 ? "#8a3e2c" : s.v % 2 ? "#b8ad98" : "#9c7a64";
+      const roof = k === 1 ? "#5a5a60" : k === 3 ? "#3e4a52" : "#4c5560";
       const [u0, v0, u1, v1] = f.rect(0.15, 0.85, 0.25, 0.75);
       const nave = box(p, u0, v0, u1, v1, 22, { wall: stone, z0, foundation: s.fnd + 2 });
-      gable(p, nave, f.across, 12, "#4c5560");
-      facade(p, nave, f.sideFace, { n: 4, stories: 1, storyH: 9, style: 0, dark: "#3a4a6a", tall: true });
-      const tw = box(p, ...f.rect(0.4, 0.6, 0.12, 0.3), 46, { wall: stone, top: "#4c5560", z0 });
+      gable(p, nave, f.across, 12, roof);
+      facade(p, nave, f.sideFace, { n: 4, stories: 1, storyH: 9, style: 0, dark: k === 1 ? "#4a5a6a" : "#3a4a6a", tall: true });
+      const th = k === 3 ? 56 : 46, sh = k === 3 ? 44 : k === 1 ? 34 : 28;
+      const tw = box(p, ...f.rect(0.4, 0.6, 0.12, 0.3), th, { wall: stone, top: roof, z0 });
       facade(p, tw, face, { n: 1, stories: 1, storyH: 9, style: 0, door: 0 });
-      const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + 46 + 28);
-      p.poly([tw.D(z0 + 46), tw.C(z0 + 46), ap], "#56606c");
-      p.poly([tw.C(z0 + 46), tw.B(z0 + 46), ap], "#3e4650");
-      p.px(ap[0], ap[1] - 4, "#c9b26a", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#c9b26a", 3, 1);
+      const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + th + sh);
+      const spire = k === 1 ? ["#efe9da", "#cfc8b8"] : k === 3 ? ["#4a7a6a", "#3a6052"] : ["#56606c", "#3e4650"];
+      p.poly([tw.D(z0 + th), tw.C(z0 + th), ap], spire[0]);
+      p.poly([tw.C(z0 + th), tw.B(z0 + th), ap], spire[1]);
+      if (k === 2) { // Celtic cross: a cross with a ring
+        p.px(ap[0], ap[1] - 6, "#d8d0c0", 1, 6); p.px(ap[0] - 2, ap[1] - 4, "#d8d0c0", 5, 1);
+        p.px(ap[0] - 1, ap[1] - 5, "#d8d0c0", 1, 1); p.px(ap[0] + 1, ap[1] - 5, "#d8d0c0", 1, 1); p.px(ap[0] - 1, ap[1] - 3, "#d8d0c0", 1, 1); p.px(ap[0] + 1, ap[1] - 3, "#d8d0c0", 1, 1);
+      } else if (k === 1) p.px(ap[0], ap[1] - 3, "#c9b26a", 1, 3); // a weathervane rod, no cross
+      else { p.px(ap[0], ap[1] - 4, "#c9b26a", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#c9b26a", 3, 1); }
       break;
     }
     case 1: { // onion-domed church (Slovak, Rusyn, Ukrainian, Russian parishes)
@@ -824,18 +857,50 @@ function civicSprite(s0: HouseSpec): Sprite {
       hip(p, tw, 6, "#3a3a40");
       break;
     }
-    case 5: { // twin-tower church: Slovak, Polish, Hungarian, Italian, Lithuanian parishes — big brick, two spires
-      const brick = ["#9a4a34", "#a8604a", "#b8a890"][s.v % 3];
+    case 5: { // twin-tower church: Slovak, Polish, Hungarian, Lithuanian, Croatian parishes — big brick, two spires
+      const k = s.kit ?? 0;
+      if (k === 10) { // Italian: Romanesque stucco front with a free-standing campanile
+        const wall = ["#e2c49a", "#d8b088", "#ead6b0"][s.v % 3];
+        const [u0, v0, u1, v1] = f.rect(0.16, 0.7, 0.24, 0.9);
+        const nave = box(p, u0, v0, u1, v1, 26, { wall, z0, foundation: s.fnd + 3, fnd: "#a89a80" });
+        gable(p, nave, f.across, 8, "#a8543a");
+        facade(p, nave, f.sideFace, { n: 4, stories: 1, storyH: 10, style: 1, dark: "#5a3a2a", tall: true });
+        facade(p, nave, face, { n: 3, stories: 1, storyH: 14, style: 1, door: 1, tall: true });
+        const tw = box(p, ...f.rect(0.76, 0.9, 0.3, 0.44), 60, { wall, z0, top: "#a8543a" });
+        facade(p, tw, face, { n: 1, stories: 3, storyH: 16, style: 1, tall: true, dark: "#3a2a24" });
+        const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + 60 + 8);
+        p.poly([tw.D(z0 + 60), tw.C(z0 + 60), ap], "#b8644a"); p.poly([tw.C(z0 + 60), tw.B(z0 + 60), ap], "#94503a");
+        p.px(ap[0], ap[1] - 4, "#c9b26a", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#c9b26a", 3, 1);
+        const rose = f.pt(p, 0.43, 0.23, z0 + 30); p.px(rose[0] - 2, rose[1] - 2, "#3a2a24", 4, 4); p.px(rose[0] - 1, rose[1] - 1, "#d8a040", 2, 2);
+        break;
+      }
+      const brick = k === 12 ? ["#b8a890", "#c8b8a0", "#a8604a"][s.v % 3] : k === 7 ? ["#c8bca0", "#a8604a", "#9a4a34"][s.v % 3] : ["#9a4a34", "#a8604a", "#b8a890"][s.v % 3];
+      // the spire caps: copper green (Slovak, Croatian), dark slate (Lithuanian), red tile (Hungarian), copper (Polish)
+      const cap = k === 12 ? ["#4a4e58", "#383c44"] : k === 7 ? ["#9a3a2a", "#7a2e22"] : k === 6 ? ["#5a8a7a", "#46705f"] : ["#4a7a6a", "#3a6052"];
       const [u0, v0, u1, v1] = f.rect(0.18, 0.82, 0.28, 0.9);
       const nave = box(p, u0, v0, u1, v1, 26, { wall: brick, z0, foundation: s.fnd + 3, fnd: "#8a8070" });
       gable(p, nave, f.across, 14, "#3e4a52");
       facade(p, nave, f.sideFace, { n: 4, stories: 1, storyH: 10, style: 1, dark: "#5a3a6a", tall: true });
+      if (k === 6) { // Polish: a basilica with a great dome over the crossing (Immaculate Heart of Mary, Polish Hill)
+        const [cu, cv] = f.rect(0.5, 0.5, 0.62, 0.62);
+        cylinder(p, cu, cv, 0.13, z0 + 26, 10, brick, cap[0]);
+        const [x, y] = p.P(cu, cv, z0 + 44);
+        dome(p, x, y, 9, 8);
+        p.px(x, y - 13, "#c9b26a", 1, 5); p.px(x - 1, y - 12, "#c9b26a", 3, 1);
+      }
+      const tH = k === 6 ? 44 : 52, sH = k === 6 ? 0 : 22;
       for (const a of [0.2, 0.68]) {
-        const tw = box(p, ...f.rect(a, a + 0.14, 0.12, 0.28), 52, { wall: brick, z0 });
-        facade(p, tw, face, { n: 1, stories: 2, storyH: 18, style: 1, tall: true });
-        const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + 52 + 22);
-        p.poly([tw.D(z0 + 52), tw.C(z0 + 52), ap], "#4a7a6a");
-        p.poly([tw.C(z0 + 52), tw.B(z0 + 52), ap], "#3a6052");
+        const tw = box(p, ...f.rect(a, a + 0.14, 0.12, 0.28), tH, { wall: brick, z0 });
+        facade(p, tw, face, { n: 1, stories: 2, storyH: k === 6 ? 15 : 18, style: 1, tall: true });
+        if (k === 6) { // small cupolas on the towers
+          const [x, y] = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + tH + 4);
+          dome(p, x, y, 4, 5);
+          p.px(x, y - 9, "#c9b26a", 1, 4); p.px(x - 1, y - 8, "#c9b26a", 3, 1);
+          continue;
+        }
+        const ap = p.P((tw.u0 + tw.u1) / 2, (tw.v0 + tw.v1) / 2, z0 + tH + sH);
+        p.poly([tw.D(z0 + tH), tw.C(z0 + tH), ap], cap[0]);
+        p.poly([tw.C(z0 + tH), tw.B(z0 + tH), ap], cap[1]);
         p.px(ap[0], ap[1] - 4, "#c9b26a", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#c9b26a", 3, 1);
       }
       const rose = f.pt(p, 0.5, 0.27, z0 + 30); p.px(rose[0] - 2, rose[1] - 2, "#c84a6a", 4, 4); p.px(rose[0] - 1, rose[1] - 1, "#f0d070", 2, 2);
@@ -872,18 +937,35 @@ function civicSprite(s0: HouseSpec): Sprite {
       p.px(ap[0], ap[1] - 4, "#efe9da", 1, 4); p.px(ap[0] - 1, ap[1] - 3, "#efe9da", 3, 1);
       break;
     }
-    case 8: { // social hall: Sokol, Turnverein, Falcons, Hibernians — two-storey hall, ballroom windows, flag
+    case 8: { // social hall: Sokol, Turnverein, Falcons, Hibernians — two-storey hall, ballroom windows, the community's flag
+      const k = s.kit ?? 0;
+      // Turnverein: a tall gymnasium; Masonic: a stone temple front; Sons of Italy: stucco with arched windows
+      const H = k === 3 ? 32 : k === 1 ? 28 : 24;
+      const wall = k === 1 ? "#cfc4a8" : k === 10 ? "#e2c49a" : k === 2 ? "#e8e2d2" : BRICK[(s.v + 3) % 6];
       const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.06, 0.72);
-      const b = box(p, u0, v0, u1, v1, 24, { wall: BRICK[(s.v + 3) % 6], z0, foundation: s.fnd, top: "#3a3432" });
-      cornice(p, b, face, "#c8b898");
-      facade(p, b, face, { n: 5, stories: 2, storyH: 11, style: 1, door: 2, tall: true });
-      facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: 11, style: 1, tall: true });
-      const a = face === "left" ? b.D(z0 + 24) : b.C(z0 + 24), c = face === "left" ? b.C(z0 + 24) : b.B(z0 + 24);
+      const b = box(p, u0, v0, u1, v1, H, { wall, z0, foundation: s.fnd, top: "#3a3432" });
+      cornice(p, b, face, k === 1 ? "#e8e0c8" : "#c8b898");
+      if (k === 3) { // the gym: one tall storey of high windows over a low ground floor
+        facade(p, b, face, { n: 5, stories: 2, storyH: 15, style: 1, door: 2, tall: true });
+        facade(p, b, f.sideFace, { n: 4, stories: 2, storyH: 15, style: 1, tall: true });
+      } else {
+        facade(p, b, face, { n: 5, stories: 2, storyH: H === 28 ? 13 : 11, style: 1, door: 2, tall: true, dark: k === 10 ? "#4a3226" : undefined });
+        facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: H === 28 ? 13 : 11, style: 1, tall: true });
+      }
+      const a = face === "left" ? b.D(z0 + H) : b.C(z0 + H), c = face === "left" ? b.C(z0 + H) : b.B(z0 + H);
       const [x, y] = lerp(a, c, 0.5);
-      p.px(x - 7, y - 3, "#e8e0c8", 14, 3); p.px(x - 6, y - 2, "#3a2a24", 12, 1); // name band
-      p.px(x, y - 18, "#3a3a3a", 1, 15);
-      const flags = [["#ffffff", "#2e5aa8", "#d03030"], ["#ffffff", "#d03030", "#d03030"], ["#2a2a2a", "#d03030", "#e8c040"], ["#3a8a4a", "#ffffff", "#d0402a"]][s.v % 4];
-      flags.forEach((col, k) => p.px(x + 1, y - 18 + k * 2, col, 6, 2));
+      if (k === 1) { // pediment and the square-and-compass
+        p.poly([[x - 9, y], [x + 9, y], [x, y - 6]], "#e8e0c8");
+        p.px(x - 2, y - 3, "#c9a24a", 5, 1); p.px(x - 1, y - 4, "#c9a24a", 1, 1); p.px(x + 1, y - 4, "#c9a24a", 1, 1); p.px(x, y - 5, "#c9a24a", 1, 1);
+      }
+      p.px(x - 7, y - 3 + (k === 1 ? 3 : 0), "#e8e0c8", 14, 3); p.px(x - 6, y - 2 + (k === 1 ? 3 : 0), "#3a2a24", 12, 1); // name band
+      if (k !== 1) {
+        p.px(x, y - 18, "#3a3a3a", 1, 15);
+        const flags = KIT_FLAG[k] ?? [["#ffffff", "#2e5aa8", "#d03030"], ["#ffffff", "#d03030", "#d03030"], ["#2a2a2a", "#d03030", "#e8c040"], ["#3a8a4a", "#ffffff", "#d0402a"]][s.v % 4];
+        flags.forEach((col, q) => p.px(x + 1, y - 18 + q * 2, col, 6, 2));
+        if (k === 9) for (let q = 0; q < 3; q++) p.px(x + 2 + q * 2, y - 16, "#f0ece0", 1, 1); // the Croatian checker
+        if (k === 4) p.px(x + 3, y - 16, "#f0ece0", 2, 1); // Elks: the purple and white
+      }
       break;
     }
     case 4: { // library: Beaux-Arts stone, columned entrance, dome

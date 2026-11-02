@@ -240,7 +240,7 @@ export class Traffic {
     this.cam = cam; this.cw = cw; this.ch = ch;
     this.night = night;
     // shift change: the hour either side of dawn and dusk (only when the day turns)
-    this.surge = clamp01(1 - Math.abs(night - 0.5) / 0.22);
+    this.surge = clamp01(1 - Math.abs(night - 0.5) / 0.22) * (Traffic.streetLife === 2 ? 1 : 0.55);
     this.updateScene(g);
     this.wind = windFor(g); // the same wind as the plumes and haze
     const v = this.view(cam, cw, ch);
@@ -260,8 +260,11 @@ export class Traffic {
     const density = Math.max(0.15, 1 - 0.85 * night) + 0.45 * this.surge;
     const season = cal(g).season;
     const river = SEASON_EFFECTS[season].river; // ice in winter, low water in summer
+    // people and vehicles follow the streets actually on screen (not the screen's area), at the player's Street life level
+    const life = STREET_LIFE[Traffic.streetLife] ?? STREET_LIFE[1];
+    const streetTiles = life.legacy ? tiles : tiles * this.streetShare(g, cam, cw, ch);
     const want = {
-      street: small ? Math.min(420, tiles * 0.9 * density) : 0,
+      street: small ? Math.min(life.cap, streetTiles * life.k * density) : 0,
       train: Math.min(z >= 0.25 ? 6 : 10, tiles / 1500 + 1),
       boat: Math.min(z >= 0.25 ? 14 : 22, tiles / 900 + 2) * (season === "Winter" ? 0.45 : Math.min(1, 0.4 + 0.6 * river)),
     };
@@ -326,6 +329,28 @@ export class Traffic {
 
   // ------------------------------------------------------------ what the simulation says
   /** strikes, closures, floods and job centres: recomputed when the season or a works' status changes */
+  /** 0 Low, 1 Medium (default), 2 High */
+  static streetLife = 1;
+  private shareKey = "";
+  private shareVal = 0;
+  /** share of the tiles on screen that are usable streets (sampled on a grid; cached while the view and town are unchanged) */
+  private streetShare(g: GameState, cam: Camera, cw: number, ch: number): number {
+    const w = g.world, m = this.m;
+    const key = `${Math.round(cam.x / 64)}|${Math.round(cam.y / 64)}|${cam.zoom.toFixed(3)}|${cw}|${ch}|${w.version}`;
+    if (key === this.shareKey) return this.shareVal;
+    let n = 0, s = 0;
+    for (let gy = 0; gy < 12; gy++) for (let gx = 0; gx < 16; gx++) {
+      const wx = cam.x + ((gx + 0.5) / 16) * (cw / cam.zoom), wy = cam.y + ((gy + 0.5) / 12) * (ch / cam.zoom) + (260 - BASE_M) * ZPX;
+      const a = wx / HW, b = wy / HH;
+      const x = Math.floor((a + b) / 2), y = Math.floor((b - a) / 2);
+      n++;
+      if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
+      if (this.streetOk(w, y * m.width + x)) s++;
+    }
+    this.shareKey = key; this.shareVal = n ? s / n : 0;
+    return this.shareVal;
+  }
+
   private updateScene(g: GameState) {
     const mine = g.company ? allWorks(g.company) : [];
     const striking: { id: string; x: number; y: number; fp: number; side: string; force?: number }[] = [];
@@ -620,6 +645,7 @@ export class Traffic {
       if (night > 0.6 && !carsLit && kind !== "walker" && kind !== "horsecar" && kind !== "streetcar" && rng.chance(0.5)) return false;
       if (slump > 0 && kind !== "walker" && rng.chance(slump * 0.5)) return false; // fewer vehicles in a town out of work
     }
+    if (kind !== "walker" && kind !== "streetcar" && kind !== "horsecar" && Traffic.streetLife < 2 && rng.chance(0.2)) return false; // quieter streets: a few more on foot
     // country lanes and side streets take one vehicle to a stretch (no convoys of wagons on a farm road)
     if (kind !== "walker" && (this.occ.get(i) ?? 0) >= (pike ? 2 : 1)) return false;
     if (kind !== "walker" && this.pickets.some((p) => Math.abs(p.cx - x) < 5 && Math.abs(p.cy - yy) < 5)) return false; // traffic keeps clear of the picket line
@@ -1450,6 +1476,13 @@ function drawCar(ctx: CanvasRenderingContext2D, c: Car, sx: number, sy: number, 
 /** Deck height profile (m) along a span, f = 0..1 — shared with the bridge renderer. */
 /** below this zoom, small street agents (people, horses, cars) are not shown */
 export const SMALL_AGENT_ZOOM = 0.375;
+
+/** Street life levels: agents per street tile on screen and a cap (High is the v0.21 density: per screen tile). */
+export const STREET_LIFE: { k: number; cap: number; legacy?: boolean }[] = [
+  { k: 0.15, cap: 50 },
+  { k: 0.45, cap: 140 },
+  { k: 0.9, cap: 420, legacy: true },
+];
 const BIG = new Set<string>(["train", "steamboat", "tow"]);
 
 export function spanProfile(m: GameMap, sp: Span, type: string, built: number) {

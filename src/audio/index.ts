@@ -6,9 +6,51 @@ import type { GameMap } from "../core/map";
 import { Terrain } from "../core/terrain";
 import { Use } from "../core/town";
 import { type Camera, BASE_M, HH, HW, ZPX } from "../render/iso";
-import { cityStyle, communityStyle, MusicPlayer, STYLES } from "./music";
+import { cityStyle, communityStyle, MusicPlayer, type Room, roomOf, STYLES, type Style } from "./music";
+import { hasSamples, loadInstrument, samplesReady } from "./sampler";
+import type { Inst } from "./synth";
 import { type Scene, Soundscape } from "./soundscape";
-import { atmosphereFor, SONGS_BY_FAMILY } from "./songs";
+import { atmosphereFor, type Song, SONGS, SONGS_BY_FAMILY } from "./songs";
+
+/** reverb per room: length (s), decay curve, wet level */
+const ROOM_FX: Record<Room, [number, number, number]> = {
+  hall: [1.8, 2.6, 0.26], church: [3.8, 2.2, 0.36], parlor: [0.9, 3.2, 0.18], club: [1.2, 3, 0.2], street: [1.5, 3, 0.16], open: [2.8, 2.6, 0.3],
+};
+
+/** a synthetic impulse response: decaying stereo noise, darker as it fades */
+function impulse(ctx: BaseAudioContext, secs: number, decay: number): AudioBuffer {
+  const sr = ctx.sampleRate, n = Math.floor(secs * sr), b = ctx.createBuffer(2, n, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < n; i++) {
+      const x = i / n, k = 0.08 + 0.85 * (1 - x); // one-pole low-pass that closes as the tail fades
+      lp += k * ((Math.random() * 2 - 1) - lp);
+      d[i] = lp * (1 - x) ** decay * (i < sr * 0.012 ? i / (sr * 0.012) : 1);
+    }
+  }
+  return b;
+}
+
+/** a reverb bus per room (built once per context) */
+function rooms(ctx: BaseAudioContext, dest: AudioNode): Record<Room, ConvolverNode> {
+  const out = {} as Record<Room, ConvolverNode>;
+  for (const r of Object.keys(ROOM_FX) as Room[]) {
+    const c = ctx.createConvolver();
+    c.buffer = impulse(ctx, ROOM_FX[r][0], ROOM_FX[r][1]);
+    c.connect(dest);
+    out[r] = c;
+  }
+  return out;
+}
+
+const instsOf = (st: Style, s?: Song): Inst[] => [st.lead, st.comp, st.bass, ...(st.lead2 ? [st.lead2] : []), ...(s?.lead2nd ? [s.lead2nd] : [])];
+
+/** a player for a song, wired to its room */
+export function playerFor(ctx: BaseAudioContext, dest: AudioNode, verb: Record<Room, ConvolverNode>, song: Song, seed: string | number): MusicPlayer {
+  const room = roomOf(song.style);
+  return new MusicPlayer(ctx, dest, song.style, { tune: song.tune, lead2nd: song.lead2nd, seed, send: verb[room], wet: ROOM_FX[room][2] });
+}
 
 export interface ViewSummary extends Scene { group: number; groupShare: number; idleMills: number; place: string }
 
@@ -71,6 +113,11 @@ export class SoundController {
   private ambBus!: GainNode;
   private scape!: Soundscape;
   private player: MusicPlayer | null = null;
+  /** players still sounding (the one fading out finishes its phrase) */
+  private players: MusicPlayer[] = [];
+  private verb!: Record<Room, ConvolverNode>;
+  private song: Song | null = null;
+  private pending: { song: Song; want: string; since: number; interlude: boolean; k: number; seed: string } | null = null;
   private timer = 0;
   private lastSwitch = -Infinity; // so the first style starts at once
   /** the music the view asks for (a style family, or "atmos"), the current track's start and length */
@@ -101,8 +148,17 @@ export class SoundController {
       this.master.connect(comp); comp.connect(this.ctx.destination);
       this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = this.musicVol * 0.6; this.musicBus.connect(this.master);
       this.ambBus = this.ctx.createGain(); this.ambBus.gain.value = this.ambVol; this.ambBus.connect(this.master);
+      this.verb = rooms(this.ctx, this.musicBus);
       this.scape = new Soundscape(this.ctx, this.ambBus);
-      this.timer = window.setInterval(() => { try { this.player?.schedule(this.ctx!.currentTime + 0.6); } catch (e) { console.warn("music", e); } }, 150);
+      this.timer = window.setInterval(() => {
+        try {
+          const now = this.ctx!.currentTime;
+          for (const p of this.players) p.schedule(now + 0.6);
+          this.players = this.players.filter((p) => p === this.player || !p.done(now));
+        } catch (e) { console.warn("music", e); }
+      }, 150);
+      // the instruments heard first: the city's music at the start of the game
+      for (const i of ["piano", "fiddle", "flute", "upright", "brass", "tuba"] as Inst[]) void loadInstrument(this.ctx, i);
     }
     // Safari unlock: play one silent sample inside the gesture
     try {
@@ -136,8 +192,10 @@ export class SoundController {
     this.musicBus.gain.setTargetAtTime(this.musicVol * 0.6 * duck, t, 0.5);
     const want = chooseMusic(v);
     const fresh = want !== this.family;
-    const due = t - this.trackStart > this.trackLen;
-    if ((fresh || due) && t - this.lastSwitch > 6) {
+    const playing = t - this.trackStart;
+    const due = playing > this.trackLen;
+    // a new view's music waits for the current tune to have had its say (25 s), then changes at a phrase end
+    if (!this.pending && (!this.player || due || (fresh && playing > 25)) && t - this.lastSwitch > 6) {
       // after a song, often a quiet mood piece; then the next tune in the style the view calls for
       const atmosChance = Math.min(0.7, 0.3 + 0.25 * v.night + (v.zoom < 0.375 ? 0.15 : 0) + 0.2 * v.country);
       const k = this.counter++;
@@ -146,32 +204,54 @@ export class SoundController {
       else if (!fresh && !this.interlude && ((k * 2654435761) % 1000) / 1000 < atmosChance) fam = atmosphereFor(v, k);
       else fam = want;
       const book = SONGS_BY_FAMILY[fam] ?? SONGS_BY_FAMILY[cityStyle(v.year)];
-      const song = book[k % book.length];
-      this.interlude = fam !== want;
-      this.family = want;
-      this.player?.stop(t);
-      this.player = new MusicPlayer(ctx, this.musicBus, song.style, `${v.year}:${v.place}:${k}`);
-      this.player.start(t + 0.1, song.style.atmospheric ? 4 : 2);
-      this.lastSwitch = t; this.trackStart = t;
-      this.trackLen = song.style.atmospheric ? 70 + (k % 4) * 12 : 120 + (k % 5) * 15;
+      // the next tune in the book, never the one just played
+      let song = book[k % book.length];
+      if (song === this.song && book.length > 1) song = book[(k + 1) % book.length];
+      this.pending = { song, want, since: t, interlude: fam !== want, k, seed: `${v.year}:${v.place}:${k}` };
+      for (const i of instsOf(song.style, song)) if (hasSamples(i)) void loadInstrument(ctx, i);
     }
-    const playing = this.player?.style ?? STYLES[cityStyle(v.year)];
-    this.nowPlaying = `${playing.label}${v.place ? ` — ${v.place}` : ""}, ${v.year}`;
+    if (this.pending) {
+      const p = this.pending;
+      const ready = instsOf(p.song.style, p.song).every((i) => !hasSamples(i) || samplesReady(i));
+      if (ready || t - p.since > 5) {
+        const old = this.player;
+        const over = !old || t - this.trackStart > this.trackLen - 0.5;
+        const at = over ? t + 0.1 : Math.max(t + 0.1, Math.min(old!.nextPhraseTime(), t + 10));
+        old?.stop(at, 3);
+        const pl = playerFor(ctx, this.musicBus, this.verb, p.song, p.seed);
+        pl.start(Math.max(t + 0.1, at - (over ? 0 : 0.5)), p.song.style.atmospheric ? 4 : 1.5);
+        this.player = pl; this.players.push(pl); this.song = p.song;
+        this.interlude = p.interlude; this.family = p.want;
+        this.lastSwitch = t; this.trackStart = at;
+        this.trackLen = isFinite(pl.duration) ? pl.duration + 1 : p.song.style.atmospheric ? 70 + (p.k % 4) * 12 : 120 + (p.k % 5) * 15;
+        this.pending = null;
+      }
+    }
+    const song = this.song;
+    const playing2 = this.player?.style ?? STYLES[cityStyle(v.year)];
+    this.nowPlaying = `${playing2.label}${song?.credit ? ` · ${song.credit}` : ""}${v.place ? ` — ${v.place}` : ""}, ${v.year}`;
   }
 
   dispose() { clearInterval(this.timer); this.ctx?.close(); }
 }
 
-/** Render a style (and optional ambience) offline to a WAV, for previews and tests. */
-export async function renderPreview(styleId: string, seconds: number, scene?: Partial<Scene>): Promise<Blob> {
+/** Render a song (a song id, or a style family's first song) and optional ambience offline to a WAV, for previews and tests. */
+export async function renderPreview(songId: string, seconds: number, scene?: Partial<Scene>): Promise<Blob> {
   const rate = 32000;
   const ctx = new OfflineAudioContext(2, rate * seconds, rate);
   const master = ctx.createGain(); master.gain.value = 0.8; master.connect(ctx.destination);
   const bus = ctx.createGain(); bus.gain.value = 0.55; bus.connect(master);
-  if (styleId) { const p = new MusicPlayer(ctx, bus, STYLES[styleId], 7); p.start(0, 0.5); p.schedule(seconds); }
+  if (songId) {
+    const song = SONGS.find((s) => s.id === songId) ?? SONGS_BY_FAMILY[songId]?.[0];
+    if (song) {
+      await Promise.all(instsOf(song.style, song).map((i) => loadInstrument(ctx, i)));
+      const p = playerFor(ctx, bus, rooms(ctx, bus), song, 7); p.start(0, 0.5); p.schedule(seconds);
+    }
+  }
   if (scene) {
     const amb = ctx.createGain(); amb.gain.value = 0.9; amb.connect(master);
     const sc = new Soundscape(ctx, amb);
+    await sc.ready?.();
     // offline: step the scene by suspending the rendering clock every half second
     const full: Scene = { zoom: 1, year: 1900, season: "Summer", night: 0, water: 0, industry: 0, town: 0, country: 0, churches: 0, trains: 0, boats: 0, traffic: 0, ...scene };
     for (let k = 0; k < seconds * 2; k++) ctx.suspend(k / 2).then(() => { sc.update(full); ctx.resume(); });

@@ -11,7 +11,7 @@ import { type GameMap, Special } from "../core/map";
 import { RIVALS } from "../core/rivals";
 import { Terrain } from "../core/terrain";
 import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
-import { ANCHORS } from "../core/ancestry";
+import { ANCHORS, G, latinRite } from "../core/ancestry";
 import { latLonToTile } from "../core/features";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
@@ -930,10 +930,11 @@ export class Renderer {
     const boarded = housing && w.pop[i] === 0 && kind !== "mansion" ? 1 : 0;
     // the community's style: houses whose families belong to the community that holds this part of town
     const kc = w.kit[((y / 8) | 0) * Math.ceil(W / 8) + ((x / 8) | 0)];
-    const kit = housing && kc && w.eth[i] === kc ? kc : 0;
+    // churches, halls, schools and community shops: the community that built them (it stays theirs to look at after they leave)
+    const kit = housing ? (kc && w.eth[i] === kc ? kc : 0) : (w.was[i] || w.eth[i] || 0);
     // at a quarter size the six variants and the community's kit are a pixel or two apart: fewer keys, the same look
     const small = this.curScale <= 0.25;
-    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit: small ? 0 : kit });
+    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit: small && housing ? 0 : kit });
   }
 
   private denseStreet(g: GameState, x: number, y: number) {
@@ -991,7 +992,8 @@ export class Renderer {
         out.push({ key: this.houseSpecFor(g, x, y, i, sub === HouseSub.Boarding ? "boarding" : "row", sub), u: 0.5, v: 0.5 });
         break;
       case Use.Civic:
-        out.push({ key: this.houseSpecFor(g, x, y, i, "civic", sub as CivicSub), u: 0.5, v: 0.5 });
+        // Croatian & Serbian parishes: most Croatian churches were Latin-rite (twin towers), the Serbian Orthodox ones onion-domed
+        out.push({ key: this.houseSpecFor(g, x, y, i, "civic", sub === CivicSub.OnionChurch && (w.was[i] || w.eth[i]) === G.CROAT && latinRite(i) ? CivicSub.TwinChurch : sub as CivicSub), u: 0.5, v: 0.5 });
         break;
       case Use.Commerce:
         out.push({ key: this.houseSpecFor(g, x, y, i, "shop", sub || 2), u: 0.5, v: 0.5 });

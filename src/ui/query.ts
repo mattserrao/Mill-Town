@@ -61,7 +61,7 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     if (spec) bRows.push(["Condition", `${spec.boarded ? "boarded up, " : ""}${SOOT[spec.soot]}${spec.corner ? " · corner lot" : ""}`]);
   } else if (use === Use.Civic) {
     const was = w.was[i], now = w.eth[i];
-    title = civicLabel(sub, now || was);
+    title = civicLabel(sub, now || was, i, was);
     if (was && !now) title = `${title} (closed)`;
     if (w.built[i]) bRows.push(["Built", `${w.built[i]}${was ? ` by the ${GROUPS[was].name} community` : ""}`]);
     if (now && (sub <= 1 || sub >= 5)) bRows.push(["Congregation", now !== was && was ? `${GROUPS[now].name} (once ${GROUPS[was].name})` : GROUPS[now].name]);
