@@ -71,7 +71,8 @@ export interface Camera {
   zoom: number;
 }
 
-export const ZOOMS = [0.125, 0.1875, 0.25, 0.375, 0.5, 0.75, 1, 1.5, 2];
+/** zoom steps (device pixels per world pixel). Below 0.25 the sprites fell apart into speckle, so 0.25 is the floor. */
+export const ZOOMS = [0.25, 0.375, 0.5, 0.75, 1, 1.5, 2];
 
 /** A screen-space rectangle in canvas pixels. */
 export interface ScreenRect { x: number; y: number; w: number; h: number }

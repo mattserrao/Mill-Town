@@ -16,10 +16,17 @@ import { demandDecision } from "./labour";
 import { takeoverDecision } from "./owners";
 import { FOUNDER_NAMES, startFamily, SURNAMES } from "./family";
 import type { IndustryId } from "./industries";
-import { cal, fieldsFor, type GameState } from "./game";
+import { buildCommuteNow, cal, fieldsFor, type GameState } from "./game";
 import { type GameMap, recomputeElevation } from "./map";
+import { recomputeLandValue } from "./town";
+import { updateRivers } from "./environment";
 
-export const SAVE_FORMAT = 2;
+/**
+ * 1: v0.1–v0.15 · 2: the family (v0.16) · 3: derived fields left out of the save and the graded ground stored
+ * as a difference from the map (v0.20). Bump it whenever the shape of the state changes, and teach `migrate`
+ * what an older save lacks.
+ */
+export const SAVE_FORMAT = 3;
 export const MAX_SAVES = 12;
 export const AUTOSAVE = "autosave";
 
@@ -42,28 +49,79 @@ interface SaveRecord extends SaveMeta { data: Blob }
 
 const TA = { Uint8Array, Uint16Array, Int16Array, Uint32Array, Int32Array, Float32Array, Float64Array } as const;
 type TAName = keyof typeof TA;
-/** keys of the game state that are rebuilt, not saved */
+/**
+ * Keys of the game state that are rebuilt on load, not saved: the map and site fields (from disk), the freight
+ * picture (a one-season memory that refills, read only by the renderer) and every travel-time field (`access`,
+ * recomputed when missing). The commute, land value and the rivers' load are kept, though they could be
+ * recomputed, because they are recomputed on their own schedule: a loaded game must play on exactly as the
+ * saved one would have.
+ */
 const SKIP = new Set(["map", "fields"]);
+const SKIP_IN: Record<string, Set<string>> = { env: new Set(["freight"]) };
+/**
+ * Float fields stored as 16-bit integers at this scale (65535 stands for Infinity), by the path of the object
+ * that holds them: long-term soot is 0–3 and full of noise that gzip can't fold (1.8 MB as floats, 60 kB
+ * quantized); land value is already whole dollars (so exact); the commute is minutes. The live field is rounded to the same grid
+ * when saving, so the saved game and the one on screen agree exactly.
+ */
+const QUANT: Record<string, Record<string, number>> = {
+  world: { pollution: 1024, landValue: 1 },
+  commute: { cost: 128, access: 4096, "fields[]": 128 },
+};
 
 function encode(g: GameState): { header: string; bufs: ArrayBufferView[] } {
   const bufs: ArrayBufferView[] = [];
-  const conv = (v: unknown, top: boolean): unknown => {
+  const quantize = (x: Float32Array, scale: number) => {
+    const q = new Uint16Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      const v = x[i];
+      if (!(v < Infinity)) { q[i] = 65535; x[i] = Infinity; continue; }
+      q[i] = Math.max(0, Math.min(65534, Math.round(v * scale))); x[i] = q[i] / scale;
+    }
+    bufs.push(q);
+    return { $ta: bufs.length - 1, t: "Uint16Array", q: scale };
+  };
+  const conv = (v: unknown, top: boolean, parent?: string): unknown => {
     if (v === null || typeof v !== "object") return typeof v === "function" ? undefined : v;
     if (ArrayBuffer.isView(v)) { bufs.push(v); return { $ta: bufs.length - 1, t: v.constructor.name }; }
     if (Array.isArray(v)) return v.map((x) => conv(x, false));
     const o: Record<string, unknown> = {};
+    const skipIn = top ? undefined : parent ? SKIP_IN[parent] : undefined;
+    const quant = top ? undefined : parent ? QUANT[parent] : undefined;
     for (const [k, x] of Object.entries(v)) {
       if (top && SKIP.has(k)) continue;
+      if (skipIn?.has(k)) continue;
+      if (k === "access" && ArrayBuffer.isView(x) && parent !== "commute") continue; // the works' travel fields; the commute keeps its own
+      if (quant?.[k] && x instanceof Float32Array) { o[k] = quantize(x, quant[k]); continue; }
+      if (quant?.[`${k}[]`] && Array.isArray(x) && x.every((e) => e instanceof Float32Array)) { o[k] = (x as Float32Array[]).map((e) => quantize(e, quant[`${k}[]`])); continue; }
       // decisions hold functions: keep the event that raised them
       if (top && k === "pendingDecision") { o[k] = x ? { $dec: (x as { source?: string }).source ?? null } : x; continue; }
       if (top && k === "moreDecisions") { o[k] = (x as { source?: string }[]).map((d) => ({ $dec: d.source ?? null })); continue; }
-      o[k] = conv(x, false);
+      o[k] = conv(x, false, top ? k : undefined);
     }
     return o;
   };
   const state = conv(g, true) as Record<string, unknown>;
-  state.$vert = conv(g.map.vert, false);
+  // the ground as graded: only the corners that differ from the map
+  const m = g.map, idx: number[] = [], val: number[] = [];
+  for (let i = 0; i < m.vert.length; i++) if (m.vert[i] !== m.vert0[i]) { idx.push(i); val.push(m.vert[i]); }
+  state.$graded = { n: m.vert.length, idx: conv(Int32Array.from(idx), false), val: conv(Float32Array.from(val), false) };
   return { header: JSON.stringify({ format: SAVE_FORMAT, state }), bufs };
+}
+
+/** fill in what a save from an older format lacks, so the rest of the game needn't ask */
+function migrate(g: GameState, format: number) {
+  const s = g as unknown as Record<string, unknown>;
+  const need = (k: string, v: unknown) => { if (s[k] === undefined) s[k] = v; };
+  // added between v0.16 and v0.19 without a format bump
+  need("landmarks", []); need("teams", []); need("strikeAt", []); need("lastStrikes", []); need("pendingRivalFx", []);
+  need("placeFx", []); need("pressures", []); need("dryShops", []); need("ruins", []); need("burnt", []); need("headlines", []);
+  need("mods", []); need("moreDecisions", []); need("news", []); need("prices", []); need("jobless", 0);
+  need("publicWorks", { locks: {} }); need("flags", {});
+  if (!(g.publicWorks as { locks?: unknown }).locks) g.publicWorks.locks = {};
+  if (g.company) { const c = g.company as unknown as Record<string, unknown>; if (c.others === undefined) c.others = []; }
+  // a v1 save: the founder gets a name, and the laws their calendar
+  if (format < 2 && g.company && !g.family) startFamily(g, FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length], SURNAMES[(g.seed * 7) % SURNAMES.length]);
 }
 
 async function gzip(parts: BlobPart[]): Promise<Blob> {
@@ -94,7 +152,8 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
   const dv = new DataView(buf);
   const headLen = dv.getUint32(0, true), n = dv.getUint32(4, true);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, headLen)));
-  if (header.format !== SAVE_FORMAT && header.format !== 1) throw new Error(`This save is from an older version of the game (format ${header.format}).`);
+  const format = Number(header.format);
+  if (!(format >= 1 && format <= SAVE_FORMAT)) throw new Error(`This save is from a newer version of the game (format ${header.format}).`);
   let at = 8 + headLen; at += (8 - (at % 8)) % 8;
   const arrays: ArrayBuffer[] = [];
   for (let k = 0; k < n; k++) {
@@ -106,20 +165,39 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
     if (v === null || typeof v !== "object") return v;
     if (Array.isArray(v)) return v.map(back);
     const o = v as Record<string, unknown>;
-    if (typeof o.$ta === "number") return new TA[o.t as TAName](arrays[o.$ta]);
+    if (typeof o.$ta === "number") {
+      const ta = new TA[o.t as TAName](arrays[o.$ta]);
+      if (typeof o.q === "number") { const f = new Float32Array(ta.length), inv = 1 / o.q; for (let i = 0; i < ta.length; i++) f[i] = ta[i] === 65535 ? Infinity : ta[i] * inv; return f; }
+      return ta;
+    }
     for (const k of Object.keys(o)) o[k] = back(o[k]);
     return o;
   };
   const state = back(header.state) as Record<string, unknown>;
-  const vert = state.$vert as Float32Array;
-  delete state.$vert;
   const g = state as unknown as GameState;
-  // the map as you left it (the ground graded for your works)
-  if (vert.length !== map.vert.length) throw new Error("This save was made on a different map.");
-  map.vert.set(vert);
+  // the map as you left it (the ground graded for your works): the whole surface in older saves, the
+  // graded corners only from format 3
+  if (state.$graded) {
+    const gr = state.$graded as { n: number; idx: Int32Array; val: Float32Array };
+    if (gr.n !== map.vert.length) throw new Error("This save was made on a different map.");
+    map.vert.set(map.vert0);
+    for (let k = 0; k < gr.idx.length; k++) map.vert[gr.idx[k]] = gr.val[k];
+  } else {
+    const vert = state.$vert as Float32Array;
+    if (vert.length !== map.vert.length) throw new Error("This save was made on a different map.");
+    map.vert.set(vert);
+  }
+  delete state.$vert; delete state.$graded;
   recomputeElevation(map);
   g.map = map;
   g.fields = fieldsFor(map);
+  migrate(g, format);
+  // what the save leaves out
+  const nt = map.width * map.height;
+  if (!g.world.landValue) { g.world.landValue = new Float32Array(nt); recomputeLandValue(map, g.world); }
+  if (!g.env.river) { g.env.river = new Float32Array(nt); updateRivers(map, g.world, g.env, g.plants ?? []); }
+  if (!g.env.freight) g.env.freight = new Float32Array(nt);
+  if (!g.commute) buildCommuteNow(g);
   // decisions waiting: asked again from the events that raised them
   const decs = allDecisions();
   const redo = (d: unknown) => {
@@ -135,8 +213,6 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
     if (made) made.source = src;
     return made;
   };
-  // a v1 save: the founder gets a name, and the laws their calendar
-  if (g.company && !g.family) startFamily(g, FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length], SURNAMES[(g.seed * 7) % SURNAMES.length]);
   g.pendingDecision = redo(g.pendingDecision);
   g.moreDecisions = (g.moreDecisions as unknown[]).map(redo).filter((d): d is NonNullable<typeof d> => !!d);
   if (!g.pendingDecision && g.moreDecisions.length) g.pendingDecision = g.moreDecisions.shift();

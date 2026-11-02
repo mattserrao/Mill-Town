@@ -8,11 +8,16 @@ Turn-based (one turn = one season), 1850–1985, on a real-geography map of Pitt
 ```
 npm install
 npm run dev        # http://localhost:5173  (add ?seed=1234 for a specific town)
-npm test           # core model tests (about 3 minutes)
+npm test           # core model tests (about 4 minutes)
 npm run typecheck  # TypeScript only
 npm run build      # typecheck + production build into dist/
 npm run preview    # serve the production build
+npm run bake       # re-simulate the later starts into public/starts/ (about ten minutes; after a change to the simulation)
+npm run profile    # a full game's turn times by era and the hottest functions, written to /tmp/prof.txt
 ```
+
+Publishing: every push to `main` builds and deploys to GitHub Pages (`.github/workflows/pages.yml`; set the
+repository's Pages source to "GitHub Actions" once). The build takes `BASE_PATH` for a sub-path host.
 
 The version (from package.json and the git commit) is shown next to the title, printed in the browser console and
 in the terminal running `npm run dev`.
@@ -52,8 +57,9 @@ in the terminal running `npm run dev`.
 - Sound: starts on your first click or key press; M or the top-bar button mutes (remembered); volumes in ☰
 - Saving: Ctrl+S saves; Esc (with nothing open) or ☰ → **Save & exit** saves and goes to the main menu
 - Start in a later era: New game → **Start in** 1850, 1893, 1920 or 1947. For a later start the valley and your
-  family are played from 1850 by the simulation (a careful owner making the choices of the day; it borrows rather
-  than lose the works) and you arrive at the succession, with the family's works, cash and ledger: as the
+  family have been played from 1850 by the simulation (a careful owner making the choices of the day; it borrows
+  rather than lose the works) — one baked valley per start and industry (`public/starts/`, made by `npm run bake`;
+  without a snapshot the years are simulated live behind a progress card) — and you arrive at the succession, with the family's works, cash and ledger: as the
   **Industrialist** (the business, a new industry, the co-op or finance) or the **Politician** (a manager runs the
   works; you run for office). Choose the family business and the family's name
 - **Nine industries**: steel, power, glass and metalworking from 1850; aluminium (1893), coal chemicals (1915),

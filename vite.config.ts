@@ -33,4 +33,9 @@ function versionPlugin(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [versionPlugin()] });
+export default defineConfig({
+  plugins: [versionPlugin()],
+  // GitHub Pages serves the site under /<repo>/ (set BASE_PATH in the workflow); a plain host uses /
+  base: process.env.BASE_PATH ?? "/",
+  build: { chunkSizeWarningLimit: 1200 },
+});

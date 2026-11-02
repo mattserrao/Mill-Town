@@ -10,7 +10,6 @@ import { Rng } from "../core/rng";
 import { esc } from "../core/text";
 import { actRow, chips, costButton, money } from "./fx";
 
-let count = 0;
 const STRIKE_ACTS = ["negotiate", "pinkertons", "strikebreakers"];
 
 /** the bills still to come within 25 years */
@@ -57,7 +56,9 @@ export function wireActions(el: HTMLElement, g: GameState, done: (text: string) 
     e.stopPropagation();
     const id = btn.dataset.act!;
     const arg = btn.dataset.target ?? btn.closest(".act")?.querySelector<HTMLSelectElement>(`select[data-arg="${id}"]`)?.value;
-    const r = takeAction(g, id, new Rng(`${g.seed}:act:${g.turn}:${id}:${count++}`), arg);
+    // seeded from the game's own state (not a counter that resets on reload), so saving before a bribe and
+    // loading until it comes off doesn't work
+    const r = takeAction(g, id, new Rng(`${g.seed}:act:${g.turn}:${id}:${g.company?.biz.actionsLeft ?? 0}:${g.log.length}`), arg);
     done(r.text);
   }));
 }

@@ -12,7 +12,7 @@ import { rivalValue, sellPrice } from "./value";
 import { type ActionDef, bump, pushHeadline } from "./business";
 import { allWorks, cal, type Company, type GameState, log, nextWorksId, type RivalState, techsForYear, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { rivalMult, rivalTechs } from "./market";
+import { rivalMult, rivalTechs, techBlocked, techPrice } from "./market";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
 import type { Rng } from "./rng";
 import { priceLevel } from "./time";
@@ -24,6 +24,10 @@ const year = (g: GameState) => cal(g).year;
 const myIndustries = (c?: Company): IndustryId[] => (c ? [...new Set(allWorks(c).map((w) => w.industry))] : []);
 
 function damage(g: GameState, r: RivalState, mult: number, seasons: number, why: string) {
+  // the same blow struck twice in a season doesn't land twice: it is prolonged instead (three poachings
+  // took a rival to 61% for a year and lifted your price a quarter)
+  const same = r.damage.find((d) => d.why === why && d.until > g.turn);
+  if (same) { same.until = Math.max(same.until, g.turn + seasons); return; }
   r.damage.push({ mult, until: g.turn + seasons, why });
 }
 
@@ -198,21 +202,27 @@ export const RIVAL_ACTIONS: ActionDef[] = [
   },
   {
     id: "espionage", group: "Rivals", name: "Buy their drawings",
-    blurb: "Bribe their superintendent for the plans of a process they have and you don't. 25% chance of a lawsuit.",
+    blurb: "Bribe their superintendent for the plans of a process they have and you don't: it still has to be built, but at half the price and in half the time. 25% chance of a lawsuit. Once a decade per rival.",
     cost: (g) => Math.round(6000 * era(year(g))), target: true,
-    blocked: () => null,
+    blocked: (g) => (g.company!.biz.flags.spyUntil as number ?? 0) > g.turn ? "Your man in the drawing offices is lying low" : null,
     run: (g, rng, arg) => {
       const r = target(g, arg)!, c = g.company!, def = defOf(r);
       const w = allWorks(c).find((x) => x.industry === def.industry);
       if (!w) return "Their processes are no use to your works.";
+      if (w.research) return `${w.name} has a project under way already; the drawings will keep.`;
       const theirs = rivalTechs(def.industry, def.id, year(g), r.style);
       const ind = INDUSTRIES[def.industry];
-      const t = ind.tech.find((x) => theirs.includes(x.id) && !w.techs.includes(x.id) && x.requires.every((q) => w.techs.includes(q)));
+      // a process they run that your works is ready for (the same milestones as commissioning it yourself)
+      const t = ind.tech.find((x) => theirs.includes(x.id) && !w.techs.includes(x.id) && !techBlocked(g, w, x));
       if (!t) return "They have nothing you could use yet.";
-      w.techs.push(t.id);
-      g.world.version++;
-      if (rng.chance(0.25)) { caught(g, r, "Stolen Plans", -15, -10, Math.round(20000 * era(year(g))), 2); return `You have the ${t.name} — and a lawsuit.`; }
-      return `${t.name} goes into service at ${w.name}, built from their drawings.`;
+      const price = Math.round(techPrice(g, t) * 0.5);
+      if (c.cash < price) return `Building it from the drawings would still cost $${price.toLocaleString("en-US")}.`;
+      c.cash -= price;
+      w.research = { id: t.id, left: Math.max(1, Math.round(t.seasons / 2)) };
+      c.biz.flags.spyUntil = g.turn + 40;
+      c.biz.record.push(`${cal(g).season} ${year(g)}: Bought ${rivalName(def, year(g))}'s drawings for ${t.name}`);
+      if (rng.chance(0.25)) { caught(g, r, "Stolen Plans", -15, -10, Math.round(20000 * era(year(g))), 2); return `You have the ${t.name} drawings — and a lawsuit. Work begins at ${w.name}.`; }
+      return `Work begins on ${t.name} at ${w.name} from their drawings: ready in ${w.research.left} seasons for $${price.toLocaleString("en-US")}.`;
     },
   },
   {
@@ -309,15 +319,19 @@ buy.blocked = (g, arg) => {
   const q = acquisitionQuote(g, r);
   return "refused" in q ? q.refused : null;
 };
+/** the share of a rival you already hold, 0–100 (its price comes off the purchase, and the stake is retired with it) */
+const stakeIn = (g: GameState, id: string) => g.company?.holdings?.stakes[id] ?? 0;
 buy.cost = (g, arg) => {
   const r = target(g, arg);
   if (!r) return 0;
   const q = acquisitionQuote(g, r);
-  return "price" in q ? q.price : 0;
+  return "price" in q ? Math.round((q.price * (1 - Math.min(99, stakeIn(g, r.id)) / 100)) / 1000) * 1000 : 0;
 };
 buy.run = (g, _rng, arg) => {
   const r = target(g, arg)!;
   const w = acquire(g, r);
+  const h = g.company!.holdings;
+  if (h) { delete h.stakes[r.id]; delete h.stakeCost[r.id]; }
   bump(g, "labour", -3);
   pushHeadline(g, `${g.company!.name} Buys ${w.name}`, `The ${w.name} works changes hands. Its men wait to hear the new owner's terms.`);
   return `${w.name} is yours.`;

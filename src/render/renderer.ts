@@ -320,16 +320,24 @@ export class Renderer {
 
     // render missing / stale chunks, nearest first, within the frame budget
     const t0 = performance.now();
-    let missing = 0;
+    let missing = 0, rendered = 0;
     for (const c of [...vis].sort((a, b) => a.d - b.d)) {
       const key = `${s}:${c.cx},${c.cy}`;
       const have = this.chunks.get(key);
       // each chunk re-renders only when what it shows has changed (dirty-chunk tracking by content signature)
       const version = this.chunkSig(g, c.cx, c.cy) + tail;
       if (have && have.key === version) continue;
-      if (performance.now() - t0 > FRAME_MS && have) { missing++; continue; }
-      if (performance.now() - t0 > FRAME_MS * 2) { missing++; continue; }
+      // a stale chunk waits for the next frame when this one wouldn't fit the budget (a zoom-1 chunk can
+      // take 20–40 ms, so the check is on the expected cost, not just on the time already spent); a chunk
+      // not drawn at all gets twice the budget before it waits
+      const spent = performance.now() - t0;
+      // at least one chunk is always rendered a frame, or a chunk dearer than the budget would never be redrawn
+      if (have && rendered > 0 && spent + this.chunkMs > FRAME_MS) { missing++; continue; }
+      if (!have && rendered > 0 && spent > FRAME_MS * 2) { missing++; continue; }
+      rendered++;
+      const c0 = performance.now();
       const ch2 = this.renderChunk(g, c.cx, c.cy, s, view, version);
+      this.chunkMs = this.chunkMs * 0.7 + (performance.now() - c0) * 0.3;
       this.chunks.delete(key);
       this.chunks.set(key, ch2);
     }
@@ -363,6 +371,9 @@ export class Renderer {
     this.pending = missing;
     return missing > 0;
   }
+
+  /** running estimate of one chunk's raster time at the current zoom, ms */
+  private chunkMs = 10;
 
   /** the chunks blitted this frame and where (front to back is the end of the list) */
   private drawn: { c: Chunk; dx: number; dy: number; k: number }[] = [];
@@ -429,14 +440,17 @@ export class Renderer {
   private evict(s: number) {
     let total = 0;
     const old = performance.now() - this.scaleAt > OTHER_ZOOM_MS, prefix = `${s}:`;
+    // a dropped chunk's canvas is emptied as well as forgotten: the browser frees a canvas's pixels lazily,
+    // and a zoom burst could hold hundreds of megabytes of them until it got round to it
+    const drop = (k: string, c: Chunk) => { this.chunks.delete(k); c.canvas.width = 0; c.canvas.height = 0; };
     for (const [k, c] of this.chunks) {
       // a zoom you left a few seconds ago: its chunks go
-      if (old && !k.startsWith(prefix)) { this.chunks.delete(k); continue; }
+      if (old && !k.startsWith(prefix)) { drop(k, c); continue; }
       total += c.px;
     }
     for (const [k, c] of this.chunks) {
       if (total <= this.budgetPx) break;
-      this.chunks.delete(k);
+      drop(k, c);
       total -= c.px;
     }
   }
@@ -905,7 +919,10 @@ export class Renderer {
     const corner = (st(0, 1) || st(0, -1)) && (st(1, 0) || st(-1, 0)) ? 1 : 0;
     const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
     const hc = (hT + hR + hL + hB) / 4;
-    const q = (h: number) => Math.max(-60, Math.min(60, Math.round(((h - hc) * ZPX) / 3) * 3));
+    // the corners quantized to 3 px at full size, 6 px when the sprite is drawn at a quarter size or less (where a
+    // 3 px step is under a pixel, and the finer keys only multiplied the sprites a hilly view had to build)
+    const step = this.curScale <= 0.25 ? 6 : 3;
+    const q = (h: number) => Math.max(-60, Math.min(60, Math.round(((h - hc) * ZPX) / step) * step));
     const ground: [number, number, number, number] = [q(hT), q(hR), q(hB), q(hL)];
     const pol = w.pollution[i];
     const soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
@@ -914,7 +931,9 @@ export class Renderer {
     // the community's style: houses whose families belong to the community that holds this part of town
     const kc = w.kit[((y / 8) | 0) * Math.ceil(W / 8) + ((x / 8) | 0)];
     const kit = housing && kc && w.eth[i] === kc ? kc : 0;
-    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit });
+    // at a quarter size the six variants and the community's kit are a pixel or two apart: fewer keys, the same look
+    const small = this.curScale <= 0.25;
+    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit: small ? 0 : kit });
   }
 
   private denseStreet(g: GameState, x: number, y: number) {

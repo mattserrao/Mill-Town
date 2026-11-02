@@ -72,13 +72,14 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
 
   // ---- land near existing development (towns grow outward, not as scattered lots)
   // developed tiles grown by 2 in each direction (a 5×5 box), as two running-window passes
-  const dev = new Uint8Array(n), horiz = new Uint8Array(n), near = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (w.pop[i] || w.use[i] === Use.Commerce || w.use[i] === Use.Civic) dev[i] = 1;
+  const sc = scratch(n), dev = sc.dev, horiz = sc.horiz, near = sc.near;
+  horiz.fill(0); near.fill(0);
+  const pop = w.pop, use = w.use;
   for (let y = 0; y < H; y++) {
     const row = y * W;
     let run = 0;
     for (let x = 0; x < W + 2; x++) {
-      if (x < W) run += dev[row + x];
+      if (x < W) { const i = row + x, d = (pop[i] || use[i] === Use.Commerce || use[i] === Use.Civic) ? 1 : 0; dev[i] = d; run += d; }
       if (x - 5 >= 0) run -= dev[row + x - 5];
       const cx = x - 2;
       if (cx >= 0 && cx < W && run > 0) horiz[row + cx] = 1;
@@ -96,6 +97,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
 
   const hillB = hillBonus(m, year);
   const anchorIdx = anchorIndex(m);
+  const blocked = lotBlocked(m, w.seed);
 
   // ---- candidate lots and the part of their score that doesn't depend on who's coming
   const cand: number[] = [], base: number[] = [], lv: number[] = [], pol: number[] = [], cell: number[] = [];
@@ -116,9 +118,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
       if (m.road[j] || w.street[j]) { onStreet = true; pike = w.street[j] === Street.Pike; break; }
     }
     if (!onStreet && !w.pop[i]) continue; // houses front onto streets
-    if (!w.pop[i] && besideWorks(m, w, x, y)) continue; // a works keeps a yard and a fence between it and the houses
-    if (!w.pop[i] && (t === Terrain.Steep || t === Terrain.Slope) && valueNoise(w.seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) continue; // wooded ravines between terraces
-    if (!w.pop[i] && tileNoise(w.seed, x, y, 613) < 0.1) continue; // gardens, vacant lots, alleys
+    if (!w.pop[i] && (blocked[i] || besideWorks(m, w, x, y))) continue; // ravines and gardens; a works keeps a yard and a fence between it and the houses
     const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
     const s = 1.6 * sampleBlock(bg, access, x, y) + (w.pop[i] ? 0.35 : 0) + (pike ? 0.1 : 0) + 0.45 * hill - steep * (1 - hill * 0.7)
       + 0.3 * tileNoise(w.seed + year * 4 + season, x, y, 611);
@@ -184,6 +184,27 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   }
   if (placed) w.version++;
   return { placed, byGroup };
+}
+
+let scratchBufs: { n: number; dev: Uint8Array; horiz: Uint8Array; near: Uint8Array } | null = null;
+/** three whole-map byte arrays reused each season rather than allocated (1.5 MB a season otherwise) */
+function scratch(n: number) {
+  if (!scratchBufs || scratchBufs.n !== n) scratchBufs = { n, dev: new Uint8Array(n), horiz: new Uint8Array(n), near: new Uint8Array(n) };
+  return scratchBufs;
+}
+
+let blockedCache: { m: GameMap; seed: number; f: Uint8Array } | null = null;
+/** lots that never take a first house: wooded ravines between the terraces, gardens, vacant lots and alleys (fixed per town) */
+function lotBlocked(m: GameMap, seed: number): Uint8Array {
+  if (blockedCache && blockedCache.m === m && blockedCache.seed === seed) return blockedCache.f;
+  const W = m.width, f = new Uint8Array(W * m.height);
+  for (let y = 0; y < m.height; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, t = m.terrain[i];
+    if ((t === Terrain.Steep || t === Terrain.Slope) && valueNoise(seed & 0xffff, x, y, 5, 612) > (t === Terrain.Steep ? 0.55 : 0.68)) f[i] = 1;
+    else if (tileNoise(seed, x, y, 613) < 0.1) f[i] = 1;
+  }
+  blockedCache = { m, seed, f };
+  return f;
 }
 
 let hillCache: { m: GameMap; year: number; f: Float32Array } | null = null;

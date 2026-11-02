@@ -20,9 +20,9 @@ import { holdingsPanel, resetHoldingsUi, sellDialog } from "./ui/holdings";
 import { bizDef } from "./core/holdings";
 import { riskRows, risks, shareAt } from "./ui/risks";
 import { icon, METERS, type MeterKey, money as short } from "./ui/fx";
-import { loadGame, newSaveId, saveGame } from "./core/save";
+import { loadGame, newSaveId, saveGame, unpackGame } from "./core/save";
 import { mainMenu, type NewGameOptions, simCard } from "./ui/menu";
-import { laterStartGame, simulateSome } from "./core/autoplay";
+import { laterStartGame, loadStart, simulateSome } from "./core/autoplay";
 import { lobbyInfluence, lobbySeasons, orderRoad, type RoadPlan, roadBlocked } from "./core/roads";
 import { techStanding } from "./core/market";
 import { districtPanel, zoneAt } from "./ui/district";
@@ -93,7 +93,7 @@ async function start() {
   const params = new URLSearchParams(location.search);
   const asked = Number(params.get("seed"));
   const seed = params.get("seed") && Number.isFinite(asked) ? Math.floor(asked) : Math.floor(Math.random() * 1e6);
-  map = await loadMap("maps/mon-valley.json");
+  map = await loadMap(`${import.meta.env.BASE_URL}maps/mon-valley.json`);
   renderer = new Renderer(map);
   traffic = new Traffic(map);
   traffic.occluded = (sx, sy, d) => renderer.occluded(sx, sy, d);
@@ -156,7 +156,18 @@ function startLater(seed: number, o: NewGameOptions) {
   const founder = { first: o.first || FOUNDER_NAMES[seed % FOUNDER_NAMES.length], surname: o.surname || SURNAMES[(seed * 7) % SURNAMES.length] };
   const lo = { year: o.year, faction: o.faction, industry: o.industry, founder, name: `${founder.surname} & Co. ${INDUSTRIES[o.industry].name} Works` };
   simCard($("menu"), o.year, 1850, "Laying out the town…");
-  setTimeout(() => {
+  const arrive = (g: GameState) => {
+    closeMenu();
+    showGame(g);
+    showNews();
+    const c = g.company;
+    if (c) centerOn(c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 0.5);
+    autosave();
+  };
+  // the baked snapshot of this start (public/starts) arrives at once; without one, the years are simulated here
+  const fetchStart = async (file: string) => { try { const r = await fetch(`${import.meta.env.BASE_URL}starts/${file}`); return r.ok ? await r.blob() : null; } catch { return null; } };
+  loadStart(map, lo, fetchStart, unpackGame).then((g) => { if (g) arrive(g); else simulateLive(); }, () => simulateLive());
+  function simulateLive() {
     const g = laterStartGame(map, seed, lo);
     if (!g) { openMenu(true); return; }
     const step = () => {
@@ -166,15 +177,10 @@ function startLater(seed: number, o: NewGameOptions) {
       const h = g.headlines[0];
       simCard($("menu"), o.year, cal(g).year, `${cal(g).season} ${cal(g).year}${h ? ` · ${h.name}` : ""}`);
       if (!done) { setTimeout(step, 0); return; }
-      closeMenu();
-      showGame(g);
-      showNews();
-      const c = g.company;
-      if (c) centerOn(c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), 0.5);
-      autosave();
+      arrive(g);
     };
-    step();
-  }, 30);
+    setTimeout(step, 30);
+  }
 }
 
 function newTown(seed: number) {
@@ -261,11 +267,13 @@ function inFormControl(e: KeyboardEvent): boolean {
 }
 
 // ---------------------------------------------------------------- camera
-function centerOn(tx: number, ty: number, zoom = cam.zoom) {
+function centerOn(tx: number, ty: number, zoom = ZOOMS[zi]) {
   const [sx, sy] = project(tx, ty, map.elevation[ty * map.width + tx]);
-  cam.zoom = zoom;
-  cam.x = sx - canvas.width / 2 / zoom;
-  cam.y = sy - canvas.height / 2 / zoom;
+  const k = ZOOMS.indexOf(zoom);
+  if (k >= 0) zi = k;
+  cam.zoom = ZOOMS[zi] * dpr;
+  cam.x = sx - canvas.width / 2 / cam.zoom;
+  cam.y = sy - canvas.height / 2 / cam.zoom;
   clampCam();
   requestRender();
 }
@@ -277,31 +285,49 @@ function tileScreen(x: number, y: number): [number, number] {
 }
 
 function clampCam() {
+  // the view may run a fifth of its width past the edge of the map, no further (half a screen of void before)
   const b = renderer.worldBounds();
   const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
-  cam.x = Math.min(Math.max(cam.x, b.left - vw / 2), b.right - vw / 2);
-  cam.y = Math.min(Math.max(cam.y, b.top - vh / 2), b.bottom - vh / 2);
+  const lo = b.left - vw * 0.2, hi = b.right - vw * 0.8;
+  cam.x = lo <= hi ? Math.min(Math.max(cam.x, lo), hi) : (b.left + b.right - vw) / 2;
+  const to = b.top - vh * 0.2, bo = b.bottom - vh * 0.8;
+  cam.y = to <= bo ? Math.min(Math.max(cam.y, to), bo) : (b.top + b.bottom - vh) / 2;
 }
 
+/** zoom to step `ni`, keeping the point under (px, py) — device pixels — where it is */
 function setZoom(px: number, py: number, ni: number) {
   ni = Math.max(0, Math.min(ZOOMS.length - 1, ni));
-  if (ZOOMS[ni] === cam.zoom) return;
+  if (ni === zi) return;
   const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom;
-  cam.zoom = ZOOMS[ni];
+  zi = ni;
+  cam.zoom = ZOOMS[zi] * dpr;
   cam.x = wx - px / cam.zoom;
   cam.y = wy - py / cam.zoom;
   clampCam();
-  $("zoom").textContent = `${cam.zoom}×`;
+  $("zoom").textContent = `${ZOOMS[zi]}×`;
   requestRender();
 }
-const zoomIndex = () => { const i = ZOOMS.indexOf(cam.zoom); return i < 0 ? 4 : i; };
+const zoomIndex = () => zi;
 
+/**
+ * Device pixels per CSS pixel. The canvas is sized in device pixels and the camera's zoom counts device
+ * pixels, so pixel art is drawn at the screen's real resolution (a CSS-pixel canvas upsampled by the browser
+ * shimmered on 125–150% Windows laptops and was soft on Retina screens). ZOOMS are the steps the player sees
+ * (CSS pixels per world pixel); `zi` is the current step.
+ */
+let dpr = 1;
+let zi = ZOOMS.indexOf(0.5);
 function resize() {
   const r = canvas.getBoundingClientRect();
-  canvas.width = Math.max(1, Math.floor(r.width));
-  canvas.height = Math.max(1, Math.floor(r.height));
+  dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  canvas.width = Math.max(1, Math.floor(r.width * dpr));
+  canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  cam.zoom = ZOOMS[zi] * dpr;
+  reservedCache = null;
   if (renderer) { clampCam(); requestRender(); }
 }
+/** the camera in CSS pixels, for layers drawn with the context scaled by `dpr` (text keeps its size) */
+const camCss = (): Camera => ({ x: cam.x, y: cam.y, zoom: cam.zoom / dpr });
 
 // ---------------------------------------------------------------- render
 let pending = false;
@@ -322,12 +348,15 @@ function hoverSiteOk(x: number, y: number): boolean {
   return hoverSite.ok;
 }
 function animating() { return ($<HTMLInputElement>("animate")).checked || ($<HTMLSelectElement>("tod")).value === "cycle"; }
+/** the map stands still while the main menu or the end-of-game paper covers it (nothing to see, nothing to spend) */
+function covered() { return !$("menu").hidden || !$("final").hidden; }
 function requestRender() {
   if (pending || !game) return;
   pending = true;
   requestAnimationFrame((now) => {
     pending = false;
-    if (animating() && now - lastFrame < 40) { requestRender(); return; } // ~25 fps
+    if (animating() && now - lastFrame < 30) { requestRender(); return; } // ~30 fps
+    if (covered() && now - lastFrame < 500) { requestRender(); return; }
     lastFrame = now;
     const fpSize = footprintTiles(map, industry);
     const fp = proposal
@@ -354,29 +383,43 @@ function requestRender() {
     if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (anim && !ovOn && night > 0.02) traffic.drawLights(ctx, cam, night); // lamps over the night tint, at full strength
-    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cam, game, reservedRects());
-    drawHoldings();
+    // lettered layers are drawn in CSS pixels (the context scaled up by dpr), so type keeps its size on every screen
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    const cc = camCss(), rr = reservedRects(true);
+    if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cc, game, rr);
+    drawHoldings(cc);
     if (overlay === "supply") {
       const sc = currentChain();
-      if (sc) drawSupply(ctx, cam, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, reservedRects());
+      if (sc) drawSupply(ctx, cc, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, rr);
     } else if (overlay === "districts") {
-      drawDistricts(ctx, cam, game, selected ? zoneAt(game, selected.x, selected.y) : -1, reservedRects());
+      drawDistricts(ctx, cc, game, selected ? zoneAt(game, selected.x, selected.y) : -1, rr);
     } else if (overlay === "rivals") {
       const mine = playerWorks(game);
-      drawRivals(ctx, cam, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, reservedRects());
+      drawRivals(ctx, cc, game, competitors(game, mine?.industry ?? industry, mine ? { x: mine.x + mine.fp / 2, y: mine.y + mine.fp / 2 } : undefined), mine, focusId, rr);
     }
+    ctx.restore();
     drawMinimapView();
-    $("zoom").textContent = `${cam.zoom}×${more ? " · drawing…" : ""}`;
+    const zt = `${ZOOMS[zi]}×${more ? " · drawing…" : ""}`;
+    if ($("zoom").textContent !== zt) $("zoom").textContent = zt;
     if (more || animating() || roadPreview) requestRender();
   });
 }
 
 // ---------------------------------------------------------------- minimap
-let miniBase: ImageData;
+/** the map at one pixel a tile, redrawn when the town changes; shown smoothed at the minimap's size */
+const miniBase = document.createElement("canvas");
+const MINI_PX = 384;
+let miniVersion = "";
 function drawMinimapBase() {
   const W = map.width, H = map.height;
-  mini.width = W; mini.height = H;
-  const img = mctx.createImageData(W, H);
+  const mv = `${game.seed}:${game.world.version}`;
+  if (mv === miniVersion && miniReady) return;
+  miniVersion = mv;
+  if (miniBase.width !== W) { miniBase.width = W; miniBase.height = H; }
+  if (mini.width !== MINI_PX) { mini.width = MINI_PX; mini.height = MINI_PX; }
+  const bctx = miniBase.getContext("2d")!;
+  const img = bctx.createImageData(W, H);
   const lo = map.minHeight, hi = map.maxHeight;
   const useCol: Record<number, [number, number, number]> = {
     1: [52, 92, 44], 2: [160, 150, 80], 3: [170, 150, 120], 4: [190, 150, 110], 5: [170, 80, 60], 6: [230, 220, 200],
@@ -390,17 +433,28 @@ function drawMinimapBase() {
     else { const t = (map.elevation[i] - lo) / (hi - lo); c = [90 + t * 80, 130 + t * 50, 60 + t * 40]; }
     img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
   }
-  miniBase = img;
+  bctx.putImageData(img, 0, 0);
+  // the smoothed copy at the minimap's size, made once here (a high-quality downscale every frame is dear)
+  if (miniSmall.width !== MINI_PX) { miniSmall.width = MINI_PX; miniSmall.height = MINI_PX; }
+  const sctx = miniSmall.getContext("2d")!;
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = "high";
+  sctx.drawImage(miniBase, 0, 0, MINI_PX, MINI_PX);
+  miniReady = true;
 }
+const miniSmall = document.createElement("canvas");
+let miniReady = false;
 
 function drawMinimapView() {
-  if (!miniBase) return;
-  mctx.putImageData(miniBase, 0, 0);
+  if (!miniReady) return;
+  // smoothed down from a tile a pixel (nearest-neighbour at 192 px turned streets and rivers to speckle)
+  mctx.drawImage(miniSmall, 0, 0);
+  const sc = MINI_PX / map.width;
   const pts = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([px, py]) => {
     // invert the projection on a plane at a typical ground height (~260 m)
     const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom;
     const a = wx / 32, b = (wy + (260 - 200) * 1.15) / 16;
-    return [(a + b) / 2, (b - a) / 2];
+    return [((a + b) / 2) * sc, ((b - a) / 2) * sc];
   });
   mctx.strokeStyle = "#fff";
   mctx.lineWidth = 2;
@@ -411,7 +465,16 @@ function drawMinimapView() {
 }
 
 /** Screen areas covered by on-map controls (zoom buttons, minimap, zoom badge), in canvas px. */
-function reservedRects() {
+let reservedCache: { key: string; rects: { x: number; y: number; w: number; h: number }[] } | null = null;
+/** in device pixels, or CSS pixels when `css` (for the layers drawn under a scaled context) */
+function reservedRects(css = false) {
+  // six layout reads a frame otherwise; the panels only move when the canvas or the headline changes size
+  const key = `${canvas.width}x${canvas.height}:${$("headline").offsetHeight}:${$("minimap").offsetHeight}:${$("mapTools").offsetWidth}`;
+  if (reservedCache?.key !== key) reservedCache = { key, rects: reservedRectsNow() };
+  const r = reservedCache.rects;
+  return css ? r.map((q) => ({ x: q.x / dpr, y: q.y / dpr, w: q.w / dpr, h: q.h / dpr })) : r;
+}
+function reservedRectsNow() {
   const vr = canvas.getBoundingClientRect();
   const sx = canvas.width / vr.width, sy = canvas.height / vr.height;
   return ["zoomButtons", "minimap", "zoom", "mapTools", "headline"].map((id) => {
@@ -447,6 +510,21 @@ function setTab(tab: string) {
   $("right").dataset.tab = tab;
   for (const b of document.querySelectorAll<HTMLButtonElement>("#rightTabs button")) b.classList.toggle("on", b.dataset.tab === tab);
   $("right").scrollTop = 0;
+  if (game && staleTabs.has(tab)) renderTab(tab);
+}
+const currentTab = () => $("right").dataset.tab ?? "overview";
+/** tabs whose content is out of date: hidden tabs are rebuilt only when shown (a season rebuilt all six) */
+const staleTabs = new Set<string>();
+function renderTab(tab: string) {
+  staleTabs.delete(tab);
+  switch (tab) {
+    case "overview": siteReport(); overviewPanel(); break;
+    case "works": worksPanel(game, $("works"), () => { afterChange(); }, startPlacing); break;
+    case "policy": businessPanel(game, $("biz"), () => { afterChange(); }); break;
+    case "holdings": holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo, () => openDialog(true)); break;
+    case "town": townPanel(game, $("town"), () => { afterChange(); }, goTo, startRoad); break;
+    case "rivals": rivalsPanel(); break;
+  }
 }
 
 /** a company name of the period for the industry, different each town ("Lyon, Shorb & Co. Iron Works") */
@@ -540,18 +618,14 @@ function refreshPanels() {
   $("standing").innerHTML = (bz ? meterTop("reputation", bz.reputation, true, W.rep(bz.reputation)) + meterTop("labour", bz.labour, true, W.lab(bz.labour)) + meterTop("influence", bz.influence, false, W.inf(bz.influence)) : "") +
     meterTop("morale", mo, false, mo < 25 ? "despairing" : mo < 40 ? "low" : mo < 60 ? "steady" : mo < 75 ? "proud" : "jubilant");
   for (const id of ["worksEmpty", "policyEmpty"]) $(id).hidden = !!co;
-  townPanel(game, $("town"), () => { afterChange(); }, goTo, startRoad);
-  holdingsPanel(game, $("holdings"), () => { afterChange(); }, goTo, () => openDialog(true));
+  // only the open tab is rebuilt now; the others when they are next shown
+  for (const t of ["overview", "works", "policy", "holdings", "town", "rivals"]) staleTabs.add(t);
+  renderTab(currentTab());
   if (!$("dialog").hidden) openDialog(true);
-  worksPanel(game, $("works"), () => { afterChange(); }, startPlacing);
-  businessPanel(game, $("biz"), () => { afterChange(); });
   decisionCard(game, $("decision"), () => { afterChange(); });
   successionCard(game, $("succession"), () => { afterChange(); });
   if (!$("struggle").hidden) struggleView(game, $("struggle"), () => afterChange(), () => toggleStruggle(false));
-  siteReport();
-  overviewPanel();
   supplyPanel();
-  rivalsPanel();
   $("legend").innerHTML = overlayLegend(overlay, game);
   showNews();
   $("log").innerHTML = game.log.slice(-60).reverse().map((l) => {
@@ -894,17 +968,17 @@ function setupUI() {
   // mouse: drag to pan, click to select
   let down: { x: number; y: number; cx: number; cy: number } | null = null;
   let dragged = false;
-  canvas.addEventListener("mousedown", (e) => { down = { x: e.offsetX, y: e.offsetY, cx: cam.x, cy: cam.y }; dragged = false; });
+  canvas.addEventListener("mousedown", (e) => { down = { x: e.offsetX * dpr, y: e.offsetY * dpr, cx: cam.x, cy: cam.y }; dragged = false; });
   window.addEventListener("mouseup", (e) => {
     if (down && !dragged && e.target === canvas && proposal) {
       // placing a project: the click moves it there
-      const t = pickTile(map, cam.x + e.offsetX / cam.zoom, cam.y + e.offsetY / cam.zoom);
+      const t = pickTile(map, cam.x + e.offsetX * dpr / cam.zoom, cam.y + e.offsetY * dpr / cam.zoom);
       if (t) { proposal = checkProject(game, proposal.kind, t.x - (proposal.size >> 1), t.y - (proposal.size >> 1), proposal.industry); placeBar(); requestRender(); }
       down = null;
       return;
     }
     if (down && !dragged && e.target === canvas) {
-      selected = pickTile(map, cam.x + e.offsetX / cam.zoom, cam.y + e.offsetY / cam.zoom);
+      selected = pickTile(map, cam.x + e.offsetX * dpr / cam.zoom, cam.y + e.offsetY * dpr / cam.zoom);
       siteReport();
       // before founding a click picks a site; otherwise it opens the card for the tile
       if (selected && (game.company || !placing)) showQuery(selected.x, selected.y, e.offsetX, e.offsetY);
@@ -916,14 +990,14 @@ function setupUI() {
   let hoverT = 0;
   canvas.addEventListener("mousemove", (e) => {
     if (down) {
-      const dx = e.offsetX - down.x, dy = e.offsetY - down.y;
+      const dx = e.offsetX * dpr - down.x, dy = e.offsetY * dpr - down.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) dragged = true;
       if (dragged) { cam.x = down.cx - dx / cam.zoom; cam.y = down.cy - dy / cam.zoom; clampCam(); requestRender(); return; }
     }
     const now = performance.now();
     if (now - hoverT < 30) return;
     hoverT = now;
-    const t = pickTile(map, cam.x + e.offsetX / cam.zoom, cam.y + e.offsetY / cam.zoom);
+    const t = pickTile(map, cam.x + e.offsetX * dpr / cam.zoom, cam.y + e.offsetY * dpr / cam.zoom);
     if (t?.x !== hover?.x || t?.y !== hover?.y) { hover = t; requestRender(); }
   });
   canvas.addEventListener("mouseleave", () => { hover = null; requestRender(); });
@@ -936,7 +1010,7 @@ function setupUI() {
     wheelAcc += e.deltaY * unit;
     const now = performance.now();
     if (Math.abs(wheelAcc) < 100 || now - lastStep < 160) return;
-    setZoom(e.offsetX, e.offsetY, zoomIndex() + (wheelAcc < 0 ? 1 : -1));
+    setZoom(e.offsetX * dpr, e.offsetY * dpr, zoomIndex() + (wheelAcc < 0 ? 1 : -1));
     wheelAcc = 0;
     lastStep = now;
   }, { passive: false });
@@ -954,7 +1028,7 @@ function setupUI() {
   window.addEventListener("keydown", (e) => {
     if (inFormControl(e)) return;
     if (!$("menu").hidden && e.key !== "Escape") return; // the menu is up: no game keys
-    const step = 160 / cam.zoom;
+    const step = 160 * dpr / cam.zoom; // CSS pixels a keypress moves
     const k = e.key.toLowerCase();
     if (k === "arrowleft" || k === "a") cam.x -= step;
     else if (k === "arrowright" || k === "d") cam.x += step;
@@ -1059,7 +1133,7 @@ function startPlacing(kind: ProjectKind, ind?: IndustryId) {
   const p = suggestProject(game, kind, ind);
   placing = false; ($<HTMLInputElement>("placing")).checked = false;
   proposal = p ?? { kind, x: game.company!.x, y: game.company!.y, size: 1, ok: false, reason: "No suitable spot found nearby — click the map to try one", cost: 0, industry: ind, displaced: 0 };
-  if (p) centerOn(Math.round(p.x + p.size / 2), Math.round(p.y + p.size / 2), Math.max(cam.zoom, 0.75));
+  if (p) centerOn(Math.round(p.x + p.size / 2), Math.round(p.y + p.size / 2), Math.max(ZOOMS[zi], 0.75));
   placeBar();
   requestRender();
 }
@@ -1069,7 +1143,7 @@ function stopPlacing() { proposal = null; roadPreview = null; placeBar(); reques
 /** fly to a tile and open its card */
 function goTo(x: number, y: number) {
   x = Math.round(x); y = Math.round(y);
-  centerOn(x, y, Math.max(cam.zoom, 1));
+  centerOn(x, y, Math.max(ZOOMS[zi], 1));
   selected = { x, y };
   const [sx, sy] = tileScreen(x, y);
   showQuery(x, y, sx, sy);
@@ -1088,18 +1162,21 @@ function startRoad(p: RoadPlan) {
 }
 
 /** your businesses on the map: a small flag in the company colours, named when you're close */
-function drawHoldings() {
+/** the flags on the businesses you own (drawn in CSS pixels: the context is already scaled) */
+function drawHoldings(c: Camera) {
   const h = game.company?.holdings;
-  if (!h?.biz.length || cam.zoom < 0.25) return;
+  if (!h?.biz.length || c.zoom < 0.25) return;
   ctx.save();
   ctx.font = "bold 11px ui-monospace, monospace"; ctx.textBaseline = "bottom";
+  const cw = canvas.width / dpr, chh = canvas.height / dpr;
   for (const b of h.biz) {
-    const [x, y] = tileScreen(b.x, b.y);
-    if (x < -50 || y < -50 || x > canvas.width + 50 || y > canvas.height + 50) continue;
-    const pole = 18 * Math.max(0.6, Math.min(1.5, cam.zoom));
+    const [wx, wy] = project(b.x + 0.5, b.y + 0.5, map.elevation[b.y * map.width + b.x]);
+    const x = (wx - c.x) * c.zoom, y = (wy - c.y) * c.zoom;
+    if (x < -50 || y < -50 || x > cw + 50 || y > chh + 50) continue;
+    const pole = 18 * Math.max(0.6, Math.min(1.5, c.zoom));
     ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - pole); ctx.stroke();
     ctx.fillStyle = "#e0b050"; ctx.fillRect(x, y - pole, 10, 7); ctx.fillStyle = "#8e3f2e"; ctx.fillRect(x, y - pole + 7, 10, 2);
-    if (cam.zoom >= 0.75) {
+    if (c.zoom >= 0.75) {
       const name = bizDef(b.id).name;
       const w = ctx.measureText(name).width + 8;
       ctx.fillStyle = "rgba(20,20,24,0.85)"; ctx.fillRect(x + 12, y - pole - 2, w, 15);
