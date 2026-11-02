@@ -99,10 +99,11 @@ export function upsample(m: GameMap, f: Float32Array, put: (i: number, v: number
 
 let upScratch: Float32Array | null = null;
 /**
- * Bilinear upsample of a block field to tiles into a shared scratch array (valid until the next call) —
+ * Bilinear upsample of a block field to tiles into a shared scratch array (valid until the next call; with
+ * `spans`, only those runs are written) —
  * a plain loop over the result is several times quicker than a callback per tile.
  */
-export function upsampleTo(m: GameMap, f: Float32Array): Float32Array {
+export function upsampleTo(m: GameMap, f: Float32Array, spans?: Int32Array): Float32Array {
   const g = blockGrid(m), W = m.width, n = W * m.height;
   if (!upScratch || upScratch.length !== n) upScratch = new Float32Array(n);
   const out = upScratch;
@@ -112,12 +113,15 @@ export function upsampleTo(m: GameMap, f: Float32Array): Float32Array {
     const a = Math.max(0, Math.min(g.bw - 1, Math.floor(fx)));
     x0[x] = a; x1[x] = Math.min(g.bw - 1, a + 1); tx[x] = Math.max(0, Math.min(1, fx - a));
   }
-  for (let y = 0; y < m.height; y++) {
+  // with `spans` ([y, x0, x1) runs), only those tiles are written; the rest of the scratch is stale
+  const ns = spans ? spans.length : 3 * m.height;
+  for (let s = 0; s < ns; s += 3) {
+    const y = spans ? spans[s] : s / 3, xs = spans ? spans[s + 1] : 0, xe = spans ? spans[s + 2] : W;
     const fy = (y + 0.5) / B - 0.5;
     const y0 = Math.max(0, Math.min(g.bh - 1, Math.floor(fy))), y1 = Math.min(g.bh - 1, y0 + 1);
     const ty = Math.max(0, Math.min(1, fy - y0));
     const r0 = y0 * g.bw, r1 = y1 * g.bw, row = y * W;
-    for (let x = 0; x < W; x++) {
+    for (let x = xs; x < xe; x++) {
       const t = tx[x];
       const top = f[r0 + x0[x]] * (1 - t) + f[r0 + x1[x]] * t;
       const bot = f[r1 + x0[x]] * (1 - t) + f[r1 + x1[x]] * t;

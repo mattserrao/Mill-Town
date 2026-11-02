@@ -8,6 +8,7 @@
 //         Allegheny, away from it on the Ohio) and slowly clears. Until filtration (1908) the riverside towns drink it.
 // Health: air + water + crowding. Unrest: poor health, crowding and the grievances of the era.
 
+import { simBand } from "./band";
 import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsampleTo } from "./blocks";
 import type { GameMap } from "./map";
 import { Terrain } from "./terrain";
@@ -76,17 +77,21 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
   const heat = SEASON_HEAT[season] * homeCoal(w.year) * mult;
   const steam = w.year < 1955 ? 1 : Math.max(0, 1 - (w.year - 1955) / 8); // diesels replace steam
   const pop = w.pop, use = w.use, W = m.width, homeK = HOME_K * heat, shopE = COMMERCE_K * heat;
-  for (let y = 0; y < m.height; y++) {
-    const row = y * W, brow = (y / B | 0) * g.bw;
-    for (let bx = 0, x0 = 0; x0 < W; bx++, x0 += B) {
+  // home and shop chimneys in the simulated band (the scattered farms beyond add next to nothing)
+  const sp = simBand(m).spans;
+  for (let s = 0; s < sp.length; s += 3) {
+    const row = sp[s] * W, brow = (sp[s] / B | 0) * g.bw, xe = sp[s + 2];
+    for (let x0 = sp[s + 1]; x0 < xe;) {
       // one block's worth of tiles at a time (no division per tile)
+      const bx = (x0 / B) | 0, be = Math.min(xe, (bx + 1) * B);
       let e = 0;
-      for (let x = x0, xe = Math.min(W, x0 + B); x < xe; x++) {
+      for (let x = x0; x < be; x++) {
         const i = row + x, p = pop[i];
         if (p) e += p * homeK;
         else { const u = use[i]; if (u === Use.Commerce || u === Use.Civic) e += shopE; } // boilers of shops, offices, hotels, churches
       }
       if (e) { E[brow + bx] += e; homes += e; }
+      x0 = be;
     }
   }
   if (steam) for (const i of openRail(m, w.year)) { const e = RAIL_K * steam * mult; E[blockOf(g, i % m.width, (i / m.width) | 0)] += e; rail += e; }
@@ -108,9 +113,10 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
   disperse(g, t, a); // back into env.air
 
   // long-term exposure per tile
+  // long-term exposure per tile, in the band (beyond it nobody new is choosing where to live)
   const p = w.pollution, k = SOOT_SCALE * SOOT_ALPHA;
-  const up = upsampleTo(m, env.air), keep = 1 - SOOT_ALPHA;
-  for (let i = 0, n = p.length; i < n; i++) p[i] = p[i] * keep + up[i] * k;
+  const up = upsampleTo(m, env.air, sp), keep = 1 - SOOT_ALPHA;
+  for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) p[i] = p[i] * keep + up[i] * k;
 }
 
 let railCache: { m: GameMap; year: number; tiles: number[] } | null = null;
@@ -215,7 +221,8 @@ export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[], se
     if (wi >= 0 && r.nearDist[c] < 40 && r.pos[wi] >= 0) load[r.pos[wi]] += p.output * p.pollutionPerUnit * OUTFALL_K * (p.outfall ?? 1);
   }
   // town sewage runs to the nearest river (sewers emptied straight into the rivers)
-  for (let i = 0; i < w.pop.length; i++) {
+  const sp = simBand(m).spans, W = m.width;
+  for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) {
     if (!w.pop[i] || r.nearDist[i] > 80) continue;
     const wi = r.nearWater[i];
     if (wi >= 0 && r.pos[wi] >= 0) load[r.pos[wi]] += w.pop[i] * SEWAGE_K * sewageMult;
@@ -256,9 +263,11 @@ export function eraGrievance(year: number): number {
 export function updateHealth(m: GameMap, w: World, env: Env, hospitals: { x: number; y: number }[] = [], boosts: { x: number; y: number; r: number; water: number; health: number; unrest: number }[] = []) {
   const g = blockGrid(m);
   const air = new Float32Array(g.n), water = new Float32Array(g.n), pop = new Float32Array(g.n), homes = new Float32Array(g.n);
-  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
-    const i = y * m.width + x, b = blockOf(g, x, y);
+  const sp = simBand(m).spans;
+  for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
+    const i = y * m.width + x;
     if (!w.pop[i]) continue;
+    const b = blockOf(g, x, y);
     pop[b] += w.pop[i];
     air[b] += w.pollution[i] * w.pop[i];
     water[b] += drinkingRisk(m, env, i, w.year) * w.pop[i];

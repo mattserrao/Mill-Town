@@ -7,6 +7,7 @@
 // each season a sample of households makes the trip to work along them — Micropolis' trip test, but on
 // shortest paths. Those trips are the traffic: it decides how many people and vehicles you see on each street.
 
+import { simBand } from "./band";
 import { B, blockGrid, blockOf, percentile } from "./blocks";
 import { MinHeap, modeCost, Street, Use, type World } from "./town";
 import type { GameMap } from "./map";
@@ -44,12 +45,14 @@ function blockCostsNow(m: GameMap, w: World): Float32Array {
   const streets = new Uint8Array(g.n), pikes = new Uint8Array(g.n), bridge = new Uint8Array(g.n), incline = new Uint8Array(g.n);
   const water = new Uint8Array(g.n), slope = new Float32Array(g.n), cnt = new Uint8Array(g.n);
   const W = m.width, ter = m.terrain, sl = m.slope, st = w.street, use = w.use;
-  for (let y = 0; y < m.height; y++) {
-    const row = y * W, brow = (y / B | 0) * g.bw;
-    for (let bx = 0, x0 = 0; x0 < W; bx++, x0 += B) {
-      const b = brow + bx;
+  // only the band's blocks are travelled: the countryside beyond is off the commuting map
+  const band = simBand(m), sp = band.spans;
+  for (let s = 0; s < sp.length; s += 3) {
+    const row = sp[s] * W, brow = (sp[s] / B | 0) * g.bw, xEnd = sp[s + 2];
+    for (let x0 = sp[s + 1]; x0 < xEnd;) {
+      const bx = (x0 / B) | 0, b = brow + bx, be = Math.min(xEnd, (bx + 1) * B);
       let c = 0, wa = 0, so = 0, ns = 0;
-      for (let x = x0, xe = Math.min(W, x0 + B); x < xe; x++) {
+      for (let x = x0; x < be; x++) {
         const i = row + x;
         c++;
         if (ter[i] === Terrain.Water) wa++;
@@ -59,10 +62,12 @@ function blockCostsNow(m: GameMap, w: World): Float32Array {
         if (use[i] === Use.Incline) incline[b] = 1;
       }
       cnt[b] += c; water[b] += wa; slope[b] += so; streets[b] += ns;
+      x0 = be;
     }
   }
   const cost = new Float32Array(g.n);
   for (let b = 0; b < g.n; b++) {
+    if (!band.blocks[b] || !cnt[b]) { cost[b] = Infinity; continue; }
     if (water[b] > cnt[b] * 0.5 && !bridge[b]) { cost[b] = Infinity; continue; }
     if (incline[b]) { cost[b] = 0.4; continue; }
     cost[b] = modeCost(w.year, streets[b] >= 2, pikes[b] === 1) + (slope[b] / cnt[b]) * 0.06;
@@ -133,7 +138,8 @@ export function runTrips(m: GameMap, w: World, cm: Commute, traffic: Float32Arra
   // populated tiles, for sampling homes in proportion to people
   const tiles: number[] = [], cum: number[] = [];
   let total = 0;
-  for (let i = 0; i < w.pop.length; i += 1) if (w.pop[i]) { total += w.pop[i]; tiles.push(i); cum.push(total); }
+  const sp = simBand(m).spans, W = m.width;
+  for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) if (w.pop[i]) { total += w.pop[i]; tiles.push(i); cum.push(total); }
   if (!total) return 1;
   const weight = total / samples / 5; // households per trip
   for (let k = 0; k < samples; k++) {
