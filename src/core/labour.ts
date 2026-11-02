@@ -9,6 +9,7 @@
 // pulpit) — until one side breaks or you settle. A broken union comes back angrier a generation later.
 
 import { bump, type Decision, type DecisionOption, newestGroup, type Policy, pushHeadline } from "./business";
+import { queueDead } from "./civiclife";
 import { allWorks, cal, type GameState, log, mod, totalEmployees, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { hasMark, mark, standing } from "./ledger";
@@ -324,6 +325,7 @@ export function killed(g: GameState, dead: number, where: string) {
   bump(g, "reputation", -6 * dead); g.morale = Math.max(0, g.morale - 2 * dead);
   if (g.pol) g.pol.scandal = Math.min(30, g.pol.scandal + 4 * dead);
   (g.memorials ??= []).push({ x: c.x + c.footprint + 1, y: c.y + (c.footprint >> 1), year: y, dead, text: `${dead} killed ${where}` });
+  queueDead(g, c.x + c.footprint + 1, c.y + (c.footprint >> 1), dead, { name: `the funeral of the ${dead} strikers killed ${where}` });
   pushHeadline(g, `${dead} Strikers Killed at ${c.name}`, `Guards fire into the crowd ${where}; ${dead} ${dead === 1 ? "man is" : "men are"} killed. The union calls them martyrs.`, "Labor");
 }
 

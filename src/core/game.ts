@@ -22,6 +22,7 @@ import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOptio
 import { placeNamed } from "./places";
 import { hospitals, type PlacedLandmark } from "./landmarks";
 import { clearRuins, publicHousing, registerMapHooks } from "./mapfx";
+import { civicBoosts, civicLifeSeason, civicLifeYear, type CivState } from "./civiclife";
 import { civicYear } from "./civic";
 import { hoodBoosts } from "./hood";
 import { closureSeason, idleCost, marketFor, type MarketView } from "./world";
@@ -282,6 +283,8 @@ export interface GameState {
   ledger?: Mark[];
   /** the founder, the heads and the heirs (family.ts) */
   family?: Family;
+  /** engine houses, station houses, fires, cemeteries, the family plot, the streets' happenings (civiclife.ts, v0.27) */
+  civ?: CivState;
   /** the unions at your works, by industry (labour.ts) */
   unions?: Partial<Record<IndustryId, Union>>;
   /** the political balance, favours, elections (politics.ts) */
@@ -418,6 +421,7 @@ export function newGame(map: GameMap, seed: number, growth: GrowthModel = DEFAUL
   civicYear(g, 1850, true);
   g.commute = buildCommute(map, world, centersFor(g));
   if (growth === "sleuth") initSleuth(g);
+  civicLifeYear(g, true);
   recordHistory(map, world, g.history);
   warmEnvironment(g);
   g.stats.peakPop = totalPopulation(g);
@@ -867,6 +871,7 @@ export function advanceTurn(g: GameState): void {
     for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     civicYear(g, c1.year);
     if (g.growthModel === "sleuth") sleuthYear(g);
+    civicLifeYear(g);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     returningUnion(g);
     mark("openings and civic buildings (spring)");
@@ -878,10 +883,12 @@ export function advanceTurn(g: GameState): void {
     mark("streets and works access (autumn)");
   }
   if (s1 === 3) {
-    updateHealth(g.map, g.world, g.env, hospitals(g), hoodBoosts(g));
+    updateHealth(g.map, g.world, g.env, hospitals(g), [...hoodBoosts(g), ...civicBoosts(g)]);
     recordHistory(g.map, g.world, g.history);
     mark("health and history (winter)");
   }
+  civicLifeSeason(g);
+  mark("fires and the town's happenings");
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
   // the first spring of a new era: the head of the family steps down; the rivals' heirs take over too
   if (successionDue(g)) { beginSuccession(g); ownersSuccession(g); }

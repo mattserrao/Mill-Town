@@ -93,6 +93,84 @@ export const CIVICS: Civic[] = [
   { id: "nabisco", name: "Nabisco bakery (East Liberty)", kind: "factory", at: [40.4572, -79.9168], open: 1918 },
 ];
 
+/** v0.27 civic life (docs/V027-RESEARCH.md): justice, ward schools, branch libraries, churches, downtown, labour's
+ * places, reform and water. Only under the seed-block model: v0.24's growth model keeps its results. */
+export const CIVICS_V27: Civic[] = [
+  // justice
+  { id: "county_jail", name: "Allegheny County Jail", kind: "jail", at: [40.4380, -79.9953], open: 1886 },
+  { id: "western_pen", name: "Western Penitentiary (Woods Run)", kind: "prison", at: [40.4699, -80.0391], open: 1882 },
+  // ward schools
+  S("bedford_school", "Bedford School", 40.4292, -79.9894, 1850, { close: 1957 }),
+  S("birmingham_school", "Birmingham Public School", 40.4273, -79.9837, 1871, { close: 1944 }),
+  S("springfield_school", "Springfield Public School", 40.4601, -79.9723, 1872, { close: 1934 }),
+  S("lawrence_school", "Lawrence Public School", 40.4669, -79.9658, 1872, { close: 1939 }),
+  S("morse_school", "Samuel F. B. Morse School", 40.4269, -79.9707, 1875, { close: 1979 }),
+  S("fulton_school", "Fulton School", 40.4749, -79.9219, 1894),
+  S("woolslair_school", "Woolslair School", 40.4633, -79.9572, 1897),
+  S("latimer_school", "Latimer School", 40.4561, -80.0011, 1898, { close: 1982 }),
+  S("minersville_school", "Minersville Public School", 40.4546, -79.9613, 1902),
+  S("allegheny_hs", "Allegheny High School", 40.4531, -80.0089, 1904),
+  S("letsche_school", "Letsche School", 40.4448, -79.9880, 1905),
+  S("washington_school", "Washington Vocational School", 40.4694, -79.9631, 1908),
+  S("lincoln_school", "Lincoln School", 40.4600, -79.9116, 1931),
+  S("arsenal_jhs", "Arsenal Junior High School", 40.4675, -79.9628, 1932),
+  S("schiller_school", "Schiller School", 40.4565, -79.9931, 1939),
+  // Carnegie's branch libraries
+  { id: "wylie_library", name: "Wylie Avenue Branch Library", kind: "library", at: [40.4440, -79.9830], open: 1899, close: 1982 },
+  { id: "mt_washington_library", name: "Mount Washington Branch Library", kind: "library", at: [40.4317, -80.0070], open: 1900 },
+  { id: "hazelwood_library", name: "Hazelwood Branch Library", kind: "library", at: [40.4121, -79.9432], open: 1900 },
+  { id: "duquesne_library", name: "Carnegie Free Library of Duquesne", kind: "library", at: [40.3720, -79.8560], open: 1904, demolish: 1968 },
+  { id: "east_liberty_library", name: "East Liberty Branch Library", kind: "library", at: [40.4625, -79.9218], open: 1905 },
+  { id: "south_side_library", name: "South Side Branch Library", kind: "library", at: [40.4282, -79.9765], open: 1908 },
+  { id: "homewood_library", name: "Homewood Branch Library", kind: "library", at: [40.4560, -79.8985], open: 1910 },
+  // churches and temples
+  { id: "st_paul_downtown", name: "St. Paul Cathedral (Grant Street)", kind: "cathedral", at: [40.4397, -79.9967], open: 1855, demolish: 1903 },
+  { id: "st_paul_oakland", name: "St. Paul Cathedral", kind: "cathedral", at: [40.4458, -79.9500], open: 1906 },
+  { id: "trinity_cathedral", name: "Trinity Church", kind: "cathedral", at: [40.4414, -79.9986], open: 1872, renames: [[1928, "Trinity Cathedral"]] },
+  { id: "first_presbyterian", name: "First Presbyterian Church", kind: "church", at: [40.4415, -79.9991], open: 1905 },
+  { id: "st_michael_ss", name: "St. Michael the Archangel Church", kind: "church", at: [40.4248, -79.9800], open: 1861 },
+  { id: "st_mary_mercy", name: "St. Mary of Mercy", kind: "church", at: [40.4399, -80.0047], open: 1876 },
+  { id: "st_stanislaus", name: "St. Stanislaus Kostka", kind: "church", at: [40.4523, -79.9836], open: 1892 },
+  { id: "st_john_ukrainian", name: "St. John the Baptist Ukrainian Catholic Church", kind: "church", at: [40.4285, -79.9919], open: 1895 },
+  { id: "st_mary_magdalene", name: "St. Mary Magdalene (Homestead)", kind: "church", at: [40.4058, -79.9100], open: 1895 },
+  { id: "st_nicholas_troy", name: "St. Nicholas Croatian Church", kind: "church", at: [40.4625, -79.9850], open: 1901 },
+  { id: "st_nicholas_millvale", name: "St. Nicholas Croatian Church (Millvale)", kind: "church", at: [40.4768, -79.9697], open: 1900 },
+  { id: "st_john_munhall", name: "St. John the Baptist Greek Catholic Church", kind: "church", at: [40.4062, -79.9010], open: 1903 },
+  { id: "immaculate_heart", name: "Immaculate Heart of Mary", kind: "church", at: [40.4564, -79.9678], open: 1905 },
+  { id: "rodef_shalom", name: "Rodef Shalom Temple", kind: "hall", at: [40.4481, -79.9436], open: 1907 },
+  { id: "sacred_heart", name: "Sacred Heart Church", kind: "church", at: [40.4555, -79.9215], open: 1926 },
+  { id: "st_michael_munhall", name: "St. Michael's Slovak Church (Munhall)", kind: "church", at: [40.4060, -79.8990], open: 1927 },
+  // downtown life
+  { id: "monongahela_house", name: "Monongahela House", kind: "hotel", at: [40.4365, -80.0010], open: 1850, close: 1935, demolish: 1936 },
+  { id: "boggs_buhl", name: "Boggs & Buhl", kind: "store", at: [40.4505, -80.0060], open: 1869, close: 1958, demolish: 1960 },
+  { id: "allegheny_market", name: "Allegheny Market House", kind: "hall", at: [40.4523, -80.0050], open: 1863, demolish: 1966 },
+  { id: "bo_station", name: "B&O Station", kind: "terminal", at: [40.4363, -80.0007], open: 1887, demolish: 1955 },
+  { id: "kaufmanns", name: "Kaufmann's", kind: "store", at: [40.4410, -79.9985], open: 1887 },
+  { id: "hornes", name: "Joseph Horne Co.", kind: "store", at: [40.4420, -80.0040], open: 1893 },
+  { id: "allegheny_post_office", name: "Allegheny Post Office", kind: "hall", at: [40.4525, -80.0072], open: 1897 },
+  { id: "ple_station", name: "Pittsburgh & Lake Erie Station", kind: "terminal", at: [40.4336, -80.0039], open: 1901 },
+  { id: "fort_pitt_hotel", name: "Fort Pitt Hotel", kind: "hotel", at: [40.4446, -79.9950], open: 1905, demolish: 1967 },
+  { id: "nickelodeon", name: "The Nickelodeon", kind: "theatre", at: [40.4394, -79.9993], open: 1905 },
+  { id: "gimbels", name: "Gimbel Brothers", kind: "store", at: [40.4418, -79.9983], open: 1914 },
+  { id: "william_penn", name: "William Penn Hotel", kind: "hotel", at: [40.4403, -79.9961], open: 1916 },
+  { id: "stanley_theatre", name: "Stanley Theatre", kind: "theatre", at: [40.4431, -80.0000], open: 1928 },
+  // labour's places
+  { id: "bost_building", name: "Bost Building", kind: "hotel", at: [40.4090, -79.9045], open: 1892 },
+  { id: "pump_house", name: "Homestead Pump House", kind: "hall", at: [40.4128, -79.8972], open: 1891 },
+  { id: "labor_temple", name: "Labor Temple", kind: "hall", at: [40.4420, -79.9905], open: 1910 },
+  { id: "uswa_building", name: "United Steelworkers Building", kind: "glasstower", at: [40.4394, -80.0056], open: 1973 },
+  // reform and welfare
+  { id: "orphan_asylum", name: "Orphan Asylum of Pittsburgh and Allegheny", kind: "hall", at: [40.4560, -80.0145], open: 1850 },
+  { id: "kingsley_penn", name: "Kingsley House (Penn Avenue)", kind: "hall", at: [40.4485, -79.9875], open: 1893, close: 1901 },
+  { id: "columbian_settlement", name: "Columbian School and Settlement", kind: "hall", at: [40.4430, -79.9830], open: 1895, renames: [[1911, "Irene Kaufmann Settlement"]] },
+  { id: "kingsley_hill", name: "Kingsley House", kind: "hall", at: [40.4430, -79.9870], open: 1901, close: 1923 },
+  { id: "oliver_baths", name: "Oliver Bath House", kind: "bathhouse", at: [40.4296, -79.9888], open: 1915 },
+  // water
+  { id: "highland_reservoir", name: "Highland Reservoir", kind: "reservoir", at: [40.4762, -79.9160], open: 1879 },
+  { id: "herron_reservoir", name: "Herron Hill Reservoir", kind: "reservoir", at: [40.4555, -79.9565], open: 1880 },
+  { id: "herron_pumping", name: "Herron Hill Pumping Station", kind: "hall", at: [40.4519, -79.9532], open: 1896 },
+];
+
 /** renames of landmarks that the era files put on the map */
 const RENAMES: [string, number, string][] = [
   ["female_college", 1890, "Pennsylvania College for Women"],
@@ -116,7 +194,7 @@ export function civicName(c: Civic, year: number): string {
 
 /** everything due by this year: open, rename, close, come down (run on each new year, and at the start) */
 export function civicYear(g: GameState, year = cal(g).year, quiet = false) {
-  for (const c of CIVICS) {
+  for (const c of g.growthModel === "sleuth" ? [...CIVICS, ...CIVICS_V27] : CIVICS) {
     const placed = g.landmarks.find((l) => l.id === c.id);
     const gone = (c.demolish !== undefined && year >= c.demolish) || (c.close !== undefined && year >= c.close);
     if (!placed && year >= c.open && !gone) {

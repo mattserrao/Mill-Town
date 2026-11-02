@@ -197,8 +197,11 @@ export const OFFICE_ACTIONS: ActionDef[] = [
       for (const r of g.rivals) if (r.strikeUntil && r.strikeUntil > g.turn) { r.strikeUntil = g.turn; r.stance = Math.min(100, (r.stance ?? 0) + 10); ended++; }
       for (const u of sieges(g)) u.siege!.force += 0.7;
       mark(g, { id: "policeIn", side: "labour", kind: "grievance", weight: 14, text: "sent the police against the strikers" });
-      if (rng.chance(0.3)) { polOf(g).scandal += 6; pushHeadline(g, "Police Club Strikers", "Mounted police charge a picket line; dozens are hurt.", "Labor"); }
-      return ended ? `The police open the gates at ${ended} works.` : "The police stand ready at the mill gates.";
+      // from 1905 the governor's men are the State Police troopers (v0.27)
+      const troopers = cal(g).year >= 1905 && office(g) === "governor";
+      if (rng.chance(0.3)) { polOf(g).scandal += 6; pushHeadline(g, troopers ? "Troopers Ride Down Strikers" : "Police Club Strikers", troopers ? "State Police troopers charge a picket line on horseback; dozens are hurt. The strikers call them Cossacks." : "Mounted police charge a picket line; dozens are hurt.", "Labor"); }
+      const who = troopers ? "The State Police" : "The police";
+      return ended ? `${who} open the gates at ${ended} works.` : `${who} stand ready at the mill gates.`;
     },
   },
   {

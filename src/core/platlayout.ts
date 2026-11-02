@@ -51,7 +51,7 @@ export const enum ParkSub { Park = 0, Paved = 1, Green = 2, Bandstand = 3 }
 /** Farm sub-types at a plat's edge */
 export const enum FarmSub { Fields = 0, Garden = 1, Orchard = 2, Scrapyard = 3, Brickyard = 4 }
 /** Empty-lot sub-types inside plats */
-export const enum LotSub { Open = 0, Cleared = 1, Yard = 2, Weeds = 3, Scrub = 4 }
+export const enum LotSub { Open = 0, Cleared = 1, Yard = 2, Weeds = 3, Scrub = 4, Burnt = 5 }
 /** a closed shop keeps its kind in the low bits */
 export const SHOP_CLOSED = 32;
 

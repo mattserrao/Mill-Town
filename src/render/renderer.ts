@@ -14,6 +14,7 @@ import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
 import { ANCHORS, G, latinRite } from "../core/ancestry";
 import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
+import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
@@ -767,8 +768,9 @@ export class Renderer {
         } else base = (_u, _v, _h, gx, gy) => (flooded && hash(gx >> 3, gy >> 2, 41) < 0.45 ? 0x4a6a80 : pick(PAL.yard, hash(gx, gy, 16)));
         break;
       }
-      case Use.Cemetery: base = (u, _v, _h, gx, gy) => {
-        // mown grass with gravel walks
+      case Use.Cemetery: base = (u, v, _h, gx, gy) => {
+        // mown grass with gravel walks (the rural cemeteries' drives wind)
+        if (w.sub[i] & CEM_RURAL) { const c = (Math.sin((x + u) * 0.31) + Math.cos((y + v) * 0.23) + Math.sin((x + y + u + v) * 0.17)) * 0.9; if (Math.abs(c - Math.round(c)) < 0.035) return hash(gx, gy, 915) < 0.4 ? 0xb0a48a : 0xc0b49a; return hash(gx >> 1, gy >> 1, 916) < 0.5 ? 0x5a863a : 0x649044; }
         if (Math.abs(u - 0.5) < 0.05 && (x + y) % 2 === 0) return hash(gx, gy, 915) < 0.4 ? 0xb0a48a : 0xc0b49a;
         return hash(gx >> 1, gy >> 1, 916) < 0.5 ? 0x5e8a3e : 0x689448;
       }; break;
@@ -805,6 +807,7 @@ export class Renderer {
         break;
       }
       default: {
+        if (use === Use.Empty && w.sub[i] === LotSub.Burnt) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 934); return r < 0.3 ? 0x2a2420 : r < 0.6 ? 0x3e3630 : 0x4e4438; }; break; }
         if (use === Use.Empty && w.sub[i] === LotSub.Cleared) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 918); return r < 0.08 ? 0x8a7a6a : r < 0.16 ? 0x5a4e40 : hash(gx >> 1, gy >> 1, 919) < 0.5 ? 0x8a7a58 : 0x7e6e50; }; break; }
         if (use === Use.Empty && w.sub[i] === LotSub.Weeds) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 921); return r < 0.25 ? 0x8a7a50 : r < 0.6 ? 0x7a8a46 : hash(gx >> 1, gy >> 1, 922) < 0.5 ? 0x6a8a3c : 0x94884e; }; break; }
         if (use === Use.Empty && w.sub[i] === LotSub.Scrub) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 923) < 0.5 ? 0x5a7a34 : 0x668a3a); break; }
@@ -1004,6 +1007,7 @@ export class Renderer {
       case Use.Empty:
         if (sub === LotSub.Weeds) { if (n(3) < 0.4) out.push({ key: "tree:bush0", u: 0.25 + n(6) * 0.5, v: 0.25 + n(7) * 0.5 }); break; }
         if (sub === LotSub.Scrub) { for (let k = 0; k < 2; k++) if (n(3 + k) < 0.75) out.push({ key: n(5 + k) < 0.5 ? `tree:bush${k}` : `tree:maple${Math.floor(n(9 + k) * 2)}`, u: 0.2 + n(11 + k) * 0.6, v: 0.2 + n(13 + k) * 0.6 }); break; }
+        if (sub === LotSub.Burnt) { out.push({ key: `lot:burnt${Math.floor(n(3) * 4)}`, u: 0.5, v: 0.5 }); break; }
         if (sub === LotSub.Cleared) { if (n(3) < 0.12) out.push({ key: "tree:bush0", u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
         if (sub !== LotSub.Yard) { if (!w.street[i] && t !== Terrain.Water && n(3) < 0.18) out.push({ key: n(4) < 0.5 ? "tree:bush0" : `tree:oak${Math.floor(n(5) * 3)}`, u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
         if (n(8) < 0.35) out.push({ key: `tree:${n(9) < 0.5 ? "oak" : "maple"}${Math.floor(n(10) * 3)}`, u: 0.3 + n(11) * 0.4, v: 0.3 + n(12) * 0.4 });
@@ -1042,10 +1046,15 @@ export class Renderer {
       case Use.Mine:
         out.push({ key: `mine:${Math.floor(n(12) * 2)}`, u: 0.5, v: 0.5 });
         break;
-      case Use.Cemetery:
-        out.push({ key: `cem:stones${Math.floor(n(22) * 2)}`, u: 0.5, v: 0.5 });
-        if (n(23) < 0.2) out.push({ key: `tree:maple${Math.floor(n(24) * 3)}`, u: 0.2 + n(25) * 0.6, v: 0.2 + n(26) * 0.6 });
+      case Use.Cemetery: {
+        // v0.27: the stones by the ground's faith and how full it is; the family plot; the rural cemeteries' old trees
+        if (sub & CEM_PLOT) { out.push({ key: `cem:plot${g.civ?.plot?.level ?? 0}`, u: 0.5, v: 0.5 }); break; }
+        const fill = sub & CEM_FILL, rural = (sub & CEM_RURAL) !== 0;
+        if (!(sub & CEM_FIXED)) out.push({ key: `cem:stones${Math.floor(n(22) * 2)}`, u: 0.5, v: 0.5 }); // a v0.26 save, until the spring
+        else if (fill) out.push({ key: `cem:${rural ? "r" : ""}${cemFaith(sub)}${fill}${rural && fill === 3 && n(28) < 0.08 ? 1 : 0}`, u: 0.5, v: 0.5 });
+        if (n(23) < (rural ? 0.38 : 0.2)) out.push({ key: `tree:${rural && n(27) < 0.4 ? "oak" : "maple"}${Math.floor(n(24) * 3)}`, u: 0.2 + n(25) * 0.6, v: 0.2 + n(26) * 0.6 });
         break;
+      }
       case Use.Park:
         if (sub === ParkSub.Bandstand) { out.push({ key: "park:bandstand", u: 0.5, v: 0.5 }); break; }
         if (sub === ParkSub.Paved) { if (n(22) < 0.15) out.push({ key: "struct:fountain", u: 0.5, v: 0.5 }); break; }

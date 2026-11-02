@@ -5,7 +5,7 @@
 
 import { bump } from "./business";
 import { allEffects, allLandmarks } from "./eventdata";
-import { CIVICS, civicDef } from "./civic";
+import { CIVICS, CIVICS_V27, civicDef } from "./civic";
 import { EVENTS } from "./events";
 import { PARKS } from "./features";
 import { cal, type GameState, log } from "./game";
@@ -68,7 +68,7 @@ function works() {
   }
   for (const pk of PARKS) table.push({ id: `park:${pk.name}`, year: pk.year, park: pk });
   // the civic landmarks on their real dates (towers rise with their companies: not yours to found)
-  for (const c of CIVICS) if (KINDS[c.kind] && !c.hq && c.open > 1850) table.push({ id: c.id, year: c.open, def: civicDef(c) });
+  for (const c of [...CIVICS, ...CIVICS_V27]) if (KINDS[c.kind] && !c.hq && c.open > 1850) table.push({ id: c.id, year: c.open, def: civicDef(c) });
   table.sort((a, b) => a.year - b.year);
   return table;
 }
@@ -113,7 +113,7 @@ export function fund(g: GameState, id: string): { ok: boolean; text: string } {
     layPark(g.map, g.world, pk);
     (g.world.parks ??= []).push(pk.name);
   } else {
-    const civ = CIVICS.find((x) => x.id === id);
+    const civ = [...CIVICS, ...CIVICS_V27].find((x) => x.id === id);
     const def = civ ? civicDef(civ) : allLandmarks().find((d) => d.id === id)!;
     if (!placeLandmark(g, def)) return { ok: false, text: `No ground for it at ${def.place}` };
   }

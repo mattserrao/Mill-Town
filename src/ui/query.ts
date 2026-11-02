@@ -2,8 +2,9 @@
 // and the neighbourhood around it (who lives there, when each community arrived, how it grew).
 
 import { blockAt, wardOf } from "../core/sleuth";
+import { blockRisk, cemeteryAt, fireAt, fireReach, serviceAt } from "../core/civiclife";
 import { SEED_TYPES } from "../core/seeds";
-import { feet } from "../core/units";
+import { distance, feet } from "../core/units";
 import { commuteWeight, type GameState, walkMinutes } from "../core/game";
 import { GROUPS } from "../core/ancestry";
 import { tileLatLon, type GameMap } from "../core/map";
@@ -69,6 +70,32 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     if (w.built[i]) bRows.push(["Built", `${w.built[i]}${was ? ` by the ${GROUPS[was].name} community` : ""}`]);
     if (now && (sub <= 1 || sub >= 5)) bRows.push(["Congregation", now !== was && was ? `${GROUPS[now].name} (once ${GROUPS[was].name})` : GROUPS[now].name]);
     if (was && !now) bRows.push(["Now", "Closed — its people have moved away"]);
+    const svc = serviceAt(g, i);
+    if (svc) {
+      title = svc.name;
+      bRows.splice(0, bRows.length, ["Opened", `${svc.year}${svc.funded ? ` (paid for by ${g.company?.name ?? "your company"})` : ""}`]);
+      if (svc.kind === "fire") bRows.push(["Reach", `${distance(fireReach(w.year) * m.metersPerTile)} (${w.year >= 1915 ? "motor pumpers" : svc.num ? "paid company, steam engine and horses" : "volunteers, hand pumper and hose cart"})`]);
+      if (svc.kind === "police") bRows.push(["Does", "Patrolmen walk the beats; the wards around are a little quieter"]);
+      if (svc.kind === "hall") bRows.push(["Does", "Council chamber, the burgess's court, the lockup in the basement"]);
+      if (svc.kind === "union") bRows.push(["Does", "Lodge meetings, the strike committee, the relief fund"]);
+    }
+  } else if (use === Use.Cemetery) {
+    const c = cemeteryAt(g, i);
+    if (c) {
+      title = c.plot && g.family ? `The ${g.family.surname} family plot` : c.name;
+      if (c.plot && g.civ?.plot) {
+        bRows.push(["In", c.name]);
+        for (const gr of g.civ.plot.graves) bRows.push([`${gr.born}–${gr.died}`, `${gr.name}${gr.line ? ` — ${gr.line}` : ""}`]);
+      } else {
+        bRows.push(["For", c.who]);
+        bRows.push(["Buried here", c.buried ? `about ${fmt(Math.round(c.buried / 100) * 100 || c.buried)}` : "none yet"]);
+      }
+    }
+  } else if (use === Use.Empty && fireAt(g, i)) {
+    const f = fireAt(g, i)!;
+    title = "Burnt-out lot";
+    bRows.push(["Burned", `${f.name} (${f.tiles} lots${f.dead ? `, ${f.dead} dead` : ""})`]);
+    bRows.push(["Began with", f.cause]);
   } else if (use === Use.Commerce) {
     if ((sub & 31) >= 9 && w.eth[i]) title = `${short(w.eth[i])} ${title.toLowerCase()}`;
     if (w.built[i]) bRows.push(["Opened", String(w.built[i])]);
@@ -141,6 +168,8 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     const ward = g.sleuth!.blocks[wardOf(g, blk.id) - 1];
     lRows.push(["Plat", `${blk.name} · ${SEED_TYPES[blk.type].label.toLowerCase()}, since ${blk.opened} · ${blk.pop.toLocaleString()} people`]);
     if (ward.id !== blk.id || blk.city) lRows.push(["Ward", blk.city ? `${blk.city}, annexed ${blk.cityYear}` : `${ward.name} ward`]);
+    const r = blockRisk(g, blk) * 4;
+    if (r > 0) lRows.push(["Fire risk", `${r < 0.01 ? "low" : r < 0.025 ? "moderate" : r < 0.05 ? "high" : "very high"} (about ${Math.max(1, Math.round(r * 100))}% a year)`]);
   }
   lRows.push(["Position", `${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`]);
 
