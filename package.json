@@ -1,7 +1,7 @@
 {
   "name": "mill-town",
   "private": true,
-  "version": "0.23.0",
+  "version": "0.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "bake": "BAKE=1 vitest run tests/bake-starts.test.ts",
-    "profile": "PROF=1 vitest run tests/prof.test.ts"
+    "profile": "PROF=1 vitest run tests/prof.test.ts",
+    "bench": "BENCH=1 vitest run tests/bench.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

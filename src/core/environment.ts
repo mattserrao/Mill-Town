@@ -61,10 +61,19 @@ const TRAFFIC_K = 0.0009;      // per trip unit, motor era
 export const SOOT_SCALE = 0.3;
 const SOOT_ALPHA = 0.1;        // ~2.5 years memory
 
-/** One season of air: emit, hold (inversions), disperse, and fold into long-term soot. */
-export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], season: number, mult: number) {
+let airScratch: Float32Array | null = null;
+/**
+ * One season of air: emit, hold (inversions), disperse, and fold into long-term soot.
+ * With `rivers`, the same pass over the town also collects its sewage and runs the rivers (updateRivers),
+ * so the band is scanned once for both (v0.24).
+ */
+export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], season: number, mult: number, rivers?: { sewageMult: number }) {
   const g = blockGrid(m), st = blockStatics(m);
-  const E = new Float32Array(g.n);
+  if (!airScratch || airScratch.length !== g.n) airScratch = new Float32Array(g.n);
+  const E = airScratch;
+  E.fill(0);
+  const rs = rivers ? riverStatics(m) : null, load = rs ? riverLoad(m, rs, plants) : null;
+  const sewMult = rivers?.sewageMult ?? 1, nearDist = rs?.nearDist, nearWater = rs?.nearWater, rpos = rs?.pos;
   let works = 0, homes = 0, rail = 0, traffic = 0;
   for (const p of plants) {
     const amt = p.output * p.pollutionPerUnit * WORKS_K * mult;
@@ -87,8 +96,11 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
       let e = 0;
       for (let x = x0; x < be; x++) {
         const i = row + x, p = pop[i];
-        if (p) e += p * homeK;
-        else { const u = use[i]; if (u === Use.Commerce || u === Use.Civic) e += shopE; } // boilers of shops, offices, hotels, churches
+        if (p) {
+          e += p * homeK;
+          // town sewage runs to the nearest river (sewers emptied straight into the rivers)
+          if (load && nearDist![i] <= 80) { const wi = nearWater![i]; if (wi >= 0 && rpos![wi] >= 0) load[rpos![wi]] += p * SEWAGE_K * sewMult; }
+        } else { const u = use[i]; if (u === Use.Commerce || u === Use.Civic) e += shopE; } // boilers of shops, offices, hotels, churches
       }
       if (e) { E[brow + bx] += e; homes += e; }
       x0 = be;
@@ -117,6 +129,7 @@ export function updateAir(m: GameMap, w: World, env: Env, plants: Plant[], seaso
   const p = w.pollution, k = SOOT_SCALE * SOOT_ALPHA;
   const up = upsampleTo(m, env.air, sp), keep = 1 - SOOT_ALPHA;
   for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) p[i] = p[i] * keep + up[i] * k;
+  if (rs && load) flowRivers(env, rs, load);
 }
 
 let railCache: { m: GameMap; year: number; tiles: number[] } | null = null;
@@ -212,14 +225,10 @@ const OUTFALL_K = 0.05;
 export const RIVER_REF = 1.2;
 
 /** One season of river water: outfalls and sewage, carried downstream. */
+/** (the turn runs rivers inside updateAir; this standalone pass is for loading old saves) */
 export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[], sewageMult = 1) {
   const r = riverStatics(m);
-  const load = new Float32Array(r.order.length);
-  for (const p of plants) {
-    const c = (p.y + (p.fp >> 1)) * m.width + p.x + (p.fp >> 1);
-    const wi = r.nearWater[c];
-    if (wi >= 0 && r.nearDist[c] < 40 && r.pos[wi] >= 0) load[r.pos[wi]] += p.output * p.pollutionPerUnit * OUTFALL_K * (p.outfall ?? 1);
-  }
+  const load = riverLoad(m, r, plants);
   // town sewage runs to the nearest river (sewers emptied straight into the rivers)
   const sp = simBand(m).spans, W = m.width;
   for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) {
@@ -227,7 +236,27 @@ export function updateRivers(m: GameMap, w: World, env: Env, plants: Plant[], se
     const wi = r.nearWater[i];
     if (wi >= 0 && r.pos[wi] >= 0) load[r.pos[wi]] += w.pop[i] * SEWAGE_K * sewageMult;
   }
-  const v = new Float32Array(r.order.length);
+  flowRivers(env, r, load);
+}
+
+let loadScratch: Float32Array | null = null, flowScratch: Float32Array | null = null;
+/** works outfalls into the river (sewage is added on top by the caller); a reused scratch array */
+function riverLoad(m: GameMap, r: RiverStatics, plants: Plant[]): Float32Array {
+  if (!loadScratch || loadScratch.length !== r.order.length) loadScratch = new Float32Array(r.order.length);
+  const load = loadScratch;
+  load.fill(0);
+  for (const p of plants) {
+    const c = (p.y + (p.fp >> 1)) * m.width + p.x + (p.fp >> 1);
+    const wi = r.nearWater[c];
+    if (wi >= 0 && r.nearDist[c] < 40 && r.pos[wi] >= 0) load[r.pos[wi]] += p.output * p.pollutionPerUnit * OUTFALL_K * (p.outfall ?? 1);
+  }
+  return load;
+}
+
+/** carry each river tile's load downstream */
+function flowRivers(env: Env, r: RiverStatics, load: Float32Array) {
+  if (!flowScratch || flowScratch.length !== r.order.length) flowScratch = new Float32Array(r.order.length);
+  const v = flowScratch;
   for (let k = 0; k < r.order.length; k++) {
     const u = r.up[k];
     let s = 0;

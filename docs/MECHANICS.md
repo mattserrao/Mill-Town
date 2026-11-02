@@ -257,3 +257,30 @@ Whole-map passes now run over the band's row runs (`simBand(m).spans`); commute 
 blocks. With a few hot-loop fixes (site access memoised per site and year, a ring-buffer neighbourhood pass in
 growth, native sort for the growth cut-off) a turn takes ~40% less time: ~90 ms in eras I–III and ~70 ms in era IV,
 down from ~150 and ~115. Code: `core/band.ts`.
+
+## 7. Faster ticks (v0.24)
+
+- **Lots kept between seasons.** Whether a lot could take a house (near development, unowned, habitable,
+  room under its cap, fronting a street, not a ravine or against a works) is kept from season to season. Each
+  season only lots within 2 tiles of a tile whose people, use, street or owner changed are re-examined; a new
+  year, a works moving or a new world rebuilds it all (`lotState` in `core/growth.ts`).
+- **Fewer passes over the town.** Smoke and the rivers' sewage share one pass; land value reuses the commuter
+  trips' pass for its people per block. The population total is memoised on the world's version. Growth's
+  per-cell arrays and the smoke, river and land-value scratch arrays are reused rather than reallocated.
+- **The yearly work is spread over the year.** Spring: the travel-time fields, openings and civic buildings.
+  Summer: steps, downtown, community styles, churches and halls. Autumn: streets on the road alignments and
+  walking access to the works. Winter: health, unrest and the neighbourhood history. (Before, all of it ran in
+  spring.)
+- **Per-pass timing.** `advanceTurn` charges its time to named passes (`core/passtimes.ts`); `mt.timing()` in
+  the `?dev` console prints the table, and `npm run profile` prints it with the time by season.
+- **Results-match test.** `tests/determinism.test.ts` plays 10 seasons from 1850 and from the baked 1893 and
+  1947 starts and hashes the town and the books. Refactors meant to leave results alone must keep the hashes.
+  All of the above except the yearly spread passed it unchanged (and matched for 40 seasons).
+
+Turn time, same machine, an investing steel company from 1850 to 1985 (`npm run bench`, mean of two runs):
+
+| | v0.22 | v0.23 | v0.24 |
+|---|---|---|---|
+| Mean turn | 128 ms | 77 ms | 70 ms |
+| 95th percentile | 219 ms | 140 ms | 109 ms |
+| Spring (new year) mean / p95 | 187 / 252 ms | 117 / 162 ms | 83 / 115 ms |

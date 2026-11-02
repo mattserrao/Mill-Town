@@ -475,6 +475,7 @@ export function activateFeatures(m: GameMap, w: World) {
       w.use[i] = Use.Incline; w.sub[i] = inc.id; w.pop[i] = 0; w.street[i] = 0;
       if (!w.built[i]) w.built[i] = inc.year;
     }
+    w.version++;
   }
 }
 
@@ -520,9 +521,12 @@ export function walkField(m: GameMap, w: World, sx: number, sy: number, maxCost:
  * the map each season; steps, downtown rebuilding and churches/halls once a year, in Spring.
  * (Where newcomers settle is decided by the growth model in growth.ts.)
  */
+/** the season the yearly steps, downtown, community styles and churches are done in (summer; spring before v0.24) */
+export const CIVIC_SEASON = 1;
+
 export function civicSeason(m: GameMap, w: World, season: number) {
   turnover(m, w, season);
-  if (season !== 0) return;
+  if (season !== CIVIC_SEASON) return;
   addSteps(m, w);
   rebuildDowntown(m, w);
   updateKits(m, w);
@@ -940,16 +944,31 @@ export function carveRoad(m: GameMap, w: World, x0: number, y0: number, x1: numb
  * the lot's own terrain, frontage and people are added per tile, and long-term smoke takes its share.
  * Run every other season.
  */
-export function recomputeLandValue(m: GameMap, w: World) {
+let lvScratch: { n: number; bp: Float32Array; urban: Float32Array } | null = null;
+/** the per-block people array recomputeLandValue reads (runTrips can fill it in its own pass) */
+export function landValueScratch(m: GameMap): Float32Array {
+  const n = blockGrid(m).n;
+  if (!lvScratch || lvScratch.n !== n) lvScratch = { n, bp: new Float32Array(n), urban: new Float32Array(n) };
+  return lvScratch.bp;
+}
+
+/** `blockPop`: people per block already summed over the band this season (else summed here) */
+export function recomputeLandValue(m: GameMap, w: World, blockPop?: Float32Array) {
   const g = blockGrid(m);
-  const bp = new Float32Array(g.n), band = simBand(m), sp = band.spans, W = m.width;
-  // the band only: land values beyond it stay as they were
-  for (let s = 0; s < sp.length; s += 3) {
-    const y = sp[s], brow = ((y / 4) | 0) * g.bw, row = y * W;
-    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) bp[brow + ((x / 4) | 0)] += w.pop[row + x];
+  const band = simBand(m), sp = band.spans, W = m.width;
+  let bp = blockPop;
+  if (!bp) {
+    bp = landValueScratch(m);
+    bp.fill(0);
+    // the band only: land values beyond it stay as they were
+    for (let s = 0; s < sp.length; s += 3) {
+      const y = sp[s], brow = ((y / 4) | 0) * g.bw, row = y * W;
+      for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) bp[brow + ((x / 4) | 0)] += w.pop[row + x];
+    }
   }
   // people within ~2 blocks (the old 8-tile radius)
-  const urban = new Float32Array(g.n);
+  landValueScratch(m);
+  const urban = lvScratch!.urban;
   for (let by = 0; by < g.bh; by++) for (let bx = 0; bx < g.bw; bx++) {
     let s = 0;
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {

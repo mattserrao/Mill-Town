@@ -14,6 +14,7 @@ import { evaluateSite, footprintTiles, popSAT } from "../src/core/site";
 import { resolveDecision } from "../src/core/business";
 import { resolveSuccession } from "../src/core/family";
 import { Rng } from "../src/core/rng";
+import { passTable, resetPassTimes } from "../src/core/passtimes";
 
 const base = new URL("../public/maps/", import.meta.url);
 
@@ -39,6 +40,8 @@ describe.skipIf(!process.env.PROF)("profile", () => {
     await session.post("Profiler.setSamplingInterval", { interval: 500 });
     await session.post("Profiler.start");
     const byEra: Record<string, number[]> = {};
+    const bySeason: number[][] = [[], [], [], []];
+    resetPassTimes();
     let n = 0;
     while (!g.over && cal(g).year < until) {
       const y = cal(g).year;
@@ -48,6 +51,7 @@ describe.skipIf(!process.env.PROF)("profile", () => {
       const s = performance.now();
       advanceTurn(g);
       (byEra[cal(g).era.id] ??= []).push(performance.now() - s);
+      bySeason[g.turn % 4].push(performance.now() - s);
       n++;
     }
     const { profile } = await session.post("Profiler.stop");
@@ -55,6 +59,11 @@ describe.skipIf(!process.env.PROF)("profile", () => {
       const sorted = [...ts].sort((a, b) => a - b);
       out(`Era ${era}: ${ts.length} turns, mean ${(ts.reduce((a, b) => a + b, 0) / ts.length).toFixed(0)} ms, p50 ${sorted[ts.length >> 1].toFixed(0)}, max ${sorted[ts.length - 1].toFixed(0)}`);
     }
+    const p95 = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)] ?? 0;
+    out(`By season entered (mean / p95 / max ms): ${["spring", "summer", "autumn", "winter"].map((nm, k) => `${nm} ${(bySeason[k].reduce((a, b) => a + b, 0) / Math.max(1, bySeason[k].length)).toFixed(0)}/${p95(bySeason[k]).toFixed(0)}/${Math.max(...bySeason[k]).toFixed(0)}`).join(", ")}`);
+    const all = Object.values(byEra).flat();
+    out(`All turns: mean ${(all.reduce((a, b) => a + b, 0) / all.length).toFixed(1)} ms, p95 ${p95(all).toFixed(0)}, max ${Math.max(...all).toFixed(0)}`);
+    out("Passes:\n" + passTable().map((r) => `  ${r.pass.padEnd(48)} ${String(r.mean_ms).padStart(6)} ms  max ${String(r.max_ms).padStart(6)}  ${r.share}`).join("\n"));
     const self = new Map<string, number>();
     const nodes = new Map(profile.nodes.map((x) => [x.id, x]));
     let total = 0;
