@@ -112,6 +112,9 @@ input[type=range] { width: 120px; vertical-align: middle; }
 #query .q-chart { display: block; margin-top: 6px; background: #161a1f; border: 1px solid var(--line); }
 
 /* legends */
+.lg-modes { display: flex; gap: 4px; margin: 2px 0 6px; }
+.lg-mode { font: inherit; font-size: 11px; padding: 2px 7px; background: transparent; color: var(--muted); border: 1px solid var(--line, #444); border-radius: 3px; cursor: pointer; }
+.lg-mode.on { color: var(--text); border-color: var(--text); }
 .lg-title { font-size: 11px; color: var(--text); margin: 4px 0; }
 .lg-bar { height: 10px; border: 1px solid #000; margin-top: 4px; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }

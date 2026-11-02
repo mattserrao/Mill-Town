@@ -540,6 +540,40 @@ function bandstand(): Sprite {
   return p.sprite();
 }
 
+/** a plat's cemetery (v0.26): rows of headstones, a few obelisks and crosses */
+function gravestones(v: number): Sprite {
+  const p = new Painter(1, 60);
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 3; b++) {
+    const u = 0.18 + a * 0.2 + (b & 1) * 0.06, vv = 0.22 + b * 0.27;
+    const [x, y] = p.P(u, vv);
+    const r = tileNoise(v, a, b, 908);
+    if (r < 0.12) { p.px(x, y - 9, "#c8c4ba", 2, 9); p.px(x - 1, y - 2, "#a8a49a", 4, 2); }          // obelisk
+    else if (r < 0.24) { p.px(x, y - 6, "#d8d4ca", 1, 6); p.px(x - 2, y - 5, "#d8d4ca", 5, 1); }     // cross
+    else { p.px(x - 1, y - 4, r < 0.6 ? "#bcb8ae" : "#9a968c", 3, 4); p.px(x - 1, y - 4, "#e0dcd2", 3, 1); } // headstone
+  }
+  return p.sprite();
+}
+
+/** a scrapyard at a plat's edge by the works (v0.26): heaps of rusting iron and a hut */
+function scrapHeap(): Sprite {
+  const p = new Painter(1, 70);
+  const [x, y] = p.P(0.45, 0.55);
+  blob(p, x, y - 4, 12, 6, ["#5a3a26", "#7a4a2a", "#3e3a36"], (k) => tileNoise(3, k, 5, 909));
+  const [hx, hy] = p.P(0.8, 0.25);
+  p.px(hx - 4, hy - 7, "#6a5e4e", 8, 7); p.px(hx - 5, hy - 8, "#4a3e30", 10, 2);
+  return p.sprite();
+}
+
+/** a brickyard (v0.26): a beehive kiln and stacked bricks */
+function brickKiln(): Sprite {
+  const p = new Painter(1, 80);
+  cylinder(p, 0.45, 0.5, 0.22, 0, 8, "#9a5a3e", "#7a4a32");
+  for (let k = 0; k < 5; k++) cylinder(p, 0.45, 0.5, 0.2 * (1 - k / 5), 8 + k * 2, 2, "#8a4e36", "#a46448");
+  const [sx, sy] = p.P(0.82, 0.78);
+  p.px(sx - 4, sy - 5, "#a4523a", 8, 5); p.px(sx - 4, sy - 5, "#c06a4e", 8, 1);
+  return p.sprite();
+}
+
 function lamp(kind: "gas" | "elec"): Sprite {
   const p = new Painter(1, 70);
   const [x, y] = p.P(0.12, 0.12);
@@ -1625,6 +1659,9 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   s.set("incline:station", inclineStation());
   s.set("incline:car", inclineCar());
   s.set("park:bandstand", bandstand());
+  for (let v = 0; v < 2; v++) s.set(`cem:stones${v}`, gravestones(v));
+  s.set("yard:scrap", scrapHeap());
+  s.set("yard:kiln", brickKiln());
   s.set("lamp:gas", lamp("gas"));
   s.set("lamp:elec", lamp("elec"));
   return s;

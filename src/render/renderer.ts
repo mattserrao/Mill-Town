@@ -13,6 +13,7 @@ import { Terrain } from "../core/terrain";
 import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
 import { ANCHORS, G, latinRite } from "../core/ancestry";
 import { latLonToTile } from "../core/features";
+import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
 import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
@@ -723,6 +724,11 @@ export class Renderer {
     switch (use) {
       case Use.Forest: base = (_u, _v, _h, gx, gy) => pick(PAL.woods, hash(gx >> 1, gy >> 1, 6)); break;
       case Use.Farm: {
+        const fsub = w.sub[i];
+        if (fsub === FarmSub.Garden) { base = (_u, v, _h, gx, gy) => ((Math.floor((y + v) * 7) & 1) ? (hash(gx, gy, 910) < 0.6 ? 0x4e7a32 : 0x5e8a3a) : (hash(gx, gy, 911) < 0.5 ? 0x6a5236 : 0x5c4630)); break; }
+        if (fsub === FarmSub.Orchard) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 912) < 0.5 ? 0x6e9a40 : 0x78a448); break; }
+        if (fsub === FarmSub.Scrapyard) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 913); return r < 0.3 ? 0x5a4a3a : r < 0.6 ? 0x6e5a44 : 0x4a4640; }; break; }
+        if (fsub === FarmSub.Brickyard) { base = (_u, _v, _h, gx, gy) => (hash(gx, gy, 914) < 0.5 ? 0x9a5a3e : 0xa86a4a); break; }
         const fx = Math.floor(x / 7), fy = Math.floor(y / 5);
         const crop = PAL.crops[Math.floor(hash(fx, fy, w.seed & 0xffff) * PAL.crops.length)];
         const along = hash(fx, fy, 11) < 0.5;
@@ -761,7 +767,13 @@ export class Renderer {
         } else base = (_u, _v, _h, gx, gy) => (flooded && hash(gx >> 3, gy >> 2, 41) < 0.45 ? 0x4a6a80 : pick(PAL.yard, hash(gx, gy, 16)));
         break;
       }
-      case Use.Park: base = (u, v, _h, gx, gy) => {
+      case Use.Cemetery: base = (u, _v, _h, gx, gy) => {
+        // mown grass with gravel walks
+        if (Math.abs(u - 0.5) < 0.05 && (x + y) % 2 === 0) return hash(gx, gy, 915) < 0.4 ? 0xb0a48a : 0xc0b49a;
+        return hash(gx >> 1, gy >> 1, 916) < 0.5 ? 0x5e8a3e : 0x689448;
+      }; break;
+      case Use.Park: if (w.sub[i] === ParkSub.Paved) { base = (_u, _v, _h, gx, gy) => ((gx % 4 === 0 || gy % 2 === 0) ? 0x8e887c : hash(gx >> 2, gy >> 1, 917) < 0.5 ? 0xb4ac9c : 0xa8a090); break; }
+        base = (u, v, _h, gx, gy) => {
         const path = ((x + y) % 4 === 0 && Math.abs(u - v) < 0.07) || ((x - y + 400) % 4 === 0 && Math.abs(u + v - 1) < 0.07);
         if (path) return hash(gx, gy, 44) < 0.3 ? 0xb8a888 : 0xc8b898;
         return hash(gx >> 1, gy >> 1, 45) < 0.5 ? 0x7cb04c : 0x86b854;
@@ -793,6 +805,10 @@ export class Renderer {
         break;
       }
       default: {
+        if (use === Use.Empty && w.sub[i] === LotSub.Cleared) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 918); return r < 0.08 ? 0x8a7a6a : r < 0.16 ? 0x5a4e40 : hash(gx >> 1, gy >> 1, 919) < 0.5 ? 0x8a7a58 : 0x7e6e50; }; break; }
+        if (use === Use.Empty && w.sub[i] === LotSub.Weeds) { base = (_u, _v, _h, gx, gy) => { const r = hash(gx, gy, 921); return r < 0.25 ? 0x8a7a50 : r < 0.6 ? 0x7a8a46 : hash(gx >> 1, gy >> 1, 922) < 0.5 ? 0x6a8a3c : 0x94884e; }; break; }
+        if (use === Use.Empty && w.sub[i] === LotSub.Scrub) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 923) < 0.5 ? 0x5a7a34 : 0x668a3a); break; }
+        if (use === Use.Empty && w.sub[i] === LotSub.Yard) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 920) < 0.5 ? 0x74a646 : 0x80b050); break; }
         const pal = t === Terrain.Floodplain ? PAL.meadow : PAL.grass;
         base = (_u, _v, _h, gx, gy) => {
           const r = hash(gx, gy, 22);
@@ -812,7 +828,8 @@ export class Renderer {
     const stairs = w.street[i] === Street.Steps || (w.street[i] > 0 && m.slope[i] >= 24);
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
-    const streetW = w.street[i] === Street.Pike ? 0.17 : dense ? 0.26 : 0.14;
+    const alley = w.street[i] === Street.Alley;
+    const streetW = w.street[i] === Street.Pike ? 0.17 : alley ? 0.07 : dense ? 0.26 : 0.14;
     // creeks and rails come from the source vectors where the map has them (smooth on any angle);
     // otherwise from the raster masks
     const vec = m.lines.creek.length > 0 || m.lines.rail.length > 0;
@@ -873,7 +890,10 @@ export class Renderer {
       } else if (w.street[i]) {
         const [ds] = lineDist(streetMask, u, v);
         if (ds < streetW) {
-          if (dense) {
+          if (alley) {
+            // a rear alley: a narrow dirt track between the backs of the lots
+            c = hash(gx, gy, 29) < 0.2 ? 0x8a7a5a : 0xa8966e;
+          } else if (dense) {
             // cobbles
             c = (gx % 3 === 0 || gy % 2 === 0) ? 0x6a665e : hash(gx >> 1, gy >> 1, 28) < 0.5 ? 0x8e8a82 : 0x7e7a72;
           } else {
@@ -904,7 +924,7 @@ export class Renderer {
   }
 
   // ------------------------------------------------------------ sprites per tile
-  private houseSpecFor(g: GameState, x: number, y: number, i: number, kind: HouseKind, sub: number) {
+  private houseSpecFor(g: GameState, x: number, y: number, i: number, kind: HouseKind, sub: number, closed = false) {
     const m = this.map, w = g.world, W = m.width, V = W + 1;
     const st = (dx: number, dy: number) => {
       const nx = x + dx, ny = y + dy;
@@ -925,16 +945,29 @@ export class Renderer {
     const q = (h: number) => Math.max(-60, Math.min(60, Math.round(((h - hc) * ZPX) / step) * step));
     const ground: [number, number, number, number] = [q(hT), q(hR), q(hB), q(hL)];
     const pol = w.pollution[i];
-    const soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
+    let soot = pol < 0.15 ? 0 : pol < 0.5 ? 1 : pol < 1.2 ? 2 : 3;
     const housing = kind !== "civic" && kind !== "shop";
-    const boarded = housing && w.pop[i] === 0 && kind !== "mansion" ? 1 : 0;
+    const boarded = closed || (housing && w.pop[i] === 0 && kind !== "mansion") ? 1 : 0;
+    let style = styleForYear(w.built[i] || 1850);
+    // v0.26: the plat's own look. Its old heart (the inner third around the seed) reads a period older and dirtier;
+    // a company row is one design repeated down the block.
+    const bid = w.blockId?.[i], blk = bid ? g.sleuth?.blocks[bid - 1] : undefined;
+    let vv = -1;
+    if (blk) {
+      const r = Math.sqrt(blk.land / Math.PI), d = Math.hypot(x - blk.x, y - blk.y);
+      if (housing && blk.land > 30 && d < 0.3 * r) { style = Math.max(0, style - 1); soot = Math.min(3, soot + 1); }
+      if (kind === "company") vv = Math.floor(hash(blk.id, 7, 51) * 6);
+    }
     // the community's style: houses whose families belong to the community that holds this part of town
     const kc = w.kit[((y / 8) | 0) * Math.ceil(W / 8) + ((x / 8) | 0)];
     // churches, halls, schools and community shops: the community that built them (it stays theirs to look at after they leave)
-    const kit = housing ? (kc && w.eth[i] === kc ? kc : 0) : (w.was[i] || w.eth[i] || 0);
+    // under the seed-block model the plat's majority community sets the style, not the 8×8 cell (v0.26)
+    const pk = g.growthModel === "sleuth" && w.blockId?.[i] ? (g.sleuth?.blocks[w.blockId[i] - 1]?.kit ?? 0) : kc;
+    const kit = housing ? (pk && w.eth[i] === pk ? pk : 0) : (w.was[i] || w.eth[i] || 0);
     // at a quarter size the six variants and the community's kit are a pixel or two apart: fewer keys, the same look
     const small = this.curScale <= 0.25;
-    return houseKey({ kind, sub, style: styleForYear(w.built[i] || 1850), o, front, corner, v: small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6), g: ground, lift: 0, fnd: 0, soot, boarded, kit: small && housing ? 0 : kit });
+    const v = vv >= 0 ? (small ? vv & 1 : vv) : small ? Math.floor(hash(x, y, 51) * 2) : Math.floor(hash(x, y, 51) * 6);
+    return houseKey({ kind, sub, style, o, front, corner, v, g: ground, lift: 0, fnd: 0, soot, boarded, kit: small && housing ? 0 : kit });
   }
 
   private denseStreet(g: GameState, x: number, y: number) {
@@ -969,9 +1002,17 @@ export class Renderer {
         break;
       }
       case Use.Empty:
-        if (!w.street[i] && t !== Terrain.Water && n(3) < 0.18) out.push({ key: n(4) < 0.5 ? "tree:bush0" : `tree:oak${Math.floor(n(5) * 3)}`, u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 });
+        if (sub === LotSub.Weeds) { if (n(3) < 0.4) out.push({ key: "tree:bush0", u: 0.25 + n(6) * 0.5, v: 0.25 + n(7) * 0.5 }); break; }
+        if (sub === LotSub.Scrub) { for (let k = 0; k < 2; k++) if (n(3 + k) < 0.75) out.push({ key: n(5 + k) < 0.5 ? `tree:bush${k}` : `tree:maple${Math.floor(n(9 + k) * 2)}`, u: 0.2 + n(11 + k) * 0.6, v: 0.2 + n(13 + k) * 0.6 }); break; }
+        if (sub === LotSub.Cleared) { if (n(3) < 0.12) out.push({ key: "tree:bush0", u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
+        if (sub !== LotSub.Yard) { if (!w.street[i] && t !== Terrain.Water && n(3) < 0.18) out.push({ key: n(4) < 0.5 ? "tree:bush0" : `tree:oak${Math.floor(n(5) * 3)}`, u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
+        if (n(8) < 0.35) out.push({ key: `tree:${n(9) < 0.5 ? "oak" : "maple"}${Math.floor(n(10) * 3)}`, u: 0.3 + n(11) * 0.4, v: 0.3 + n(12) * 0.4 });
         break;
       case Use.Farm:
+        if (sub === FarmSub.Orchard) { for (const [u, v] of [[0.28, 0.28], [0.72, 0.28], [0.28, 0.72], [0.72, 0.72]]) out.push({ key: `tree:${n(8) < 0.5 ? "oak" : "maple"}0`, u, v }); break; }
+        if (sub === FarmSub.Scrapyard) { if (n(8) < 0.6) out.push({ key: "yard:scrap", u: 0.5, v: 0.5 }); break; }
+        if (sub === FarmSub.Brickyard) { if (n(8) < 0.5) out.push({ key: "yard:kiln", u: 0.5, v: 0.5 }); break; }
+        if (sub === FarmSub.Garden) break;
         if (x % 7 === 0 && y % 5 === 0 && n(8) < 0.7) out.push({ key: `tree:oak${Math.floor(n(9) * 3)}`, u: 0.12, v: 0.12 });
         break;
       case Use.Cottage: {
@@ -996,12 +1037,20 @@ export class Renderer {
         out.push({ key: this.houseSpecFor(g, x, y, i, "civic", sub === CivicSub.OnionChurch && (w.was[i] || w.eth[i]) === G.CROAT && latinRite(i) ? CivicSub.TwinChurch : sub as CivicSub), u: 0.5, v: 0.5 });
         break;
       case Use.Commerce:
-        out.push({ key: this.houseSpecFor(g, x, y, i, "shop", sub || 2), u: 0.5, v: 0.5 });
+        out.push({ key: this.houseSpecFor(g, x, y, i, "shop", (sub & 31) || 2, (sub & SHOP_CLOSED) !== 0), u: 0.5, v: 0.5 });
         break;
       case Use.Mine:
         out.push({ key: `mine:${Math.floor(n(12) * 2)}`, u: 0.5, v: 0.5 });
         break;
+      case Use.Cemetery:
+        out.push({ key: `cem:stones${Math.floor(n(22) * 2)}`, u: 0.5, v: 0.5 });
+        if (n(23) < 0.2) out.push({ key: `tree:maple${Math.floor(n(24) * 3)}`, u: 0.2 + n(25) * 0.6, v: 0.2 + n(26) * 0.6 });
+        break;
       case Use.Park:
+        if (sub === ParkSub.Bandstand) { out.push({ key: "park:bandstand", u: 0.5, v: 0.5 }); break; }
+        if (sub === ParkSub.Paved) { if (n(22) < 0.15) out.push({ key: "struct:fountain", u: 0.5, v: 0.5 }); break; }
+        if (sub === ParkSub.Green && n(22) < 0.7) out.push({ key: `tree:${n(23) < 0.5 ? "oak" : "maple"}${Math.floor(n(24) * 3)}`, u: 0.25 + n(25) * 0.5, v: 0.25 + n(26) * 0.5 });
+        if (sub === ParkSub.Green) break;
         if (n(22) < 0.55) out.push({ key: `tree:${n(23) < 0.6 ? "oak" : "maple"}${Math.floor(n(24) * 3)}`, u: 0.25 + n(25) * 0.5, v: 0.25 + n(26) * 0.5 });
         if (n(27) < 0.08) out.push({ key: "park:bandstand", u: 0.5, v: 0.5 });
         break;
@@ -1424,7 +1473,7 @@ export class Renderer {
   }
 
   /** Place names. `reserved`: canvas-pixel rects (minimap, zoom buttons) to keep labels off. */
-  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, reserved: { x: number; y: number; w: number; h: number }[] = []) {
+  drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, reserved: { x: number; y: number; w: number; h: number }[] = [], plats = false) {
     const m = this.map;
     ctx.textAlign = "center";
     const items: { name: string; x: number; y: number; col: string; min: number }[] = [];
@@ -1442,6 +1491,11 @@ export class Renderer {
     for (const inc of g.world.inclines) {
       const mid = inc.path[Math.floor(inc.path.length / 2)];
       items.push({ name: inc.name, x: mid[0] + 1.5, y: mid[1] + 0.5, col: "#ffb0a0", min: 0.5 });
+    }
+    // v0.26: plat names and founding years: on the Plats & wards layer from half size; on the map, named plats close up
+    for (const b of g.sleuth?.blocks ?? []) {
+      if (!b.land || (!plats && (b.type === "patch" || b.type === "company" || m.landmarks.some((l) => l.name.startsWith(b.name))))) continue;
+      items.unshift({ name: `${b.name} ${b.opened}`, x: b.x + 0.5, y: b.y + 0.5, col: plats ? "#ffe6a8" : "#e8d8b8", min: plats ? 0.375 : 1.5 });
     }
     const seen = new Set<string>();
     for (const sp of [...m.spans, ...(g.spans ?? [])]) {

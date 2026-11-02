@@ -52,7 +52,8 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
   const use = w.use[i], sub = w.sub[i];
   const house = objs.keys.find((k) => k.startsWith("H|"));
   const spec = house ? parseHouseKey(house) : null;
-  let title = SUB_NAMES[use]?.[sub] ?? USE_NAMES[use];
+  let title = SUB_NAMES[use]?.[use === Use.Commerce ? sub & 31 : sub] ?? USE_NAMES[use];
+  if (use === Use.Park) title = ["Park", "Market square", "Green", "Bandstand"][sub] ?? title;
   const bRows: [string, string][] = [];
   if (use >= Use.Cottage && use <= Use.Rowhouses) {
     const kind = use === Use.Rowhouses ? "brick rowhouse" : use === Use.Houses ? "frame house" : "cottage";
@@ -69,8 +70,9 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     if (now && (sub <= 1 || sub >= 5)) bRows.push(["Congregation", now !== was && was ? `${GROUPS[now].name} (once ${GROUPS[was].name})` : GROUPS[now].name]);
     if (was && !now) bRows.push(["Now", "Closed — its people have moved away"]);
   } else if (use === Use.Commerce) {
-    if (sub >= 9 && w.eth[i]) title = `${short(w.eth[i])} ${title.toLowerCase()}`;
+    if ((sub & 31) >= 9 && w.eth[i]) title = `${short(w.eth[i])} ${title.toLowerCase()}`;
     if (w.built[i]) bRows.push(["Opened", String(w.built[i])]);
+    if (sub & 32) bRows.push(["Now", "Closed — boarded up since the mills shut"]);
   } else if (use === Use.Landmark) {
     const st = w.structure[i];
     if (st > 0 && st < 255) title = cap(STRUCTURES[st]);

@@ -28,7 +28,8 @@ export const enum Use {
   Commerce = 12, // shops, taverns, hotels, banks, market (sub)
   Mine = 13,     // drift mine with tipple
   Incline = 14,  // inclined plane railway (sub = incline id)
-  Park = 15,     // public park
+  Park = 15,     // public park (sub: ParkSub — a park, or a plat's paved or green square)
+  Cemetery = 16, // a plat's burying ground (v0.26)
 }
 
 /** sub-types: houses / rowhouses */
@@ -41,7 +42,7 @@ export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse 
 export const USE_NAMES: Record<number, string> = {
   0: "Open land", 1: "Woods", 2: "Farm", 3: "Cottages", 4: "Frame houses", 5: "Brick rowhouses",
   6: "Church", 7: "Your works", 8: "Rival works", 9: "Wharf", 10: "Landmark", 11: "Bare rock",
-  12: "Business", 13: "Coal mine", 14: "Incline", 15: "Park",
+  12: "Business", 13: "Coal mine", 14: "Incline", 15: "Park", 16: "Cemetery",
 };
 export const SUB_NAMES: Record<number, Record<number, string>> = {
   3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
@@ -49,9 +50,12 @@ export const SUB_NAMES: Record<number, Record<number, string>> = {
   5: { 4: "Boarding houses" },
   6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library", 5: "Church (twin towers)", 6: "Synagogue", 7: "Church (AME)", 8: "Social hall" },
   12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building", 9: "Bakery", 10: "Butcher shop", 11: "Kosher butcher", 12: "Saloon", 13: "Barbershop" },
+  // v0.26 plat layout (platlayout.ts ParkSub / FarmSub / LotSub)
+  0: { 1: "Cleared lot", 2: "Yard" },
+  2: { 1: "Kitchen gardens", 2: "Orchard", 3: "Scrapyard", 4: "Brickyard" },
 };
 
-export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4 }
+export const enum Street { None = 0, Lane = 1, Pike = 2, Bridge = 3, Steps = 4, Alley = 5 }
 
 export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitentiary",
   // dated landmarks (src/core/landmarks.ts): one sprite per kind, struct:<kind>
@@ -639,7 +643,7 @@ export function zoneCensus(m: GameMap, w: World, bandOnly = false): ZoneCensus[]
         if (CHURCHES.has(w.sub[i])) c.church[g]++;
         else if (w.sub[i] === CivicSub.Hall) c.hall[g]++;
         else if (w.sub[i] === CivicSub.School) c.school[g]++;
-      } else if (u === Use.Commerce && w.sub[i] >= ShopSub.Bakery) {
+      } else if (u === Use.Commerce && w.sub[i] >= ShopSub.Bakery && w.sub[i] < 32) { // 32+: closed (platlayout SHOP_CLOSED)
         const mm = c.shops.get(g) ?? new Map<number, number>(); mm.set(w.sub[i], (mm.get(w.sub[i]) ?? 0) + 1); c.shops.set(g, mm);
       } else if ((u === Use.Houses || u === Use.Rowhouses) && w.sub[i] === HouseSub.Boarding) c.boarding[g]++;
     }

@@ -14,6 +14,14 @@ import { RIVER_REF, SOOT_SCALE } from "../core/environment";
 import { simBand } from "../core/band";
 import { blocksOf, wardOf } from "../core/sleuth";
 
+/** how the Plats & wards layer colours the plats (v0.26) */
+export type WardMode = "ward" | "type" | "decade";
+export let wardMode: WardMode = "ward";
+export function setWardMode(m: WardMode) { wardMode = m; }
+const TYPE_COL: Record<string, RGB> = { core: [214, 92, 70], mill: [150, 96, 60], plat: [226, 178, 90], hillside: [130, 170, 90], patch: [90, 90, 96], company: [176, 120, 190], suburb: [110, 170, 220] };
+const TYPE_NAME: Record<string, string> = { core: "city core", mill: "mill town", plat: "plat", hillside: "hillside", patch: "coal patch", company: "company rows", suburb: "streetcar suburb" };
+const DECADE: RGB[] = [[90, 50, 120], [180, 70, 110], [240, 140, 80], [250, 230, 140]];
+
 export type OverlayId = "none" | "band" | "wards" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
 
 type RGB = [number, number, number];
@@ -166,14 +174,32 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
       const bid = w.blockId, bs = blocksOf(g);
       if (!bid || !bs.length) return { key: `${id}|none`, fn: () => null };
       const col = (k: number): RGB => { const h = (k * 137.508) % 360, s = 0.55, l = 0.55; const f = (n: number) => { const a = s * Math.min(l, 1 - l), q = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(q - 3, 9 - q, 1)))); }; return [f(0), f(8), f(4)]; };
-      const shade = bs.map((b) => { const c = col(wardOf(g, b.id)), t = 0.82 + 0.36 * ((b.id * 0.618) % 1); return [Math.min(255, c[0] * t), Math.min(255, c[1] * t), Math.min(255, c[2] * t)] as RGB; });
+      const mode = wardMode;
+      const shade = bs.map((b) => {
+        // by type: one colour a kind; by decade: a ramp from the 1780s (dark) to the 1950s (pale); by ward: a colour each, its plats in shades
+        const c = mode === "type" ? TYPE_COL[b.type] ?? [150, 150, 150] : mode === "decade" ? ramp(DECADE, Math.max(0, Math.min(1, (b.opened - 1780) / 180)), 1, 0) as unknown as RGB : col(wardOf(g, b.id));
+        const t = mode === "ward" ? 0.72 + 0.56 * ((b.id * 0.618) % 1) : 1;
+        return [Math.min(255, c[0] * t), Math.min(255, c[1] * t), Math.min(255, c[2] * t)] as RGB;
+      });
+      const ward = bs.map((b) => wardOf(g, b.id)), city = bs.map((b) => !!b.city);
       const W = m.width;
-      return { key: `${id}|${w.version}`, fn: (i) => {
+      return { key: `${id}|${mode}|${w.version}`, fn: (i) => {
         const k = bid[i];
         if (!k) return null;
-        const x = i % W, edge = (x + 1 < W && bid[i + 1] !== k) || (i + W < bid.length && bid[i + W] !== k);
-        const c = shade[k - 1];
-        return edge ? [c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 0.95] : [c[0], c[1], c[2], w.pop[i] ? 0.85 : 0.55];
+        const x = i % W, y = (i / W) | 0, c = shade[k - 1];
+        // ward boundaries thick and black (two tiles), plat edges thin and dark
+        let wardEdge = false, edge = false;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue;
+          const j = bid[yy * W + xx];
+          if (j && j !== k) { if (ward[j - 1] !== ward[k - 1]) wardEdge = true; else edge = true; }
+        }
+        if (wardEdge && mode === "ward") return [20, 16, 14, 0.95];
+        if (wardEdge || edge) { const f = (x + 1 < W && bid[i + 1] !== k) || (i + W < bid.length && bid[i + W] !== k) ? 0.35 : 1; if (f < 1) return [c[0] * f, c[1] * f, c[2] * f, 0.95]; }
+        // annexed into a city: hatched
+        if (city[k - 1] && (x + y) % 4 === 0) return [Math.min(255, c[0] * 1.35 + 30), Math.min(255, c[1] * 1.35 + 30), Math.min(255, c[2] * 1.35 + 30), 0.9];
+        return [c[0], c[1], c[2], w.pop[i] ? 0.85 : 0.55];
       } };
     }
     case "ancestry":
@@ -234,7 +260,12 @@ export function overlayLegend(id: OverlayId, g?: GameState): string {
       if (!bs.length) return `<p class="hint">This town grows by lots (v0.24's model): there are no plats. Start a new game to grow it from seed blocks.</p>`;
       const wards = new Set(bs.map((b) => wardOf(g!, b.id))).size;
       const ann = Object.entries(g!.sleuth!.annexed).map(([k, y]) => `${k} (${y})`).join(", ");
-      return keys([["rgb(214,120,90)", "a ward (its blocks in shades)"], ["rgb(60,40,30)", "block edge"]]) +
+      const btn = (m: WardMode, t: string) => `<button class="lg-mode${wardMode === m ? " on" : ""}" data-wardmode="${m}">${t}</button>`;
+      const head = `<div class="lg-modes">${btn("ward", "By ward")}${btn("type", "By type")}${btn("decade", "By decade")}</div>`;
+      const body = wardMode === "type" ? keys(Object.entries(TYPE_NAME).map(([k, n]) => [css(TYPE_COL[k]), n]))
+        : wardMode === "decade" ? bar(steps(stepsOf(DECADE, 8)), "1780s", "1950s", "1870s")
+        : keys([["rgb(214,120,90)", "a ward (its plats in shades)"], ["rgb(20,16,14)", "ward boundary", "height:4px"], ["rgb(60,40,30)", "plat edge", "height:2px"], ["repeating-linear-gradient(45deg,#c88,#c88 2px,#eaa 2px,#eaa 4px)", "annexed by a city"]]);
+      return head + body +
         `<p class="hint">${bs.length} plats and towns in ${wards} wards. Each grew from a seed (a plat, a mill town, a hillside, a coal patch, company rows or a streetcar suburb) and annexes land around it; when two meet they join a ward.${ann ? ` Annexed by Pittsburgh: ${ann}.` : ""}</p>`;
     }
     case "population": return bar(steps(stepsOf(P.population, BANDS)), "few", "~70 per tile");
