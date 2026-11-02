@@ -40,7 +40,8 @@ export const EFFECTS: Record<string, Effect[]> = {
   "Laughlin Buys In": [{ rival: "jl", expand: 0.1 }],
   "Western University Rebuilds": [{ landmark: "westernu_downtown" }],
   "Central High School Opens": [{ landmark: "central_high" }],
-  "Panic of 1857": [{ mods: [["price", 0.72, 8]] }, { meters: { morale: -4 } }],
+  // the panics bite harder (v0.21: an idle Era I works gained $500–900k by 1870): prices and orders both fall, for longer
+  "Panic of 1857": [{ mods: [["price", 0.68, 10], ["output", 0.85, 10]] }, { meters: { morale: -4 } }],
   "Sons of Vulcan Founded": [
     { mods: [["wage", 1.05, 40]], scope: { industry: "steel" } },
     { rule: "union", set: { blocked: null } },
@@ -91,7 +92,7 @@ export const EFFECTS: Record<string, Effect[]> = {
   "Pennsylvania Female College Founded": [{ landmark: "female_college" }],
   "Saturday Half-Holiday": [{ rule: "halfHoliday", set: { blocked: null } }],
   "Frick Coke Company": [{ mods: [["input", 0.92, 80]], scope: { industry: "steel", good: "coal" } }],
-  "Panic of 1873": [{ mods: [["price", 0.7, 16], ["wage", 0.85, 16]] }, { meters: { morale: -6 } }],
+  "Panic of 1873": [{ mods: [["price", 0.66, 20], ["output", 0.8, 20], ["wage", 0.85, 16]] }, { meters: { morale: -6 } }],
   "First Rail at Edgar Thomson": [{ rival: "carnegie", expand: 0.1 }],
   "Amalgamated Association Founded": [{ mods: [["wage", 1.05, 60], ["strike", 1.2, 60]], scope: { industry: ["steel", "metalworks"] } }],
   "Great Railroad Strike": [

@@ -102,6 +102,8 @@ export function risks(g: GameState): Risk[] {
 
   // timed effects of events on your industry
   const mine = new Set(works.map((w) => w.industry));
+  // one row per event, its effects listed together ("Panic of 1873 · price −34%, output −20% · to 1878")
+  const byEvent = new Map<string, { parts: string[]; bad: boolean; good: boolean; until: number }>();
   const seen = new Set<string>();
   for (const m of g.mods) {
     if (m.until <= g.turn || Math.abs(m.mult - 1) < 0.02 || !(m.kind in UP_GOOD)) continue;
@@ -112,7 +114,16 @@ export function risks(g: GameState): Risk[] {
     const good = (m.mult > 1) === UP_GOOD[m.kind];
     // effects that outlast the game are the new normal: worth knowing, not alarming
     const lasting = calendar(m.until).year > 1985;
-    out.push({ level: good ? "good" : !lasting && Math.abs(m.mult - 1) >= 0.15 ? "bad" : "warn", title: m.source, detail: `${KIND_WORD[m.kind]}${m.good ? ` (${m.good})` : ""} ${m.mult > 1 ? "+" : "−"}${Math.round(Math.abs(m.mult - 1) * 100)}% · ${lasting ? "lasting" : `to ${calendar(m.until).year}`}` });
+    const e = byEvent.get(m.source) ?? { parts: [], bad: false, good: true, until: m.until };
+    e.parts.push(`${KIND_WORD[m.kind]}${m.good ? ` (${m.good})` : ""} ${m.mult > 1 ? "+" : "−"}${Math.round(Math.abs(m.mult - 1) * 100)}%`);
+    e.good = e.good && good;
+    e.bad = e.bad || (!good && !lasting && Math.abs(m.mult - 1) >= 0.15);
+    e.until = Math.max(e.until, m.until);
+    byEvent.set(m.source, e);
+  }
+  for (const [source, e] of byEvent) {
+    const lasting = calendar(e.until).year > 1985;
+    out.push({ level: e.good ? "good" : e.bad ? "bad" : "warn", title: source, detail: `${e.parts.join(", ")} · ${lasting ? "lasting" : `to ${calendar(e.until).year}`}` });
   }
 
   // stakes in works that history is about to close

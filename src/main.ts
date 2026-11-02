@@ -374,12 +374,17 @@ function requestRender() {
     const ovOn = overlay !== "none" && !isVectorOverlay(overlay);
     if (anim && !ovOn && cam.zoom >= 0.1875) drawSpills(ctx, game, cam, t, night);
     if (anim && !ovOn) { traffic.update(game, cam, canvas.width, canvas.height, now, night); traffic.drawBoats(ctx, cam, t); }
-    if (cam.zoom >= 0.1875) renderer.drawBridges(ctx, cam, game);
-    if (cam.zoom >= 0.25) renderer.drawSpur(ctx, cam, game);
-    if (cam.zoom >= 0.25) renderer.drawMemorials(ctx, cam, game);
+    // the vector layers (bridges, siding, memorials, inclines) are drawn at the sprites' own scale and blown
+    // up nearest-neighbour like the chunks, so at 1.5× and 2× they keep the pixel grid instead of reading as
+    // smooth lines next to 2×2 pixel blocks
+    pixelLayer((c2, cm) => {
+      if (cm.zoom >= 0.1875) renderer.drawBridges(c2, cm, game);
+      if (cm.zoom >= 0.25) renderer.drawSpur(c2, cm, game);
+      if (cm.zoom >= 0.25) renderer.drawMemorials(c2, cm, game);
+      if (game.world.inclines.length && cm.zoom >= 0.25) renderer.drawInclines(c2, cm, game, anim ? t : 0);
+    });
     drawRoadPreview();
     if (anim && !ovOn) traffic.draw(ctx, cam, game, t, night);
-    if (game.world.inclines.length && cam.zoom >= 0.25) renderer.drawInclines(ctx, cam, game, anim ? t : 0);
     if (!ovOn) drawHaze(ctx, game, cam, canvas.width, canvas.height, anim ? t : 0);
     if (anim || night > 0) renderer.drawAnimated(ctx, cam, game, anim ? t : 0, night);
     if (anim && !ovOn && night > 0.02) traffic.drawLights(ctx, cam, night); // lamps over the night tint, at full strength
@@ -404,6 +409,24 @@ function requestRender() {
     if ($("zoom").textContent !== zt) $("zoom").textContent = zt;
     if (more || animating() || roadPreview) requestRender();
   });
+}
+
+/** draw a layer at the chunks' scale (≤ 1 world px per device px) and upscale it nearest-neighbour when zoomed past 1× */
+const pixelCanvas = document.createElement("canvas");
+function pixelLayer(draw: (c2: CanvasRenderingContext2D, cm: Camera) => void) {
+  const s = Math.min(1, cam.zoom), k = cam.zoom / s;
+  if (k === 1) { draw(ctx, cam); return; }
+  const w = Math.ceil(canvas.width / k), h = Math.ceil(canvas.height / k);
+  if (pixelCanvas.width !== w || pixelCanvas.height !== h) { pixelCanvas.width = w; pixelCanvas.height = h; }
+  const c2 = pixelCanvas.getContext("2d")!;
+  c2.setTransform(1, 0, 0, 1, 0, 0);
+  c2.clearRect(0, 0, w, h);
+  draw(c2, { x: cam.x, y: cam.y, zoom: s });
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixelCanvas, 0, 0, w, h, 0, 0, w * k, h * k);
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- minimap
@@ -685,8 +708,14 @@ function overviewPanel() {
   const st = techStanding(game, c);
   const card = (k: string, v: string, sub: string, cls = "") => `<div class="card"><small>${k}</small><b class="${cls}">${v}</b>${sub}</div>`;
   const list = [...struggleRisks(game), ...risks(game)].sort((a, b) => ({ bad: 0, warn: 1, good: 2 }[a.level] - { bad: 0, warn: 1, good: 2 }[b.level]));
+  const lg = legacy(game);
   el.innerHTML = `
     <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" && !c.bankrupt ? "up" : "down"}">● ${status}</span></div>
+    ${firstSeasons()}
+    <div class="legacy" title="What the family will be remembered for: its fortune, the valley it leaves, and history's verdict on how it treated the men and the public. The score at the end of the game, compared with the real dynasties.">
+      <small>Legacy</small><b>${lg.total}</b><span>${esc(lg.title)}</span>
+      <i title="Fortune ${lg.fortune}">★ ${lg.fortune}</i><i title="The valley ${lg.valley}">⌂ ${lg.valley}</i><i title="History's verdict ${lg.verdict}">⚖ ${lg.verdict}</i>
+    </div>
     <div class="cards">
       ${(() => { const nw = companyWorth(game); return card("Net worth", short(nw.total), spark(hist.map((p) => p.worth ?? p.cash), "#7cc87c") + `<em>works ${short(nw.works)} · cash ${short(nw.cash)}</em>`, nw.total < 0 ? "down" : ""); })()}
       ${card("Output", s ? fmt(s.produced) : "—", `<em>of ${fmt(cap)}${cap && s ? ` · ${Math.round((s.produced / cap) * 100)}% used` : ""}${sh !== undefined ? ` · ${Math.round(sh * 100)}% of the industry` : ""}</em>`)}
@@ -712,7 +741,31 @@ function overviewPanel() {
     ${c.lastSeason?.notes.length ? `<p class="hint">${c.lastSeason.notes.map(esc).join(" ")}</p>` : ""}` : ""}`;
   $("ovTrends").addEventListener("click", () => toggleTrends(true));
   document.getElementById("watchAll")?.addEventListener("click", () => { watchAll = !watchAll; overviewPanel(); });
+  document.getElementById("clOff")?.addEventListener("click", () => { checklistOff = true; try { localStorage.setItem("mt.checklist", "off"); } catch { /* private mode */ } overviewPanel(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => (b.dataset.go === "struggle" ? toggleStruggle(true) : setTab(b.dataset.go!))));
+}
+
+/**
+ * The first seasons: a short checklist for a new owner (shown until every step is done or it is dismissed,
+ * and only in a company's first three years — a later start arrives with all of it behind it).
+ */
+let checklistOff = (() => { try { return localStorage.getItem("mt.checklist") === "off"; } catch { return false; } })();
+function firstSeasons(): string {
+  const c = game.company;
+  if (!c || checklistOff || cal(game).year - c.founded > 3 || game.flags.laterStart || (game.family?.heads.length ?? 1) > 1) return "";
+  const b = c.biz;
+  const steps: [boolean, string, string, string | undefined][] = [
+    [true, "Found the works", "Done: the furnaces are lit.", undefined],
+    [c.techs.length > 1 || !!c.research, "Commission a process", "Works tab → Processes: each one lifts your price against the rivals. The industry moves on without you.", "works"],
+    [!!b.flags.policySet, "Set your policies", "Policy tab: wages, hours, safety and the union. Three actions a season; changes made in one season cost one.", "policy"],
+    [(c.seasonsOperating ?? 0) >= 4 || paperRead > 0, "Read the paper and the Watch list", "The headline strip opens the paper; Watch (below) is what could hurt you next, worst first.", undefined],
+    [(game.publicWorks.roads?.length ?? 0) > 0 || Object.keys(c.hood ?? {}).length > 0 || !!c.library, "Do something for the town", "Town tab: a road, a water main, a library. The men who live near the works are your men.", "town"],
+  ];
+  const done = steps.filter((s) => s[0]).length;
+  if (done === steps.length) return "";
+  return `<div class="checklist"><div class="cl-head"><small>Your first seasons · ${done}/${steps.length}</small><button class="link" id="clOff" title="Hide this">✕</button></div>
+    ${steps.map(([ok, t, d, go]) => `<div class="cl-step ${ok ? "ok" : ""}"><span>${ok ? "✓" : "○"}</span><div><b>${t}</b>${ok ? "" : `<em>${d}</em>${go ? ` <button class="link" data-go="${go}">${go[0].toUpperCase() + go.slice(1)} ▸</button>` : ""}`}</div></div>`).join("")}
+  </div>`;
 }
 
 const KIND_TITLE: Record<Flow["kind"], string> = { input: "In", utilityIn: "Utilities in", utilityOut: "Your customers", output: "Out" };
@@ -1259,11 +1312,21 @@ function nextYear() {
   // play out the rest of this year and stop at next Spring; show every headline on the way in the log
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
+  if (yearRunning) return;
   resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
-  do advanceTurn(game); while (!game.over && !game.pendingDecision && !game.family?.succession && cal(game).season !== "Spring");
-  afterTurn();
+  // one season a frame, so the map and the headlines move between them instead of the page freezing for a second
+  yearRunning = true;
+  const step = () => {
+    advanceTurn(game);
+    const more = !game.over && !game.pendingDecision && !game.family?.succession && cal(game).season !== "Spring";
+    if (more) { refreshPanels(); requestRender(); requestAnimationFrame(step); return; }
+    yearRunning = false;
+    afterTurn();
+  };
+  step();
 }
+let yearRunning = false;
 
 /** the industries a company can be founded in (the modern ones open as the years go by) */
 function industryOptions() {
@@ -1329,6 +1392,7 @@ function toggleTrends(force?: boolean) {
 /** why the clock is waiting for you, if it is */
 function holdReason(): string {
   if (!$("menu").hidden) return "Main menu open";
+  if (yearRunning) return "Playing out the year";
   if (game.pendingDecision) { if ($("decision").hidden) decisionCard(game, $("decision"), () => afterChange()); return "Waiting for your decision"; }
   if (game.family?.succession) { if ($("succession").hidden) successionCard(game, $("succession"), () => afterChange()); return "Waiting for the succession"; }
   if (proposal) return "Waiting while you place the building";
@@ -1459,8 +1523,9 @@ function afterChange() {
   requestRender();
 }
 
-// Debug handle for iterating from the browser console: window.mt
-Object.assign(window, {
+// Debug handle for iterating from the browser console: window.mt (only with ?dev in the address, so a published
+// game isn't one console line from mt.fire())
+if (new URLSearchParams(location.search).has("dev") || import.meta.env.DEV) Object.assign(window, {
   mt: {
     get game() { return game; },
     get map() { return map; },

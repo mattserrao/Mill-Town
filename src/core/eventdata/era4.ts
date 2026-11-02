@@ -114,6 +114,18 @@ export const EFFECTS: Record<string, Effect[]> = {
     { meters: { morale: -2 } },
   ],
   "Point State Park Fountain": [{ landmark: "point_fountain" }, { meters: { morale: 2 } }],
+  "Three Mile Island": [
+    { mods: [["input", 1.2, 20]], scope: { industry: "nuclear" } },
+    { mods: [["input", 1.15, 20]], scope: { industry: "power" }, if: "tech:nuclear" },
+    { mods: [["price", 1.05, 8]], scope: { industry: "power" } },
+    { rival: "dlight", damage: [0.9, 8] },
+    { meters: { morale: -2 } },
+  ],
+  "The Second Oil Shock": [
+    { mods: [["input", 1.12, 8]] },
+    { mods: [["input", 1.2, 8]], scope: { industry: "power" } },
+    { mods: [["price", 0.93, 8]], scope: { industry: "steel" } },
+  ],
   "Braddock Library Closes": [{ landmark: BRADDOCK_LIBRARY, state: "closed" }, { place: "Braddock", unrest: 0.05, seasons: 8 }, { meters: { morale: -2 } }],
   "\"A National Disgrace\"": [{ mods: [["pollution", 0.8, PERM]] }, { meters: { reputation: -3 }, if: "tech:byproduct_coke policy:waste=dump" }],
   "Super Bowl Champions": [{ team: "steelers", act: "title" }],

@@ -96,6 +96,16 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
   if (ok && relief > ind.site.maxReliefM) { ok = false; reasons.add(`Ground too uneven (${feet(relief)} of relief)`); }
   const riverM = minRiver * mpt, coalM = minCoal * mpt;
   if (ok && ind.site.riverWithinM && riverM > ind.site.riverWithinM) { ok = false; reasons.add(`No river frontage (${distance(riverM)} away)`); }
+  // a bridge's abutment and approach aren't for sale (a works at seed 1234 had the Allegheny Valley bridge rising out of its yard)
+  if (ok) for (const sp of m.spans) {
+    // the span's line within three tiles of the footprint, at either end or along it
+    const [ax, ay] = sp.a, [bx, by] = sp.b;
+    const cx = x + fp / 2, cy = y + fp / 2, half = fp / 2 + 3;
+    const vx = bx - ax, vy = by - ay, len2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((cx - ax) * vx + (cy - ay) * vy) / len2));
+    const px = ax + vx * t, py = ay + vy * t;
+    if (Math.abs(px - cx) <= half && Math.abs(py - cy) <= half) { ok = false; reasons.add(`${sp.name} lands here`); break; }
+  }
 
   const R = tilesFor(m, ind.site.laborRadiusM);
   const labor = Math.round(satSum(m, pSat ?? popSAT(m, w), x - R, y - R, x + fp - 1 + R, y + fp - 1 + R));

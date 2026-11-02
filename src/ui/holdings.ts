@@ -5,7 +5,7 @@
 import { allWorks, cal, type GameState } from "../core/game";
 import { INDUSTRIES } from "../core/industries";
 import {
-  bizBlocked, bizDef, bizIncome, bizPrice, BUSINESSES, buyBiz, buyShares, buyStake, companyWorth, holdingsOf, holdingsValue, LISTED, listedOpen, LOT, marginOpen, maxLots,
+  bizBlocked, bizDef, bizIncome, bizPrice, BUSINESSES, buyBiz, buyShares, buyStake, companyWorth, holdingsOf, holdingsValue, decadeCap, LISTED, listedOpen, LOT, lotsLeft, marketMood, marginOpen, maxLots,
   rivalProfit, sellBiz, sellShares, sellStake, sellValue, sharePrice, stakeBlocked, stakeName, stakePrice, takeover, takeoverPrice, upgradeBiz, upgradeBlocked,
 } from "../core/holdings";
 import { buyBack, buybackPrice, companyBids, dividendDue, goPublicBlocked, investorsOnly, scrapWorks, sellCompany, sellTenth, tenthPrice } from "../core/ownership";
@@ -90,13 +90,14 @@ export function holdingsPanel(g: GameState, el: HTMLElement, changed: () => void
     const p0 = yr ? sharePriceAt(g, L.id, yr.turn) : p;
     const ch = p0 ? (p / p0 - 1) * 100 : 0;
     const down = onMargin && marginOpen(y) ? 0.1 : 1;
-    const big = Math.max(1, Math.min(maxLots(y), Math.floor(c.cash / (p * LOT * down))));
+    const left = lotsLeft(g, L.id);
+    const big = Math.max(1, Math.min(maxLots(y), left, Math.floor(c.cash / (p * LOT * down))));
     const done = h.shareYear?.[L.id] === y;
-    const why = done ? "One order a year in each company" : c.cash < p * LOT * down ? `Needs ${money(p * LOT * down)}` : null;
+    const why = done ? "One order a year in each company" : left <= 0 ? "No more sellers this decade" : c.cash < p * LOT * down ? `Needs ${money(p * LOT * down)}` : null;
     return actRow(`${esc(L.name)} <span class="muted">$${p.toFixed(2)}</span> <span class="${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"}${Math.abs(ch).toFixed(0)}%</span>`,
       costButton(`data-shares="${L.id}" data-lots="1"`, 0, why, `+${LOT}`) + (big > 1 ? costButton(`data-shares="${L.id}" data-lots="${big}"`, 0, why, `+${fmt(big * LOT)}`) : ""),
-      chip("yields ~3.6% a year"),
-      `${L.note}${L.rivals ? " Its price follows how its works are doing in the valley, as well as the market." : ""} A big order pushes the price up; one order a year in each company.`);
+      chip(marketMood(y) < 0.85 ? "dividend suspended" : "yields ~3.6% in a good year"),
+      `${L.note}${L.rivals ? " Its price follows how its works are doing in the valley, as well as the market." : ""} Dividends follow the company's fortunes and stop in a slump. A big order pushes the price up; one order a year, and the brokers find only ${fmt(decadeCap(y) * LOT)} shares a decade.`);
   }).join("") || `<p class="hint">No companies listed yet.</p>`;
   const buyBody = buyTab === "works" ? buyIntoRows(g, buyInd ?? c.industry) : buyTab === "biz" ? forSale
     : (marginOpen(y) ? `<label class="bz-target check"><input type="checkbox" data-margin ${onMargin ? "checked" : ""}/> Buy on margin (10% down; the broker calls the loan if the shares fall)</label>` : "") + shareRows;

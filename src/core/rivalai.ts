@@ -330,6 +330,7 @@ buy.cost = (g, arg) => {
 buy.run = (g, _rng, arg) => {
   const r = target(g, arg)!;
   const w = acquire(g, r);
+  w.paid = buy.cost(g, arg);
   const h = g.company!.holdings;
   if (h) { delete h.stakes[r.id]; delete h.stakeCost[r.id]; }
   bump(g, "labour", -3);

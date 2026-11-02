@@ -642,3 +642,18 @@ label.check { display: flex; gap: 6px; align-items: center; }
 .st-laws .st-law { display: grid; grid-template-columns: 1fr auto; padding: 5px 0; }
 .st-col .act { margin-bottom: 3px; }
 .st-ledger h5 { display: flex; justify-content: space-between; }
+
+/* the legacy line and the first-seasons checklist on the Overview (v0.21) */
+.legacy { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); }
+.legacy small { color: var(--muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.legacy b { font-size: 15px; }
+.legacy span { flex: 1; color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legacy i { font-style: normal; font-size: 10px; color: var(--muted); }
+.checklist { margin: 0 0 8px; padding: 6px 8px; border: 1px solid var(--accent); background: rgba(224, 162, 67, 0.06); }
+.cl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.cl-head small { color: var(--accent); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.cl-step { display: flex; gap: 6px; padding: 2px 0; font-size: 11px; }
+.cl-step > span { width: 12px; color: var(--accent); }
+.cl-step.ok { color: var(--muted); }
+.cl-step.ok b { font-weight: normal; }
+.cl-step em { display: block; font-style: normal; color: var(--muted); font-size: 10px; margin-top: 1px; }

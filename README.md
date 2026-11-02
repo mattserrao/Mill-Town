@@ -20,7 +20,8 @@ Publishing: every push to `main` builds and deploys to GitHub Pages (`.github/wo
 repository's Pages source to "GitHub Actions" once). The build takes `BASE_PATH` for a sub-path host.
 
 The version (from package.json and the git commit) is shown next to the title, printed in the browser console and
-in the terminal running `npm run dev`.
+in the terminal running `npm run dev`. The console handle `window.mt` (the game state, `mt.fire()` and the rest) is
+there in `npm run dev`, and in a build only with `?dev` in the address.
 
 ## Play
 

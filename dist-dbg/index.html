@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>window.__MT_VERSION__={"version":"0.20.0","build":13,"sha":"bd3ae76","dirty":"+local changes","date":"2026-11-01 18:51","label":"v0.20.0 build 13 (bd3ae76 +local changes)"};</script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1100" />
+    <meta name="description" content="Mill Town: choose an Industrial Revolution industry on a real map of Pittsburgh and the Monongahela Valley, 1850–1985, and grow your company and the town together. A turn-based browser game for desktop." />
+    <meta name="color-scheme" content="dark" />
+    <meta property="og:title" content="Mill Town" />
+    <meta property="og:description" content="Choose an Industrial Revolution industry. Grow your company and the town alongside it. Make choices that reverberate across generations." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Mill Town</title>
+    <script type="module" crossorigin src="/assets/index-BTS4rNu_.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BVV8zPhk.css">
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand" id="brand">MILL TOWN</div>
+      <div id="calendar" class="kpi"></div>
+      <div id="timeControls">
+        <span id="speeds">
+          <button id="playBtn" title="Play / pause (P)">▶</button><button id="speedBtn" title="Game speed: click to change (keys 1–4)">1×</button>
+        </span>
+        <button id="next" class="primary" title="Next season (Space) · Shift-click or Shift+Space: on to next Spring">Next season ▶</button>
+      </div>
+      <i class="sep"></i>
+      <div id="cash" class="kpi"></div>
+      <i class="sep"></i>
+      <div id="standing"></div>
+      <div class="spacer"></div>
+      <button id="struggleBtn" title="Labour, politics and the other owners (S)">Struggle</button>
+      <button id="trendsBtn" title="Cash, profit, prices, market share and the town over time (T)">Trends</button>
+      <button id="paperBtn" title="The paper and the ledger (N)">Paper<span id="paperCount"></span></button>
+      <div id="gameMenu">
+        <button id="gameBtn" title="Game menu">☰</button>
+        <div id="gameDrop" hidden>
+          <button id="saveBtn" title="Save this game under a new name (the game also saves itself every new year)">Save game <kbd>Ctrl S</kbd></button>
+          <button id="loadBtn" title="Load a saved game (this one is saved first)">Load game…</button>
+          <button class="fold" data-fold="settings">Settings <i>▸</i></button>
+          <div class="fold-body" id="settings" hidden>
+            <div class="set-row"><span>Sound</span><button id="soundTop" title="Sound (M)"></button></div>
+            <label class="vol">Music <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.6" /></label>
+            <label class="vol">Ambience <input type="range" id="ambVol" min="0" max="1" step="0.05" value="0.7" /></label>
+            <p class="hint" id="nowPlaying"></p>
+            <div class="set-row"><span>Map</span>
+              <div class="chips">
+                <label class="chip"><input type="checkbox" id="labels" checked />Names</label>
+                <label class="chip"><input type="checkbox" id="grid" />Grid</label>
+                <label class="chip"><input type="checkbox" id="animate" checked />Animate</label>
+              </div>
+            </div>
+            <div class="set-row"><span>Time of day</span><select id="tod"><option value="day">Day</option><option value="cycle">Day &amp; night</option><option value="night">Night</option></select></div>
+            <p class="hint" id="version"></p>
+          </div>
+          <button class="fold" data-fold="keys">Keys <i>▸</i></button>
+          <div class="fold-body" id="keys" hidden>
+            <dl class="keys">
+              <dt>Space</dt><dd>Next season (Shift: next Spring)</dd>
+              <dt>P · 1–4</dt><dd>Play/pause · speed</dd>
+              <dt>Drag · WASD</dt><dd>Move the map</dd>
+              <dt>Scroll · + −</dt><dd>Zoom</dd>
+              <dt>S · T · N</dt><dd>Struggle · Trends · Paper</dd>
+              <dt>M</dt><dd>Sound on/off</dd>
+              <dt>Esc</dt><dd>Close; with nothing open, save and exit</dd>
+              <dt>Ctrl S</dt><dd>Save</dd>
+            </dl>
+          </div>
+          <button id="exitBtn" title="Save the game and go to the main menu">Save &amp; exit to menu <kbd>Esc</kbd></button>
+          <label class="seed" hidden>Seed <input id="seed" type="text" size="8" /></label>
+          <button id="regen" hidden>New town</button>
+        </div>
+      </div>
+
+    </header>
+    <main>
+      <div id="viewport">
+        <canvas id="view"></canvas>
+        <canvas id="minimap" width="256" height="256" title="Click to jump"></canvas>
+        <div id="zoom" class="badge"></div>
+        <div id="mapTools">
+          <button id="layerBtn" title="Map layers and view">Map: <span id="layerName">Town</span> ▾</button>
+          <div id="layerMenu" hidden>
+            <div id="overlays"></div>
+          </div>
+          <div id="legendBox" hidden><div id="legend"></div><div id="supply" hidden></div></div>
+        </div>
+        <div id="zoomButtons"><button id="zoomIn" title="Zoom in (+)">+</button><button id="zoomOut" title="Zoom out (-)">−</button></div>
+        <div id="headline" title="Open the paper"></div>
+        <div id="paper" hidden>
+          <div class="pp-tabs ovl-head"><button data-pp="paper" class="on">The paper</button><button data-pp="ledger">Ledger</button><span id="paperNav"></span><button class="x pp-close" title="Close (Esc)">✕</button></div>
+          <div id="news"></div>
+          <ol id="log" hidden></ol>
+        </div>
+        <div id="final" hidden></div>
+        <div id="decision" hidden></div>
+        <div id="succession" hidden></div>
+        <div id="struggle" hidden></div>
+        <div id="query" hidden></div>
+        <div id="placeBar" hidden></div>
+        <div id="trends" hidden></div>
+        <div id="menu" hidden></div>
+        <div id="dialog" hidden></div>
+        <div id="toast" hidden></div>
+      </div>
+      <aside id="right" data-tab="overview">
+        <nav id="rightTabs">
+          <button data-tab="overview" class="on">Overview</button><button data-tab="works">Works</button><button data-tab="policy">Policy</button><button data-tab="holdings">Money</button><button data-tab="town">Town</button><button data-tab="rivals">Rivals</button>
+        </nav>
+        <section id="foundSection" data-tab="overview">
+          <h2>Found your company</h2>
+          <label class="namebox">Industry <select id="industry"></select></label>
+          <p class="hint" id="industryNote"></p>
+          <label class="namebox">Name <input id="companyName" type="text" maxlength="40" /></label>
+          <label class="namebox">Founder <input id="founderFirst" type="text" maxlength="20" size="9" /> <input id="founderLast" type="text" maxlength="24" size="10" /></label>
+          <button id="bestSite" title="Jump to the best-scoring site you can afford (press again for the next)">Show me a good site</button>
+          <p class="hint" id="siteHint">Click the map to pick a site.</p>
+          <div id="site" class="kv" hidden></div>
+          <button id="found" class="primary" disabled>Found company here</button>
+          <label class="check"><input type="checkbox" id="placing" checked /> Show the footprint under the cursor</label>
+        </section>
+        <div id="overview" data-tab="overview"></div>
+        <p class="hint tab-empty" data-tab="works" id="worksEmpty">Found a company first.</p>
+        <div id="works" data-tab="works"></div>
+        <p class="hint tab-empty" data-tab="policy" id="policyEmpty">Found a company first.</p>
+        <div id="biz" data-tab="policy"></div>
+        <div id="town" data-tab="town"></div>
+        <div id="holdings" data-tab="holdings"></div>
+        <div id="rivalsList" data-tab="rivals"></div>
+      </aside>
+    </main>
+  </body>
+</html>

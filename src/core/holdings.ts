@@ -79,6 +79,8 @@ export interface Holdings {
   stakeYear?: Record<string, number>;
   /** the year you last bought each company's shares */
   shareYear?: Record<string, number>;
+  /** lots bought in each company this decade ("1920:mellon" → lots): the brokers find only so many sellers */
+  shareDecade?: Record<string, number>;
   /** the broker's loan against each holding bought on margin (1920–34) */
   margin?: Record<string, number>;
   /** last season's income by source */
@@ -261,6 +263,7 @@ export function takeover(g: GameState, id: string): { ok: boolean; text: string 
   const name = rivalName(g, id);
   const w = acquire(g, r);
   const h = holdingsOf(g);
+  w.paid = q.price + (h.stakeCost[id] ?? 0);
   delete h.stakes[id]; delete h.stakeCost[id];
   log(g, `${c.name} buys out the other owners of ${name}.`);
   return { ok: true, text: `${w.name} is one of your works now.` };
@@ -301,14 +304,30 @@ export const LISTED: Listed[] = [
 const MARKET: [number, number][] = [[1850, 1], [1857, 1], [1858, 0.75], [1861, 1], [1866, 1.15], [1873, 1.1], [1874, 0.75], [1879, 1], [1893, 1.05], [1894, 0.75], [1899, 1.1], [1906, 1.15], [1907, 0.8], [1912, 1], [1920, 1], [1921, 0.8], [1929, 1.6], [1932, 0.35], [1937, 0.7], [1942, 0.5], [1950, 0.8], [1966, 1.1], [1973, 1], [1974, 0.65], [1982, 0.7], [1985, 1]];
 
 /** the market's own state (v0.18.2): each company's fortunes and noise, and this game's depth of the crashes */
-export interface StockState { perf: Record<string, number>; noise: Record<string, number>; impact: Record<string, number>; crash: number; price: Record<string, number>; turn: number }
+export interface StockState {
+  perf: Record<string, number>; noise: Record<string, number>; impact: Record<string, number>; crash: number; price: Record<string, number>; turn: number;
+  /** a company's own trouble — a scandal, a strike, an antitrust suit, a bad bet — as a price multiplier that heals over the years (v0.21) */
+  shock?: Record<string, number>;
+  /** the headline of the trouble, for the log */
+  shockNote?: Record<string, string>;
+}
 
 const stockOf = (g: GameState): StockState => (g.stock ??= { perf: {}, noise: {}, impact: {}, crash: 0.75 + ((g.seed * 7919) % 1000) / 1000 * 0.6, price: {}, turn: -1 });
+
+/** the troubles a listed company can fall into (one in a decade, roughly), with the price cut each brings */
+const SHOCKS: [string, number][] = [["a strike at its works", 0.25], ["an antitrust suit", 0.3], ["a scandal in the boardroom", 0.3], ["a bad bet abroad", 0.35], ["a fire at its main plant", 0.2], ["a founder's death and a fight over the estate", 0.3], ["an accounting fraud", 0.45]];
 
 /** the price a share would have from history alone (trend × the market's mood, this game's depth of the crashes) */
 function basePrice(g: GameState, L: Listed, y: number): number {
   const mood = lerpCurve(MARKET, y), crash = stockOf(g).crash;
-  return lerpCurve(L.path, y) * (1 + (mood - 1) * (mood < 1 ? crash : 1));
+  let p = lerpCurve(L.path, y);
+  // a buy-out at a premium is talked about for years before it comes: the price climbs toward the payout over
+  // the last five, so the premium isn't free money for anyone who read the history (v0.21)
+  if (L.until && L.payout && L.payout > 1 && y > L.until - 5) {
+    const end = lerpCurve(L.path, L.until) * L.payout, f = Math.min(1, (y - (L.until - 5)) / 5);
+    p = p + (end - p) * f * 0.8;
+  }
+  return p * (1 + (mood - 1) * (mood < 1 ? crash : 1));
 }
 
 /** how the company's works are doing against a normal year (their simulated profit), smoothed */
@@ -337,9 +356,26 @@ export function updateStocks(g: GameState) {
     const shock = (rng.next() + rng.next() + rng.next() - 1.5) * 0.09;
     S.noise[L.id] = (S.noise[L.id] ?? 0) * 0.9 + shock;
     S.impact[L.id] = (S.impact[L.id] ?? 0) * 0.5;
-    S.price[L.id] = Math.round(basePrice(g, L, y) * S.perf[L.id] * Math.exp(S.noise[L.id]) * (1 + S.impact[L.id]) * 100) / 100;
+    // the company's own troubles: about one a decade, cutting the price a fifth to a half and healing over ~5 years
+    S.shock ??= {}; S.shockNote ??= {};
+    const sh = S.shock[L.id] ?? 1;
+    S.shock[L.id] = 1 - (1 - sh) * 0.965;
+    if (c.season === "Spring" && sh > 0.9 && rng.chance(0.1)) {
+      const [what, cut] = SHOCKS[rng.int(0, SHOCKS.length - 1)];
+      S.shock[L.id] = 1 - cut;
+      S.shockNote[L.id] = what;
+      if (g.company?.holdings?.shares[L.id]) log(g, `${L.name} shares fall ${Math.round(cut * 100)}% on ${what}.`);
+    }
+    S.price[L.id] = Math.round(basePrice(g, L, y) * S.perf[L.id] * Math.exp(S.noise[L.id]) * (1 + S.impact[L.id]) * S.shock[L.id] * 100) / 100;
   }
 }
+
+/** the market's mood this year (1 is normal; under 0.85 is a slump, when boards cut their dividends) */
+export const marketMood = (y: number) => lerpCurve(MARKET, y);
+/** lots of one company the brokers can still find this decade (v0.21: a family firm can't buy a bank) */
+export const decadeCap = (y: number) => Math.round(6 * priceLevel(y));
+export const decadeKey = (y: number, id: string) => `${Math.floor(y / 10) * 10}:${id}`;
+export const lotsLeft = (g: GameState, id: string) => Math.max(0, decadeCap(year(g)) - (holdingsOf(g).shareDecade?.[decadeKey(year(g), id)] ?? 0));
 
 export function sharePrice(g: GameState, id: string): number {
   const L = LISTED.find((l) => l.id === id)!;
@@ -354,7 +390,7 @@ const INDUSTRIES_PRICE = (ind: IndustryId, y: number) => INDUSTRY_DEFS[ind].base
 export const listedOpen = (g: GameState, L: Listed) => year(g) >= L.from && !(L.until && year(g) >= L.until);
 export const LOT = 100;
 /** the most lots one purchase can find sellers for: more as the market grows (v0.18.2) */
-export const maxLots = (y: number) => Math.round(10 * priceLevel(y) * (y >= 1920 ? 2 : 1));
+export const maxLots = (y: number) => Math.round(6 * priceLevel(y));
 /** buying on margin (the call-loan market, 1920 until the Securities Exchange Act of 1934): 10% down */
 export const marginOpen = (y: number) => y >= 1920 && y < 1934;
 export const MARGIN_RATE = 0.015; // a season (about 6% a year)
@@ -371,7 +407,9 @@ export function buyShares(g: GameState, id: string, lots = 1, onMargin = false):
   const L = LISTED.find((l) => l.id === id)!;
   if (!listedOpen(g, L)) return { ok: false, text: "Not listed" };
   const y = year(g);
-  lots = Math.max(1, Math.min(maxLots(y), lots));
+  const left = lotsLeft(g, id);
+  if (left <= 0) return { ok: false, text: `The brokers can find no more ${L.name} this decade: the family already holds what the market will sell it` };
+  lots = Math.max(1, Math.min(maxLots(y), left, lots));
   // a big order pushes the price up as the brokers find sellers (about 1% a lot)
   const p = sharePrice(g, id), cost = Math.round(p * LOT * lots * (1 + 0.005 * (lots - 1)));
   const margin = onMargin && marginOpen(y);
@@ -380,6 +418,7 @@ export function buyShares(g: GameState, id: string, lots = 1, onMargin = false):
   const h = holdingsOf(g);
   if (h.shareYear?.[id] === y) return { ok: false, text: "One order a year in each company: the brokers can only find so many sellers" };
   (h.shareYear ??= {})[id] = y;
+  (h.shareDecade ??= {})[decadeKey(y, id)] = (h.shareDecade[decadeKey(y, id)] ?? 0) + lots;
   c.cash -= down;
   if (margin) (h.margin ??= {})[id] = (h.margin[id] ?? 0) + (cost - down);
   h.shares[id] = (h.shares[id] ?? 0) + LOT * lots;
@@ -443,7 +482,11 @@ export function holdingsSeason(g: GameState): number {
       log(g, `${L.name} is bought out: your ${n.toLocaleString("en-US")} shares are paid $${pay.toLocaleString("en-US")}.`);
       continue;
     }
-    dividends += n * sharePrice(g, id) * 0.009; // about 3.6% a year
+    // about 3.6% a year in a normal year; the board cuts it with the company's fortunes and suspends it in a slump
+    // (dividends vanished in 1893, 1907 and the Depression) or while the company is in trouble
+    const S = stockOf(g), perf = S.perf[id] ?? 1, mood = marketMood(y), shock = S.shock?.[id] ?? 1;
+    const rate = mood < 0.85 || shock < 0.8 ? 0 : 0.009 * Math.max(0, Math.min(1.3, (perf - 0.4) / 0.6));
+    dividends += n * sharePrice(g, id) * rate;
   }
   // the broker's loans: interest, and a call when the shares no longer cover them (equity under a quarter)
   let interest = 0;

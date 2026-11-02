@@ -25,6 +25,7 @@ const STEEL: Scope = { industry: ["steel", "metalworks"] };
 const steelRivalsStrike = (seasons: number): Effect[] =>
   ["jl", "carnegie", "frick", "ntube", "ussduq", "carrie"].map((rival) => ({ rival, strike: seasons }));
 
+const PERM = 400;
 export const EFFECTS: Record<string, Effect[]> = {
   // ---------------------------------------------------------------- 1918–1919: the war ends
   "Wartime Aluminum Boom": [{ mods: [["price", 1.08, 2]], scope: { industry: "metalworks" } }],
@@ -140,6 +141,8 @@ export const EFFECTS: Record<string, Effect[]> = {
   ],
   "Penn State Comes to McKeesport": [{ landmark: "psu_mckeesport" }],
   "The Wagner Act": [{ mods: [["wage", 1.05, 400]] }],
+  // rate regulation: the power business becomes a steady, capped one (v0.21: power was the soft industry)
+  "Public Utility Holding Company Act": [{ mods: [["price", 0.92, PERM], ["input", 1.04, PERM]], scope: { industry: "power" } }],
   "Coal and Iron Police Abolished": [
     { rule: "police", set: { blocked: "The Coal and Iron Police were abolished in 1935" } },
     { rule: "pinkertons", set: { blocked: "Private industrial police are abolished (1935)" } },
