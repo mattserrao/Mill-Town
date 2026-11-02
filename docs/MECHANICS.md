@@ -242,3 +242,18 @@ neighbourhood gets a one-line **character**, e.g. "Italian since 1895, first gen
 since 1902". Churches show who built them and whether they've changed hands or closed.
 
 **Company panel:** workforce health and unrest, plus shipping by good: tons, lane, cost per ton and how full the lane is.
+
+## 6. The simulated band (v0.23)
+
+Only the land along the rivers is simulated: everything within ~2 km (68 tiles) of the Monongahela, Allegheny,
+Ohio and Youghiogheny, plus the inland neighbourhoods the game names (East Liberty, Shadyside, Homewood,
+Wilkinsburg, Squirrel Hill, the East End parks, the South Hills streetcar suburbs, Riverview Park, and the rival
+sites at Forest Hills and Large), rounded off into one shape. That is 50% of the map. The ridge-top countryside
+beyond is still drawn but nothing there grows or ticks: no newcomers, turnover, streets, community buildings,
+land value, soot, chimney smoke, sewage or commuting. Works can't be founded there. Growth thins out over the
+band's last 10 tiles so towns don't stop at a line. The **Live area** layer (Land) shows it.
+
+Whole-map passes now run over the band's row runs (`simBand(m).spans`); commute costs are infinite outside its
+blocks. With a few hot-loop fixes (site access memoised per site and year, a ring-buffer neighbourhood pass in
+growth, native sort for the growth cut-off) a turn takes ~40% less time: ~90 ms in eras I–III and ~70 ms in era IV,
+down from ~150 and ~115. Code: `core/band.ts`.

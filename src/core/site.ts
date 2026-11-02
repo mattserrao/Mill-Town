@@ -1,5 +1,6 @@
 // Site evaluation: how good is this tile as the north-west corner of a new plant?
 
+import { simBand } from "./band";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, distanceField, inBounds, sat, satSum, tilesFor, vh } from "./map";
@@ -76,11 +77,13 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
   let land = 0, grading = 0, displaced = 0;
   let minRiver = 0xffff, minCoal = 0xffff;
   let lo = Infinity, hi = -Infinity;
+  const band = simBand(m).mask; // works go only where the valley is simulated
 
   for (let dy = 0; dy < fp && ok; dy++) for (let dx = 0; dx < fp; dx++) {
     const tx = x + dx, ty = y + dy;
     if (!inBounds(m, tx, ty)) { ok = false; reasons.add("Off the map"); break; }
     const i = ty * m.width + tx;
+    if (!band[i]) { ok = false; reasons.add("Too far from the river towns"); break; }
     minRiver = Math.min(minRiver, f.river[i]);
     minCoal = Math.min(minCoal, f.coal[i]);
     const mult = BUILD_COST_MULT[m.terrain[i]];

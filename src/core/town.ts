@@ -3,7 +3,8 @@
 // and uplands, woods the hillsides. Pikes between towns follow real arterial alignments; rivers
 // are crossed only on the bridges that existed (or by ferry).
 
-import { blockGrid, blockOf, upsampleTo } from "./blocks";
+import { simBand } from "./band";
+import { blockGrid, upsampleTo } from "./blocks";
 import { DIAMOND, INCLINES, latLonToTile, PARKS, tileLine } from "./features";
 import { type GameMap, idx, inBounds, tilesFor } from "./map";
 import { Rng, tileNoise, valueNoise } from "./rng";
@@ -532,12 +533,15 @@ export function civicSeason(m: GameMap, w: World, season: number) {
 export function updateKits(m: GameMap, w: World) {
   const C = 8, cw = Math.ceil(m.width / C), ch = Math.ceil(m.height / C), NGr = GROUPS.length;
   const pop = new Float32Array(cw * ch * NGr), tot = new Float32Array(cw * ch);
-  for (let y = 0; y < m.height; y++) {
-    const crow = ((y / C) | 0) * cw, row = y * m.width;
-    for (let x = 0; x < m.width; x++) { const i = row + x; if (w.pop[i]) { const c = crow + ((x / C) | 0); pop[c * NGr + w.eth[i]] += w.pop[i]; tot[c] += w.pop[i]; } }
+  // only the band changes; cells wholly outside keep the kit they had
+  const sp = simBand(m).spans, live = new Uint8Array(cw * ch);
+  for (let s = 0; s < sp.length; s += 3) {
+    const y = sp[s], crow = ((y / C) | 0) * cw, row = y * m.width;
+    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) { const i = row + x, c = crow + ((x / C) | 0); live[c] = 1; if (w.pop[i]) { pop[c * NGr + w.eth[i]] += w.pop[i]; tot[c] += w.pop[i]; } }
   }
   let changed = false;
   for (let c = 0; c < cw * ch; c++) {
+    if (!live[c]) continue;
     let best = 0, bp = 0;
     for (let gI = 1; gI < NGr; gI++) if (pop[c * NGr + gI] > bp) { bp = pop[c * NGr + gI]; best = gI; }
     const k = tot[c] >= 150 && bp / tot[c] >= 0.45 ? best : 0;
@@ -553,16 +557,20 @@ export function updateKits(m: GameMap, w: World) {
 export function turnover(m: GameMap, w: World, season = -1) {
   const rng = new Rng(`${w.seed}:turn:${w.year}:${season}`);
   let changed = 0;
-  for (let i = 0; i < w.pop.length; i++) {
+  const sp = simBand(m).spans;
+  for (let s = 0; s < sp.length; s += 3) {
+    const y = sp[s];
     // phased: each season handles the rows of one quarter of the 8-row bands (every tile once a year)
-    if (season >= 0 && ((((i / m.width) | 0) >> 3) & 3) !== season) continue;
+    if (season >= 0 && ((y >> 3) & 3) !== season) continue;
+    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
+    const i = y * m.width + x;
     if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
-    const x = i % m.width, y = (i / m.width) | 0;
     const a = anchorAt(m, x, y);
     const active = a?.prefs.some(([, , from, to]) => w.year >= (from ?? 0) && w.year <= (to ?? 9999) && (from ?? 0) > 1850);
     if (!rng.chance(active ? 0.03 : 0.006)) continue;
     const gid = pickGroup(m, w.eth, w.pop, x, y, w.year, rng, active ? 3 : 10);
     if (gid !== w.eth[i]) { w.eth[i] = gid; changed++; }
+    }
   }
   if (changed) w.version++;
 }
@@ -608,12 +616,13 @@ export function communityTargets(p: number, gid: number, year: number, churches:
 export interface ZoneCensus { pop: Float64Array; tot: number; church: Int16Array; hall: Int16Array; school: Int16Array; boarding: Int16Array; shops: Map<number, Map<number, number>> }
 
 /** who lives in each zone and what each community has built there */
-export function zoneCensus(m: GameMap, w: World): ZoneCensus[] {
+export function zoneCensus(m: GameMap, w: World, bandOnly = false): ZoneCensus[] {
   const d = districts(m), NGr = GROUPS.length;
   const out: ZoneCensus[] = [];
+  const live = bandOnly ? zonesInBand(m) : null;
   for (let z = 0; z < d.zones; z++) {
     const s = d.zoneStart[z], e = d.zoneStart[z + 1];
-    if (s === e) { out.push(null as unknown as ZoneCensus); continue; }
+    if (s === e || (live && !live[z])) { out.push(null as unknown as ZoneCensus); continue; }
     const c: ZoneCensus = { pop: new Float64Array(NGr), tot: 0, church: new Int16Array(NGr), hall: new Int16Array(NGr), school: new Int16Array(NGr), boarding: new Int16Array(NGr), shops: new Map() };
     for (let k = s; k < e; k++) {
       const i = d.zoneTiles[k], g = w.eth[i];
@@ -633,9 +642,25 @@ export function zoneCensus(m: GameMap, w: World): ZoneCensus[] {
   return out;
 }
 
+const zoneBandCache = new WeakMap<GameMap, Uint8Array>();
+/** 1 for zones with most of their tiles in the simulated band (the others are scenery: no new buildings) */
+function zonesInBand(m: GameMap): Uint8Array {
+  let z = zoneBandCache.get(m);
+  if (z) return z;
+  const d = districts(m), mask = simBand(m).mask;
+  z = new Uint8Array(d.zones);
+  for (let k = 0; k < d.zones; k++) {
+    let a = 0;
+    for (let j = d.zoneStart[k]; j < d.zoneStart[k + 1]; j++) a += mask[d.zoneTiles[j]];
+    if (a * 2 >= d.zoneStart[k + 1] - d.zoneStart[k] && a > 0) z[k] = 1;
+  }
+  zoneBandCache.set(m, z);
+  return z;
+}
+
 export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
   const d = districts(m), NGr = GROUPS.length;
-  const census = zoneCensus(m, w);
+  const census = zoneCensus(m, w, true);
   // the best lot in a zone for a new building of community g: one of its homes on a street (a corner for a shop)
   const lotFor = (z: number, g: number, corner: boolean) => {
     let best = -1, bp = -1;
@@ -794,9 +819,10 @@ export function addSteps(m: GameMap, w: World, maxNew = 24, around?: [number, nu
   const W = m.width;
   let made = 0;
   const tops: number[] = [];
-  for (let i = 0; i < w.pop.length; i++) {
+  const sp = simBand(m).spans;
+  for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
+    const i = y * W + x;
     if (!w.pop[i] || (m.terrain[i] !== Terrain.Steep && m.terrain[i] !== Terrain.Slope)) continue;
-    const x = i % W, y = (i / W) | 0;
     if (around && Math.hypot(x - around[0], y - around[1]) > around[2]) continue;
     if (!any) {
       if (tileNoise(w.seed, Math.floor(x / 6), Math.floor(y / 6), 707) > 0.75) continue; // ~one candidate per 6x6 block
@@ -848,8 +874,9 @@ export function addSteps(m: GameMap, w: World, maxNew = 24, around?: [number, nu
 
 /** Streets appear on today's road alignments where the town has grown around them. */
 export function activateStreets(m: GameMap, w: World) {
-  const W = m.width;
-  for (let y = 0; y < m.height; y++) for (let x = 0; x < W; x++) {
+  const W = m.width, sp = simBand(m).spans;
+  // only in the band: the countryside beyond keeps the lanes it had
+  for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
     const i = y * W + x;
     if (activeBridge(m, i, w.year)) { w.street[i] = m.terrain[i] === Terrain.Water ? Street.Bridge : Street.Pike; continue; }
     if (!m.road[i] || w.street[i] || m.terrain[i] === Terrain.Water || w.use[i] === Use.Incline) continue;
@@ -915,8 +942,12 @@ export function carveRoad(m: GameMap, w: World, x0: number, y0: number, x1: numb
  */
 export function recomputeLandValue(m: GameMap, w: World) {
   const g = blockGrid(m);
-  const bp = new Float32Array(g.n);
-  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) bp[blockOf(g, x, y)] += w.pop[y * m.width + x];
+  const bp = new Float32Array(g.n), band = simBand(m), sp = band.spans, W = m.width;
+  // the band only: land values beyond it stay as they were
+  for (let s = 0; s < sp.length; s += 3) {
+    const y = sp[s], brow = ((y / 4) | 0) * g.bw, row = y * W;
+    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) bp[brow + ((x / 4) | 0)] += w.pop[row + x];
+  }
   // people within ~2 blocks (the old 8-tile radius)
   const urban = new Float32Array(g.n);
   for (let by = 0; by < g.bh; by++) for (let bx = 0; bx < g.bw; bx++) {
@@ -929,8 +960,8 @@ export function recomputeLandValue(m: GameMap, w: World) {
   }
   const BASE = [0, 0, 0, 0, 0, 0, 0, 0];
   BASE[Terrain.Floodplain] = 60; BASE[Terrain.Flat] = 50; BASE[Terrain.Upland] = 40; BASE[Terrain.Slope] = 22; BASE[Terrain.Steep] = 8;
-  const up = upsampleTo(m, urban), lv = w.landValue, pol = w.pollution, pop = w.pop, st = w.street, ter = m.terrain;
-  for (let i = 0, n = lv.length; i < n; i++) {
+  const up = upsampleTo(m, urban, sp), lv = w.landValue, pol = w.pollution, pop = w.pop, st = w.street, ter = m.terrain;
+  for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) {
     const t = ter[i];
     if (t === Terrain.Water) { lv[i] = 0; continue; }
     const dirty = 1 - Math.min(0.6, pol[i] * 0.5);

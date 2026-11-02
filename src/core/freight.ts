@@ -139,8 +139,20 @@ export interface Access {
   rail?: { tile: number; wagon: number; dist: number };
 }
 
-/** how a works site connects to the rivers and railroads (wagon distance included if it isn't right there) */
+let accessCache: { m: GameMap; year: number; byKey: Map<string, Access> } | null = null;
+/**
+ * How a works site connects to the rivers and railroads (wagon distance included if it isn't right there).
+ * Read-only result, memoised per site and year (it was asked for once per good per works per season).
+ */
 export function siteAccess(m: GameMap, s: Site, year: number): Access {
+  if (!accessCache || accessCache.m !== m || accessCache.year !== year) accessCache = { m, year, byKey: new Map() };
+  const key = `${s.x},${s.y},${s.fp},${s.spur ?? ""},${s.dock ?? ""}`;
+  let a = accessCache.byKey.get(key);
+  if (!a) { a = siteAccessNow(m, s, year); accessCache.byKey.set(key, a); }
+  return a;
+}
+
+function siteAccessNow(m: GameMap, s: Site, year: number): Access {
   const st = statics(m), rd = railDist(m, year);
   const out: Access = {};
   let [dock, dd] = nearest(m, s, 30, (i) => m.terrain[i] === Terrain.Water);

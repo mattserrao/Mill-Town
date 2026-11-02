@@ -10,8 +10,11 @@
 //
 // Arrivals are split into newcomers (by the immigration waves of the year) and locals moving house (by today's
 // make-up), and each community picks its own best lots.
+//
+// Only the simulated band along the rivers (band.ts) takes newcomers; lots thin out over its last few tiles.
 
 import { ANCHORS, anchorIndex, GROUPS, immigrationPressure } from "./ancestry";
+import { simBand } from "./band";
 import { blockGrid, sampleBlock } from "./blocks";
 import { HILLSIDES, latLonToTile } from "./features";
 import { type GameMap, inBounds } from "./map";
@@ -41,9 +44,10 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   const church = new Uint8Array(cw * ch * NG);
   const groupTot = new Float64Array(NG);
   let total = 0;
-  for (let y = 0; y < H; y++) {
-    const crow = ((y / CELL) | 0) * cw, row = y * W;
-    for (let x = 0; x < W; x++) {
+  const band = simBand(m), sp = band.spans, bw8 = band.weight;
+  for (let s = 0; s < sp.length; s += 3) {
+    const y = sp[s], crow = ((y / CELL) | 0) * cw, row = y * W;
+    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
       const i = row + x, p = w.pop[i];
       if (p) { const c = crow + ((x / CELL) | 0), e = w.eth[i]; cellPop[c * NG + e] += p; cellTot[c] += p; groupTot[e] += p; total += p; }
       else if (w.use[i] === Use.Civic && w.eth[i] && CHURCH_SUBS.has(w.sub[i])) {
@@ -75,27 +79,37 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   }
 
   // ---- land near existing development (towns grow outward, not as scattered lots)
-  // developed tiles grown by 2 in each direction (a 5×5 box), as two running-window passes
-  const sc = scratch(n), dev = sc.dev, horiz = sc.horiz, near = sc.near;
+  // developed tiles grown by 2 in each direction (a 5×5 box), as two running-window passes (the window's
+  // centre runs from 2 before each band run to 2 past it)
+  const sc = scratch(n), horiz = sc.horiz, near = sc.near;
   horiz.fill(0); near.fill(0);
   const pop = w.pop, use = w.use;
-  for (let y = 0; y < H; y++) {
-    const row = y * W;
+  // (only band tiles count as development). Each band run marks the tiles within 2 of its developed tiles;
+  // runs in the same row OR together. A 5-slot ring holds the window instead of a whole-map array.
+  const ring = new Uint8Array(5);
+  for (let s = 0; s < sp.length; s += 3) {
+    const row = sp[s] * W, xs = sp[s + 1], xe = sp[s + 2];
     let run = 0;
-    for (let x = 0; x < W + 2; x++) {
-      if (x < W) { const i = row + x, d = (pop[i] || use[i] === Use.Commerce || use[i] === Use.Civic) ? 1 : 0; dev[i] = d; run += d; }
-      if (x - 5 >= 0) run -= dev[row + x - 5];
+    ring.fill(0);
+    for (let x = xs; x < xe + 4; x++) {
+      const k = x % 5;
+      run -= ring[k];
+      let d = 0;
+      if (x < xe) { const i = row + x; d = (pop[i] || use[i] === Use.Commerce || use[i] === Use.Civic) ? 1 : 0; }
+      ring[k] = d; run += d;
+      // the window now holds x-4..x: its centre x-2 is near development if any of them is developed
       const cx = x - 2;
-      if (cx >= 0 && cx < W && run > 0) horiz[row + cx] = 1;
+      if (run > 0 && cx >= 0 && cx < W) horiz[row + cx] = 1;
     }
   }
   // vertical pass row by row (cache-friendly): a running column sum over a 5-row window
-  const col = new Int32Array(W);
+  // each row only over its own band extent (± the window): horiz is 0 beyond it, near isn't read beyond it
+  const col = new Int32Array(W), lo = band.rowLo, hi = band.rowHi;
   for (let y = 0; y < H + 2; y++) {
-    if (y < H) { const r = y * W; for (let x = 0; x < W; x++) col[x] += horiz[r + x]; }
-    if (y - 5 >= 0) { const r = (y - 5) * W; for (let x = 0; x < W; x++) col[x] -= horiz[r + x]; }
+    if (y < H) { const r = y * W; for (let x = lo[y], xe = hi[y]; x < xe; x++) col[x] += horiz[r + x]; }
+    if (y - 5 >= 0) { const r = (y - 5) * W; for (let x = lo[y - 5], xe = hi[y - 5]; x < xe; x++) col[x] -= horiz[r + x]; }
     const cy = y - 2;
-    if (cy >= 0 && cy < H) { const r = cy * W; for (let x = 0; x < W; x++) if (col[x] > 0) near[r + x] = 1; }
+    if (cy >= 0 && cy < H) { const r = cy * W; for (let x = lo[cy], xe = hi[cy]; x < xe; x++) if (col[x] > 0) near[r + x] = 1; }
   }
   for (const [px, py] of plants) for (let y = py - 14; y <= py + 14; y++) for (let x = px - 14; x <= px + 14; x++) if (inBounds(m, x, y)) near[y * W + x] = 1;
 
@@ -109,9 +123,9 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   // a tile's use that can never take a house (one lookup instead of nine comparisons)
   const owner = w.owner, street = w.street, road = m.road, terrain = m.terrain, landValue = w.landValue, pollution = w.pollution;
   const noiseSeed = w.seed + year * 4 + season;
-  for (let y = 0; y < H; y++) {
-    const row = y * W, crow = ((y / CELL) | 0) * cw, up = y > 0, down = y < H - 1;
-    for (let x = 0; x < W; x++) {
+  for (let s = 0; s < sp.length; s += 3) {
+    const y = sp[s], row = y * W, crow = ((y / CELL) | 0) * cw, up = y > 0, down = y < H - 1;
+    for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
       const i = row + x;
       if (!near[i] || owner[i] || street[i] || road[i]) continue;
       const u = use[i], t = terrain[i];
@@ -135,7 +149,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
       if (!p && (blocked[i] || besideWorks(m, w, x, y))) continue; // ravines and gardens; a works keeps a yard and a fence between it and the houses
       const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
       const s = 1.6 * sampleBlock(bg, access, x, y) + (p ? 0.35 : 0) + (pike ? 0.1 : 0) + 0.45 * hill - steep * (1 - hill * 0.7)
-        + 0.3 * tileNoise(noiseSeed, x, y, 611);
+        + 0.3 * tileNoise(noiseSeed, x, y, 611) - 1.5 * (1 - bw8[i]); // the band's edge: lots thin out
       cand.push(i); base.push(s);
       lv.push(Math.min(1, landValue[i] / 250)); pol.push(Math.min(1.5, pollution[i]));
       cell.push(crow + ((x / CELL) | 0));
@@ -170,10 +184,10 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
     }
     // the best lots for this community: estimate the cut-off from a sample, then sort what's above it
     const lots = Math.ceil(people[gI] / 11) * 2 + 4;
-    const sample: number[] = [];
-    for (let k = 0; k < 3000; k++) sample.push(score[rng.int(0, cand.length - 1)]);
-    sample.sort((a, b) => b - a);
-    const cut = sample[Math.min(sample.length - 1, Math.floor((lots / cand.length) * sample.length * 1.5))] ?? -1e9;
+    const sample = new Float64Array(3000);
+    for (let k = 0; k < 3000; k++) sample[k] = score[rng.int(0, cand.length - 1)];
+    sample.sort(); // ascending (native numeric sort); read from the top
+    const cut = sample[sample.length - 1 - Math.min(sample.length - 1, Math.floor((lots / cand.length) * sample.length * 1.5))] ?? -1e9;
     const best: number[] = [];
     for (let k = 0; k < cand.length; k++) if (score[k] >= cut && score[k] > -1e8) best.push(k);
     best.sort((a, b) => score[b] - score[a]);
@@ -201,10 +215,10 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   return { placed, byGroup };
 }
 
-let scratchBufs: { n: number; dev: Uint8Array; horiz: Uint8Array; near: Uint8Array } | null = null;
-/** three whole-map byte arrays reused each season rather than allocated (1.5 MB a season otherwise) */
+let scratchBufs: { n: number; horiz: Uint8Array; near: Uint8Array } | null = null;
+/** two whole-map byte arrays reused each season rather than allocated (1.5 MB a season otherwise) */
 function scratch(n: number) {
-  if (!scratchBufs || scratchBufs.n !== n) scratchBufs = { n, dev: new Uint8Array(n), horiz: new Uint8Array(n), near: new Uint8Array(n) };
+  if (!scratchBufs || scratchBufs.n !== n) scratchBufs = { n, horiz: new Uint8Array(n), near: new Uint8Array(n) };
   return scratchBufs;
 }
 

@@ -1,6 +1,7 @@
 // Game state and the seasonal turn loop. First pass: found a works, produce each season,
 // pay wages, spread smoke, and let the town grow toward the jobs along real street alignments.
 
+import { simBand } from "./band";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
@@ -1205,11 +1206,12 @@ function burdens(g: GameState, operating: number, held: number): { total: number
 export function settleMigrants(g: GameState, cx: number, cy: number, r: number, count: number, group?: number): number {
   if (count <= 0) return 0;
   const { map: m, world: w } = g;
+  const band = simBand(m).mask; // people settle only in the simulated band
   const cands: { i: number; d: number }[] = [];
   for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
     if (!inBounds(m, x, y)) continue;
     const i = y * m.width + x;
-    if (w.owner[i] || w.street[i] || !habitable(m.terrain[i])) continue;
+    if (!band[i] || w.owner[i] || w.street[i] || !habitable(m.terrain[i])) continue;
     const u = w.use[i];
     if (u === Use.Civic || u === Use.Landmark || u === Use.Wharf || u === Use.Commerce || u === Use.Park || u === Use.Incline || u === Use.Mine) continue;
     if (!w.pop[i] && besideWorks(m, w, x, y)) continue;
@@ -1269,10 +1271,10 @@ function naturalGrowth(g: GameState, rng: Rng) {
     // the steel towns: within ~1.3 km of a steel works (yours if it's steel, and the rivals')
     const steel: [number, number][] = g.rivals.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === "steel").map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
     if (g.company) for (const w of allWorks(g.company)) if (w.industry === "steel") steel.push([w.x + w.footprint / 2, w.y + w.footprint / 2]);
-    const W = g.map.width;
-    for (let i = 0; i < n; i++) {
+    const W = g.map.width, sp = simBand(g.map).spans;
+    for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
+      const i = y * W + x;
       if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
-      const x = i % W, y = (i / W) | 0;
       const millTown = steel.some(([px, py]) => Math.abs(px - x) < 45 && Math.abs(py - y) < 45);
       // the steel towns lose about a third of their people over the decade (empty houses stand boarded up)
       if (millTown && rng.chance(0.008)) w.pop[i] = 0;
@@ -1281,16 +1283,17 @@ function naturalGrowth(g: GameState, rng: Rng) {
     w.version++;
     return;
   }
-  const bg = blockGrid(g.map), W = g.map.width;
+  const bg = blockGrid(g.map), W = g.map.width, band = simBand(g.map).mask;
   // disease: where air, water and crowding are worst, people die faster than they're born
   for (let k = 0; k < 6000; k++) {
     const i = rng.int(0, n - 1);
-    if (!w.pop[i]) continue;
+    if (!w.pop[i] || !band[i]) continue;
     const h = g.env.health[blockOf(bg, i % W, (i / W) | 0)];
     if (h < 0.6 && rng.chance((0.6 - h) * 1.5)) w.pop[i] = Math.max(1, Math.floor(w.pop[i] * 0.95));
   }
   for (let k = 0; k < 3000; k++) {
     const i = rng.int(0, n - 1);
+    if (!band[i]) continue;
     const cap = Math.min(capFor(w.sub[i]), terrainCap(g.map.terrain[i]), densityCap(g.map, w, i));
     // families grow where it's healthy
     if (w.pop[i] > 0 && !rng.chance(g.env.health[blockOf(bg, i % W, (i / W) | 0)])) continue;

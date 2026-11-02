@@ -11,8 +11,9 @@ import { GROUPS } from "../core/ancestry";
 import type { OverlayFn } from "../render/renderer";
 import { blockGrid, blockOf } from "../core/blocks";
 import { RIVER_REF, SOOT_SCALE } from "../core/environment";
+import { simBand } from "../core/band";
 
-export type OverlayId = "none" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
+export type OverlayId = "none" | "band" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
 
 type RGB = [number, number, number];
 type RGBA = [number, number, number, number];
@@ -61,6 +62,7 @@ export const OVERLAYS: OverlayDef[] = [
   { id: "elevation", label: "Elevation", group: "Land", swatch: grad(P.elevation) },
   { id: "terrain", label: "Terrain", group: "Land", swatch: steps(Object.values(TERRAIN).map((t) => t[0])) },
   { id: "coal", label: "Coal seam", group: "Land", swatch: steps([[60, 48, 36], [12, 10, 10]]) },
+  { id: "band", label: "Live area", title: "Where the valley is simulated", group: "Land", swatch: steps([[90, 200, 150], [70, 70, 80]]) },
   { id: "districts", label: "Districts", title: "Cities & neighbourhoods", group: "Town", swatch: steps([[255, 214, 90], [235, 235, 235], [150, 150, 160]]) },
   { id: "population", label: "Population", group: "Town", swatch: grad(P.population) },
   { id: "ancestry", label: "Ancestry", group: "Town", swatch: steps(GROUPS.slice(1, 7).map((g) => g.colour as RGB)) },
@@ -153,6 +155,10 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
       }
       return { key: `freight|${g.turn}`, fn: (i) => (d[i] > n * 0.02 ? ramp(P.freight, 0.2 + 0.8 * Math.min(1, d[i] / n), 0.95) : null) };
     }
+    case "band": {
+      const b = simBand(m);
+      return { key: id, fn: (i) => (b.mask[i] ? (b.weight[i] < 1 ? [90, 200, 150, 0.55 - 0.4 * b.weight[i]] as RGBA : [0, 0, 0, 0] as RGBA) : [40, 40, 50, 0.6] as RGBA) };
+    }
     case "ancestry":
       return { key: `${id}|${w.version}`, fn: (i) => (w.eth[i] && (w.pop[i] || w.use[i] === 6) ? [...GROUPS[w.eth[i]].colour, 0.85] as RGBA : null) };
     case "population":
@@ -199,6 +205,8 @@ export function overlayLegend(id: OverlayId, g?: GameState): string {
     case "elevation": return bar(steps(stepsOf(P.elevation, 10)), `${Math.round((g?.map.minHeight ?? 216) * 3.281).toLocaleString()} ft river`, `${Math.round((g?.map.maxHeight ?? 390) * 3.281).toLocaleString()} ft hilltops`);
     case "districts": return keys([["#ffd65a", "city & borough limits", "height:4px"], ["rgba(235,235,235,0.8)", "neighbourhoods", "height:2px"]]) +
       `<p class="hint">Click a neighbourhood to see who lives there and what each community has built. Pittsburgh takes in Lawrenceville, East Liberty and Hazelwood (1868), Birmingham (1872) and Allegheny City (1907).</p>`;
+    case "band": return keys([["rgb(90,200,150)", "edge of the live area"], ["rgb(40,40,50)", "countryside: drawn, not simulated"]]) +
+      `<p class="hint">The towns, mills and hillsides along the rivers grow and change each season. The ridge-top country beyond stays as it is; works can't be founded there.</p>`;
     case "terrain": return keys(Object.values(TERRAIN).map(([c, n]) => [css(c), n]));
     case "coal": return keys([["rgb(12,10,10)", "seam outcrop (drift mines)"], ["rgb(60,48,36)", "seam underground"]]);
     case "transport": return keys([["rgb(200,30,40)", "rail open this year"], ["rgb(190,110,230)", "rail still to come"], ["rgb(250,205,60)", "streets & pikes"], ["rgba(255,255,255,0.5)", "where streets will come"]]);
