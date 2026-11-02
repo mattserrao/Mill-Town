@@ -2,6 +2,7 @@
 // pay wages, spread smoke, and let the town grow toward the jobs along real street alignments.
 
 import { simBand } from "./band";
+import { initSleuth, sleuthNatural, sleuthSeason, sleuthYear, type SleuthState } from "./sleuth";
 import { passClock } from "./passtimes";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
@@ -196,8 +197,14 @@ export interface SeasonReport {
   pensions?: number;
 }
 
+export type GrowthModel = "desire" | "sleuth";
+
 export interface GameState {
   seed: number;
+  /** how the town grows (v0.25): "sleuth" seed blocks (the default on this branch) or v0.24's "desire" lots */
+  growthModel?: GrowthModel;
+  /** the seed blocks, when growthModel is "sleuth" (src/core/sleuth.ts) */
+  sleuth?: SleuthState;
   map: GameMap;
   world: World;
   fields: SiteFields;
@@ -394,7 +401,11 @@ export function fieldsFor(map: GameMap): SiteFields {
   return fieldsCache.fields;
 }
 
-export function newGame(map: GameMap, seed: number): GameState {
+/** the growth model new games use: sleuth on this branch; `?growth=desire` (main.ts) or tests can pick v0.24's */
+export let DEFAULT_GROWTH: GrowthModel = "sleuth";
+export function setDefaultGrowth(m: GrowthModel) { DEFAULT_GROWTH = m; }
+
+export function newGame(map: GameMap, seed: number, growth: GrowthModel = DEFAULT_GROWTH): GameState {
   registerMapHooks();
   resetMap(map);
   const world = generateTown(map, seed, 1850);
@@ -403,8 +414,10 @@ export function newGame(map: GameMap, seed: number): GameState {
     stats: { peakPop: 0, peakPopYear: 1850, peakEmployees: 0, peakEmployeesYear: 1850, peakCash: 0, peakCashYear: 1850, totalProfit: 0, strikes: 0 },
     history: newHistory(map), env: newEnv(map), plants: [], commute: undefined as unknown as Commute, publicWorks: { locks: {} }, prices: [], news: [],
     moreDecisions: [], morale: 50, flags: {}, pressures: [], dryShops: [], ruins: [], burnt: [], rules: initialRules(), politics: "early", placeFx: [], pendingRivalFx: [], strikeAt: [], lastStrikes: [], landmarks: [], teams: [], jobless: 0 };
+  g.growthModel = growth;
   civicYear(g, 1850, true);
   g.commute = buildCommute(map, world, centersFor(g));
+  if (growth === "sleuth") initSleuth(g);
   recordHistory(map, world, g.history);
   warmEnvironment(g);
   g.stats.peakPop = totalPopulation(g);
@@ -792,7 +805,7 @@ export function advanceTurn(g: GameState): void {
   // smoke and the rivers in one pass over the town
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"), { sewageMult: mod(g, "riverLoad") });
   mark("smoke and rivers");
-  naturalGrowth(g, rng);
+  if (g.growthModel === "sleuth") sleuthNatural(g); else naturalGrowth(g, rng);
   recordPrices(g);
   mark("births and sickness");
   if (g.company?.bankrupt && !last) {
@@ -834,10 +847,11 @@ export function advanceTurn(g: GameState): void {
       // the census curve sets how many arrive this season; desirability sets where
       // (after 1975 the curve falls; newcomers only replace losses where the valley is below it)
       const room = Math.round((regionTarget(c1.year + (s1 + 1) / 4) - totalPopulation(g)) * (c1.year < 1975 ? 0.12 : 0.04));
-      g.lastGrowth = growByDesire(g.map, g.world, g.commute.access, plants, room, s1);
+      g.lastGrowth = g.growthModel === "sleuth" ? sleuthSeason(g, g.commute.access, plants, room, s1) : growByDesire(g.map, g.world, g.commute.access, plants, room, s1);
     }
     mark("newcomers settle");
-    civicSeason(g.map, g.world, s1);
+    // (under the block model each block turns over its own households in sleuthSeason)
+    civicSeason(g.map, g.world, s1, g.growthModel !== "sleuth");
     mark(s1 === CIVIC_SEASON ? "turnover + steps, downtown, churches (summer)" : "turnover");
     // land value (summer and winter) reuses the trips' pass over the town for its people per block
     const lvDue = s1 === 1 || s1 === 3, bp = lvDue ? landValueScratch(g.map) : undefined;
@@ -852,6 +866,7 @@ export function advanceTurn(g: GameState): void {
     for (const inc of INCLINES) if (inc.year === c1.year) log(g, `The ${inc.name} opens.`);
     for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     civicYear(g, c1.year);
+    if (g.growthModel === "sleuth") sleuthYear(g);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
     returningUnion(g);
     mark("openings and civic buildings (spring)");

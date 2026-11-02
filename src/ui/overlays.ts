@@ -12,8 +12,9 @@ import type { OverlayFn } from "../render/renderer";
 import { blockGrid, blockOf } from "../core/blocks";
 import { RIVER_REF, SOOT_SCALE } from "../core/environment";
 import { simBand } from "../core/band";
+import { blocksOf, wardOf } from "../core/sleuth";
 
-export type OverlayId = "none" | "band" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
+export type OverlayId = "none" | "band" | "wards" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
 
 type RGB = [number, number, number];
 type RGBA = [number, number, number, number];
@@ -64,6 +65,7 @@ export const OVERLAYS: OverlayDef[] = [
   { id: "coal", label: "Coal seam", group: "Land", swatch: steps([[60, 48, 36], [12, 10, 10]]) },
   { id: "band", label: "Live area", title: "Where the valley is simulated", group: "Land", swatch: steps([[90, 200, 150], [70, 70, 80]]) },
   { id: "districts", label: "Districts", title: "Cities & neighbourhoods", group: "Town", swatch: steps([[255, 214, 90], [235, 235, 235], [150, 150, 160]]) },
+  { id: "wards", label: "Plats & wards", title: "Seed blocks (plats) and the wards they join", group: "Town", swatch: steps([[214, 120, 90], [120, 170, 200], [190, 170, 90], [140, 190, 120]]) },
   { id: "population", label: "Population", group: "Town", swatch: grad(P.population) },
   { id: "ancestry", label: "Ancestry", group: "Town", swatch: steps(GROUPS.slice(1, 7).map((g) => g.colour as RGB)) },
   { id: "landValue", label: "Land value", group: "Town", swatch: grad(P.landValue) },
@@ -159,6 +161,21 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
       const b = simBand(m);
       return { key: id, fn: (i) => (b.mask[i] ? (b.weight[i] < 1 ? [90, 200, 150, 0.55 - 0.4 * b.weight[i]] as RGBA : [0, 0, 0, 0] as RGBA) : [40, 40, 50, 0.6] as RGBA) };
     }
+    case "wards": {
+      // each ward a colour; each block within it a shade; block edges dark; land not yet in a block clear
+      const bid = w.blockId, bs = blocksOf(g);
+      if (!bid || !bs.length) return { key: `${id}|none`, fn: () => null };
+      const col = (k: number): RGB => { const h = (k * 137.508) % 360, s = 0.55, l = 0.55; const f = (n: number) => { const a = s * Math.min(l, 1 - l), q = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(q - 3, 9 - q, 1)))); }; return [f(0), f(8), f(4)]; };
+      const shade = bs.map((b) => { const c = col(wardOf(g, b.id)), t = 0.82 + 0.36 * ((b.id * 0.618) % 1); return [Math.min(255, c[0] * t), Math.min(255, c[1] * t), Math.min(255, c[2] * t)] as RGB; });
+      const W = m.width;
+      return { key: `${id}|${w.version}`, fn: (i) => {
+        const k = bid[i];
+        if (!k) return null;
+        const x = i % W, edge = (x + 1 < W && bid[i + 1] !== k) || (i + W < bid.length && bid[i + W] !== k);
+        const c = shade[k - 1];
+        return edge ? [c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 0.95] : [c[0], c[1], c[2], w.pop[i] ? 0.85 : 0.55];
+      } };
+    }
     case "ancestry":
       return { key: `${id}|${w.version}`, fn: (i) => (w.eth[i] && (w.pop[i] || w.use[i] === 6) ? [...GROUPS[w.eth[i]].colour, 0.85] as RGBA : null) };
     case "population":
@@ -212,6 +229,14 @@ export function overlayLegend(id: OverlayId, g?: GameState): string {
     case "transport": return keys([["rgb(200,30,40)", "rail open this year"], ["rgb(190,110,230)", "rail still to come"], ["rgb(250,205,60)", "streets & pikes"], ["rgba(255,255,255,0.5)", "where streets will come"]]);
     case "commute": return `<div class="lg-title">Minutes to your works (walk; streetcar 1890–1955; car from the 1920s)</div>` + keys([...COMMUTE.map((b) => [css(b.c), b.label] as [string, string]), ["rgb(70,70,80)", "over an hour"]]) + `<p class="hint">Steps and inclines shorten the climb.</p>`;
     case "ancestry": return keys(GROUPS.slice(1).map((gr) => [css(gr.colour as RGB), gr.name]));
+    case "wards": {
+      const bs = g ? blocksOf(g) : [];
+      if (!bs.length) return `<p class="hint">This town grows by lots (v0.24's model): there are no plats. Start a new game to grow it from seed blocks.</p>`;
+      const wards = new Set(bs.map((b) => wardOf(g!, b.id))).size;
+      const ann = Object.entries(g!.sleuth!.annexed).map(([k, y]) => `${k} (${y})`).join(", ");
+      return keys([["rgb(214,120,90)", "a ward (its blocks in shades)"], ["rgb(60,40,30)", "block edge"]]) +
+        `<p class="hint">${bs.length} plats and towns in ${wards} wards. Each grew from a seed (a plat, a mill town, a hillside, a coal patch, company rows or a streetcar suburb) and annexes land around it; when two meet they join a ward.${ann ? ` Annexed by Pittsburgh: ${ann}.` : ""}</p>`;
+    }
     case "population": return bar(steps(stepsOf(P.population, BANDS)), "few", "~70 per tile");
     case "landValue": return bar(steps(stepsOf(P.landValue, BANDS)), "$0", "$400+");
     case "pollution": return bar(steps(stepsOf(P.pollution, BANDS)), "light haze", "black soot") + `<p class="hint">Long-term smoke: a running average of the air over a few years (soot on the buildings, land value).</p>`;

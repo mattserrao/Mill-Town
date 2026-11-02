@@ -284,3 +284,25 @@ Turn time, same machine, an investing steel company from 1850 to 1985 (`npm run 
 | Mean turn | 128 ms | 77 ms | 70 ms |
 | 95th percentile | 219 ms | 140 ms | 109 ms |
 | Spring (new year) mean / p95 | 187 / 252 ms | 117 / 162 ms | 83 / 115 ms |
+
+## 8. Seed blocks grown by SLEUTH (v0.25, experimental)
+
+New games grow the town from **seed blocks** (`core/seeds.ts`, `core/sleuth.ts`); `?growth=desire` keeps
+v0.24's lot model, and saves from before v0.25 load with it.
+
+- **Seeds.** 102 placed: the 1850 settlements, the hillsides, ~50 plats, mill towns and streetcar suburbs, and 29
+  coal patches at seam outcrops. Company rows open beside each works once it runs, and the player's company housing
+  is a plat that grows. A suburb can open up to six years early when the town reaches it.
+- **Blocks.** Any connected shape: each annexes the best tiles on its frontier, ranked by slope, road and lane
+  frontage, access, flat ground and compactness (2 of 8 neighbours, 1 along a road). A block is one update
+  unit: its people, community mix, density stage and averages are its own totals; tiles are written only when
+  it annexes land or people come and go. Plats lay lanes on their own grid where the map has no road.
+- **SLEUTH.** Spontaneous growth (scattered farmhouses before 1880), the seed list in place of random spreading
+  centres (plus bred patches near works), edge growth by annexation, road-influenced walks along streets, and
+  self-modification: boom with the census curve, bust in the Depression and after 1975; slope resistance falls
+  and road gravity rises with the era. Calibrated (`tests/calibrate.test.ts`) to spread 15, slope 30, road 90.
+- **Wards.** Blocks that touch join a ward (union-find) but keep their own update. Pittsburgh's annexations happen
+  in play: Lawrenceville, East Liberty and Hazelwood (1868), Birmingham (1872), Allegheny City (1907).
+- **Save and load.** The runtime index (tiles, frontiers, lot order, scores) is a function of the saved state, so a
+  loaded game plays on exactly as the saved one.
+- **Map layer.** Town › Plats & wards; the query card shows a lot's plat and ward.

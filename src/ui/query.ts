@@ -1,6 +1,8 @@
 // The "?" query tool: click a tile to see the building on it, everything drawn on it, the land under it,
 // and the neighbourhood around it (who lives there, when each community arrived, how it grew).
 
+import { blockAt, wardOf } from "../core/sleuth";
+import { SEED_TYPES } from "../core/seeds";
 import { feet } from "../core/units";
 import { commuteWeight, type GameState, walkMinutes } from "../core/game";
 import { GROUPS } from "../core/ancestry";
@@ -131,6 +133,13 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
     lRows.push(["Unrest", unrestWord(g.env.unrest[b])]);
   }
   if (w.street[i]) lRows.push(["Traffic", trafficWord(g.env.traffic[b] / (g.env.trafficNorm || 1))]);
+  // the seed block this lot belongs to (v0.25 block model)
+  const blk = blockAt(g, i);
+  if (blk) {
+    const ward = g.sleuth!.blocks[wardOf(g, blk.id) - 1];
+    lRows.push(["Plat", `${blk.name} · ${SEED_TYPES[blk.type].label.toLowerCase()}, since ${blk.opened} · ${blk.pop.toLocaleString()} people`]);
+    if (ward.id !== blk.id || blk.city) lRows.push(["Ward", blk.city ? `${blk.city}, annexed ${blk.cityYear}` : `${ward.name} ward`]);
+  }
   lRows.push(["Position", `${ll.lat.toFixed(4)}, ${ll.lon.toFixed(4)}`]);
 
   return `

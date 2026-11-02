@@ -20,6 +20,7 @@ import { buildCommuteNow, cal, fieldsFor, type GameState } from "./game";
 import { type GameMap, recomputeElevation } from "./map";
 import { recomputeLandValue } from "./town";
 import { updateRivers } from "./environment";
+import { initSleuth, sleuthSaving } from "./sleuth";
 
 /**
  * 1: v0.1–v0.15 · 2: the family (v0.16) · 3: derived fields left out of the save and the graded ground stored
@@ -71,6 +72,7 @@ const QUANT: Record<string, Record<string, number>> = {
 
 function encode(g: GameState): { header: string; bufs: ArrayBufferView[] } {
   const bufs: ArrayBufferView[] = [];
+  sleuthSaving(g);
   const quantize = (x: Float32Array, scale: number) => {
     const q = new Uint16Array(x.length);
     for (let i = 0; i < x.length; i++) {
@@ -198,6 +200,9 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
   if (!g.env.river) { g.env.river = new Float32Array(nt); updateRivers(map, g.world, g.env, g.plants ?? []); }
   if (!g.env.freight) g.env.freight = new Float32Array(nt);
   if (!g.commute) buildCommuteNow(g);
+  // growth model: saves before v0.25 grew by lots ("desire"); a block-model save without its tile map rebuilds it
+  if (!g.growthModel) g.growthModel = "desire";
+  if (g.growthModel === "sleuth" && (!g.sleuth || !g.world.blockId)) initSleuth(g);
   // decisions waiting: asked again from the events that raised them
   const decs = allDecisions();
   const redo = (d: unknown) => {
