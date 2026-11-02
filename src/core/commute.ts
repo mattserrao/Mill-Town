@@ -131,16 +131,26 @@ export function buildCommute(m: GameMap, w: World, centers: Center[]): Commute {
  * Each season a sample of households goes to work: each picks a job centre by jobs and travel time and
  * walks (or rides) the fastest path; every block they pass gets traffic. Traffic fades by half each season.
  */
-export function runTrips(m: GameMap, w: World, cm: Commute, traffic: Float32Array, rng: Rng, samples = 600): number {
+/**
+ * With `blockPop`, the same scan also sums people per block (zeroed first) for recomputeLandValue, so a
+ * land-value season doesn't scan the town twice (v0.24).
+ */
+export function runTrips(m: GameMap, w: World, cm: Commute, traffic: Float32Array, rng: Rng, samples = 600, blockPop?: Float32Array): number {
   const g = blockGrid(m), { bw } = g;
   for (let b = 0; b < g.n; b++) traffic[b] *= 0.5;
-  if (!cm.centers.length) return 1;
+  if (!cm.centers.length && !blockPop) return 1;
   // populated tiles, for sampling homes in proportion to people
   const tiles: number[] = [], cum: number[] = [];
   let total = 0;
-  const sp = simBand(m).spans, W = m.width;
-  for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) if (w.pop[i]) { total += w.pop[i]; tiles.push(i); cum.push(total); }
-  if (!total) return 1;
+  const sp = simBand(m).spans, W = m.width, pop = w.pop;
+  if (blockPop) {
+    blockPop.fill(0);
+    for (let s = 0; s < sp.length; s += 3) {
+      const row = sp[s] * W, brow = ((sp[s] / B) | 0) * bw;
+      for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) { const p = pop[row + x]; if (p) { total += p; tiles.push(row + x); cum.push(total); blockPop[brow + ((x / B) | 0)] += p; } }
+    }
+  } else for (let s = 0; s < sp.length; s += 3) for (let i = sp[s] * W + sp[s + 1], ie = sp[s] * W + sp[s + 2]; i < ie; i++) if (pop[i]) { total += pop[i]; tiles.push(i); cum.push(total); }
+  if (!cm.centers.length || !total) return 1;
   const weight = total / samples / 5; // households per trip
   for (let k = 0; k < samples; k++) {
     const r = rng.next() * total;

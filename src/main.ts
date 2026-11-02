@@ -1,3 +1,4 @@
+import { passTable, resetPassTimes } from "./core/passtimes";
 import { companyWorth } from "./core/holdings";
 import { distance, feet } from "./core/units";
 import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, foundingCapital, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
@@ -1558,6 +1559,8 @@ if (new URLSearchParams(location.search).has("dev") || import.meta.env.DEV) Obje
     /** fire an event's effects by name (for testing) */
     fire: (name: string) => { const fx = allEffects()[name]; if (fx) applyEffects(game, name, fx); const d = allDecisions()[name]?.(game); if (d) game.pendingDecision = d; afterChange(); return { effects: fx?.length ?? 0, decision: !!d }; },
     sound,
+    /** per-pass turn timing since the page loaded (or the last reset): mt.timing() prints it, mt.timing(true) then clears it */
+    timing: (reset = false) => { const rows = passTable(); console.table(rows); if (reset) resetPassTimes(); return rows; },
   },
 });
 

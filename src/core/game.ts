@@ -2,6 +2,7 @@
 // pay wages, spread smoke, and let the town grow toward the jobs along real street alignments.
 
 import { simBand } from "./band";
+import { passClock } from "./passtimes";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
 import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
@@ -12,7 +13,7 @@ import { Rng, tileNoise } from "./rng";
 import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } from "./site";
 import { habitable, Terrain } from "./terrain";
 import { calendar, priceLevel, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
-import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, Street, Use, useForPop, type World } from "./town";
+import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, landValueScratch, CIVIC_SEASON, Street, Use, useForPop, type World } from "./town";
 import { HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
 import { besideWorks, growByDesire } from "./growth";
@@ -745,6 +746,7 @@ export function advanceTurn(g: GameState): void {
   const last = g.turn >= TOTAL_TURNS - 1;
   const rng = new Rng(g.seed).fork(`turn${g.turn}`);
   const fx = SEASON_EFFECTS[c0.season];
+  const mark = passClock();
 
   // a decision left open takes the course history took
   for (let k = 0; g.pendingDecision && k < 10; k++) resolveDecision(g, rng.fork(`decision${k}`));
@@ -779,16 +781,20 @@ export function advanceTurn(g: GameState): void {
   familySeason(g);
   ledgerSeason(g);
   rivalsAnswer(g);
+  mark("people, rivals and politics");
   const rivals = rivalPlants(g, c0.year);
   if (g.company) runCompany(g, rng, fx.river, fx.floodRisk, rivals);
   else { clearMarkets(g, {}, (r) => rivalOutput(g, r)); shipSeason(g.map, c0.year, fx.river, rivalShippers(g, rivals), g.env.freight, "p", g.publicWorks.locks, (link) => mod(g, "freightCap", { gateway: link })); }
   g.plants.push(...rivals);
   updateStocks(g);
+  mark("company, markets and freight");
   const season = g.turn % 4;
-  updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"));
-  updateRivers(g.map, g.world, g.env, g.plants, mod(g, "riverLoad"));
+  // smoke and the rivers in one pass over the town
+  updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"), { sewageMult: mod(g, "riverLoad") });
+  mark("smoke and rivers");
   naturalGrowth(g, rng);
   recordPrices(g);
+  mark("births and sickness");
   if (g.company?.bankrupt && !last) {
     g.over = true;
     g.headlines.push({ year: c0.year, season: c0.season, name: `Receivers Take ${g.company.name}`, description: `After ${RECEIVERSHIP} seasons overdrawn, the bank has put ${g.company.name} into receivership. The works will be sold.`, category: "Labor" });
@@ -812,8 +818,15 @@ export function advanceTurn(g: GameState): void {
   const c1 = cal(g);
   g.world.year = c1.year;
   const s1 = g.turn % 4;
-  if (c1.year !== c0.year) g.commute = buildCommute(g.map, g.world, centersFor(g));
+  const newYear = c1.year !== c0.year;
+  // the yearly work is spread over the four seasons (v0.24) so no one turn carries it all:
+  //   spring  the new year's travel-time fields (growth needs them), openings, civic buildings
+  //   summer  public steps, downtown, community styles, churches and halls (and land value)
+  //   autumn  streets fill in on the road alignments; walking access to the works
+  //   winter  health and unrest; the neighbourhood history (and land value)
+  if (newYear) { g.commute = buildCommute(g.map, g.world, centersFor(g)); mark("commute fields (spring)"); }
   roadsSeason(g);
+  mark("roads");
   {
     const plants: [number, number][] = g.rivals.filter((r) => !r.offmap).map((r) => [Math.round(r.x + r.footprint / 2), Math.round(r.y + r.footprint / 2)]);
     if (g.company) plants.push([Math.round(g.company.x + g.company.footprint / 2), Math.round(g.company.y + g.company.footprint / 2)]);
@@ -823,12 +836,16 @@ export function advanceTurn(g: GameState): void {
       const room = Math.round((regionTarget(c1.year + (s1 + 1) / 4) - totalPopulation(g)) * (c1.year < 1975 ? 0.12 : 0.04));
       g.lastGrowth = growByDesire(g.map, g.world, g.commute.access, plants, room, s1);
     }
+    mark("newcomers settle");
     civicSeason(g.map, g.world, s1);
-    g.env.trafficNorm = runTrips(g.map, g.world, g.commute, g.env.traffic, rng.fork("trips"));
-    if (s1 === 1 || s1 === 3) recomputeLandValue(g.map, g.world);
+    mark(s1 === CIVIC_SEASON ? "turnover + steps, downtown, churches (summer)" : "turnover");
+    // land value (summer and winter) reuses the trips' pass over the town for its people per block
+    const lvDue = s1 === 1 || s1 === 3, bp = lvDue ? landValueScratch(g.map) : undefined;
+    g.env.trafficNorm = runTrips(g.map, g.world, g.commute, g.env.traffic, rng.fork("trips"), 600, bp);
+    mark("commuter trips");
+    if (lvDue) { recomputeLandValue(g.map, g.world, bp); mark("land value (summer, winter)"); }
   }
-  if (c1.year !== c0.year) {
-    activateStreets(g.map, g.world);
+  if (newYear) {
     activateFeatures(g.map, g.world);
     for (const [, l] of Object.entries(g.map.railLines)) if (l.year === c1.year) log(g, `The ${l.name} opens.`);
     for (const [, b] of Object.entries(g.map.bridges)) if (b.year === c1.year) log(g, `The ${b.name} opens.`);
@@ -836,11 +853,19 @@ export function advanceTurn(g: GameState): void {
     for (const pk of PARKS) if (pk.year === c1.year && !g.world.parks?.includes(pk.name)) log(g, `${pk.name} is laid out as a public park.`);
     civicYear(g, c1.year);
     for (const h of HILLSIDES) if (h.year === c1.year) log(g, `Houses begin to climb the hillside at ${h.name}.`);
-    recordHistory(g.map, g.world, g.history);
     returningUnion(g);
-    updateHealth(g.map, g.world, g.env, hospitals(g), hoodBoosts(g));
+    mark("openings and civic buildings (spring)");
+  }
+  if (s1 === 2) {
+    activateStreets(g.map, g.world);
     updateAccess(g);
     if (g.company) for (const w of g.company.others) updateWorksAccess(g, w);
+    mark("streets and works access (autumn)");
+  }
+  if (s1 === 3) {
+    updateHealth(g.map, g.world, g.env, hospitals(g), hoodBoosts(g));
+    recordHistory(g.map, g.world, g.history);
+    mark("health and history (winter)");
   }
   if (c1.era.id !== c0.era.id) log(g, `A new era begins: ${c1.era.name}.`);
   // the first spring of a new era: the head of the family steps down; the rivals' heirs take over too
@@ -848,6 +873,7 @@ export function advanceTurn(g: GameState): void {
   fireEvents(g);
   updateStats(g, c1.year);
   g.world.version++;
+  mark("events and stats");
 }
 
 function updateStats(g: GameState, year: number) {
@@ -1302,6 +1328,7 @@ function naturalGrowth(g: GameState, rng: Rng) {
       w.use[i] = useForPop(w.pop[i]);
     }
   }
+  w.version++; // people changed (totalPopulation is memoised on the version)
 }
 
 /** The rivals' input needs this season, for the shared river and rail lanes. */
@@ -1462,8 +1489,21 @@ function strikeContagion(g: GameState, w: Works): number {
   return Math.min(2.5, 1 + 0.5 * n);
 }
 
+let popCache: { w: World; version: number; total: number } | null = null;
+/**
+ * People in the valley. Memoised on the world's version (every change to people bumps it), so the several
+ * calls in a turn and the panels between turns don't each sum the whole map.
+ */
 export function totalPopulation(g: GameState): number {
-  const pop = g.world.pop, n = pop.length;
+  const w = g.world;
+  if (popCache && popCache.w === w && popCache.version === w.version) return popCache.total;
+  const total = sumPopulation(w.pop);
+  popCache = { w, version: w.version, total };
+  return total;
+}
+
+function sumPopulation(pop: Uint16Array): number {
+  const n = pop.length;
   let a = 0, b = 0, c = 0, d = 0, i = 0;
   for (; i + 3 < n; i += 4) { a += pop[i]; b += pop[i + 1]; c += pop[i + 2]; d += pop[i + 3]; }
   for (; i < n; i++) a += pop[i];

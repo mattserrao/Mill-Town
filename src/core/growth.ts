@@ -34,14 +34,13 @@ export interface GrowthReport { placed: number; byGroup: number[] }
 export function growByDesire(m: GameMap, w: World, access: Float32Array, plants: [number, number][], room: number, season: number): GrowthReport {
   const byGroup = new Array(NG).fill(0);
   if (room <= 0) return { placed: 0, byGroup };
-  const W = m.width, H = m.height, n = W * H, year = w.year;
+  const W = m.width, H = m.height, year = w.year;
   const bg = blockGrid(m);
   const rng = new Rng(`${w.seed}:grow:${year}:${season}`);
 
   // ---- community make-up per 8×8 cell, and which cells have each community's church
   const cw = Math.ceil(W / CELL), ch = Math.ceil(H / CELL);
-  const cellPop = new Float32Array(cw * ch * NG), cellTot = new Float32Array(cw * ch);
-  const church = new Uint8Array(cw * ch * NG);
+  const cs = cellScratch(cw * ch), cellPop = cs.cellPop, cellTot = cs.cellTot, church = cs.church;
   const groupTot = new Float64Array(NG);
   let total = 0;
   const band = simBand(m), sp = band.spans, bw8 = band.weight;
@@ -61,7 +60,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
     }
   }
   // share of each community in a cell and its neighbours (smoothed), for chain migration — as a pull already raised to 0.8
-  const pull = new Float32Array(cw * ch * NG);
+  const pull = cs.pull;
   const a = new Float32Array(NG);
   for (let cy = 0; cy < ch; cy++) for (let cx = 0; cx < cw; cx++) {
     let t = 0;
@@ -78,75 +77,22 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
     if (t > 0) for (let gI = 1; gI < NG; gI++) if (a[gI]) pull[(cy * cw + cx) * NG + gI] = Math.pow(a[gI] / t, 0.8);
   }
 
-  // ---- land near existing development (towns grow outward, not as scattered lots)
-  // developed tiles grown by 2 in each direction (a 5×5 box), as two running-window passes (the window's
-  // centre runs from 2 before each band run to 2 past it)
-  const sc = scratch(n), horiz = sc.horiz, near = sc.near;
-  horiz.fill(0); near.fill(0);
-  const pop = w.pop, use = w.use;
-  // (only band tiles count as development). Each band run marks the tiles within 2 of its developed tiles;
-  // runs in the same row OR together. A 5-slot ring holds the window instead of a whole-map array.
-  const ring = new Uint8Array(5);
-  for (let s = 0; s < sp.length; s += 3) {
-    const row = sp[s] * W, xs = sp[s + 1], xe = sp[s + 2];
-    let run = 0;
-    ring.fill(0);
-    for (let x = xs; x < xe + 4; x++) {
-      const k = x % 5;
-      run -= ring[k];
-      let d = 0;
-      if (x < xe) { const i = row + x; d = (pop[i] || use[i] === Use.Commerce || use[i] === Use.Civic) ? 1 : 0; }
-      ring[k] = d; run += d;
-      // the window now holds x-4..x: its centre x-2 is near development if any of them is developed
-      const cx = x - 2;
-      if (run > 0 && cx >= 0 && cx < W) horiz[row + cx] = 1;
-    }
-  }
-  // vertical pass row by row (cache-friendly): a running column sum over a 5-row window
-  // each row only over its own band extent (± the window): horiz is 0 beyond it, near isn't read beyond it
-  const col = new Int32Array(W), lo = band.rowLo, hi = band.rowHi;
-  for (let y = 0; y < H + 2; y++) {
-    if (y < H) { const r = y * W; for (let x = lo[y], xe = hi[y]; x < xe; x++) col[x] += horiz[r + x]; }
-    if (y - 5 >= 0) { const r = (y - 5) * W; for (let x = lo[y - 5], xe = hi[y - 5]; x < xe; x++) col[x] -= horiz[r + x]; }
-    const cy = y - 2;
-    if (cy >= 0 && cy < H) { const r = cy * W; for (let x = lo[cy], xe = hi[cy]; x < xe; x++) if (col[x] > 0) near[r + x] = 1; }
-  }
-  for (const [px, py] of plants) for (let y = py - 14; y <= py + 14; y++) for (let x = px - 14; x <= px + 14; x++) if (inBounds(m, x, y)) near[y * W + x] = 1;
-
+  // ---- which lots could take a house (kept between seasons; only lots near a change are re-examined)
   const hillB = hillBonus(m, year);
   const anchorIdx = anchorIndex(m);
-  const blocked = lotBlocked(m, w.seed);
+  const st = lotState(m, w, plants, hillB);
 
   // ---- candidate lots and the part of their score that doesn't depend on who's coming
   const cand: number[] = [], base: number[] = [], lv: number[] = [], pol: number[] = [], cell: number[] = [];
   const anch: number[] = [];
-  // a tile's use that can never take a house (one lookup instead of nine comparisons)
-  const owner = w.owner, street = w.street, road = m.road, terrain = m.terrain, landValue = w.landValue, pollution = w.pollution;
+  const pop = w.pop, terrain = m.terrain, landValue = w.landValue, pollution = w.pollution, elig = st.elig;
   const noiseSeed = w.seed + year * 4 + season;
   for (let s = 0; s < sp.length; s += 3) {
-    const y = sp[s], row = y * W, crow = ((y / CELL) | 0) * cw, up = y > 0, down = y < H - 1;
+    const y = sp[s], row = y * W, crow = ((y / CELL) | 0) * cw;
     for (let x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
-      const i = row + x;
-      if (!near[i] || owner[i] || street[i] || road[i]) continue;
-      const u = use[i], t = terrain[i];
-      if (NO_HOUSE[u]) continue;
-      const hill = hillB[i];
-      if (!habitable(t) && !(t === Terrain.Steep && (hill > 0 || year >= 1900))) continue;
-      const p = pop[i];
-      const cap = Math.min(POP_CAP.rowhouses, terrainCap(t), densityCap(m, w, i));
-      if (p >= cap) continue;
-      // houses front onto streets: a street or road in the eight tiles around
-      let onStreet = false, pike = false;
-      const left = x > 0, right = x < W - 1;
-      for (let dy = up ? -1 : 0, de = down ? 1 : 0; dy <= de && !onStreet; dy++) {
-        const r = i + dy * W;
-        for (let dx = left ? -1 : 0, dxe = right ? 1 : 0; dx <= dxe; dx++) {
-          const j = r + dx, sj = street[j];
-          if (road[j] || sj) { onStreet = true; pike = sj === Street.Pike; break; }
-        }
-      }
-      if (!onStreet && !p) continue;
-      if (!p && (blocked[i] || besideWorks(m, w, x, y))) continue; // ravines and gardens; a works keeps a yard and a fence between it and the houses
+      const i = row + x, e = elig[i];
+      if (!e) continue;
+      const t = terrain[i], hill = hillB[i], p = pop[i], pike = e === 2;
       const steep = t === Terrain.Steep ? 0.45 : t === Terrain.Slope ? 0.15 : 0;
       const s = 1.6 * sampleBlock(bg, access, x, y) + (p ? 0.35 : 0) + (pike ? 0.1 : 0) + 0.45 * hill - steep * (1 - hill * 0.7)
         + 0.3 * tileNoise(noiseSeed, x, y, 611) - 1.5 * (1 - bw8[i]); // the band's edge: lots thin out
@@ -215,10 +161,164 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
   return { placed, byGroup };
 }
 
-let scratchBufs: { n: number; horiz: Uint8Array; near: Uint8Array } | null = null;
-/** two whole-map byte arrays reused each season rather than allocated (1.5 MB a season otherwise) */
+// ---------------------------------------------------------------- lots that could take a house (v0.24)
+//
+// A lot is a candidate when it lies within 2 tiles of development in the band (or near a works), isn't owned,
+// a street, a road or a building that never takes a house, is habitable (or a hillside lot once its
+// neighbourhood opens, any steep lot from 1900), has room under its cap, fronts a street (or already has
+// people), and — if empty — isn't a ravine, a garden or against a works' fence. All of that depends on the
+// tile and its neighbours within 2. So instead of re-examining every band tile each season, the state is kept
+// and only lots within 2 of a tile whose people, use, street or owner changed since the last season are
+// re-examined. A new year (hillsides open, the 1900 steep rule), a works moving, or a new world rebuilds it all.
+
+interface LotState {
+  m: GameMap; w: World; year: number; plantsKey: string; settlements: number;
+  /** 0 not a candidate, 1 candidate, 2 candidate fronting a pike */
+  elig: Uint8Array;
+  /** 1 within 2 tiles of development in the band, or of a works */
+  near: Uint8Array;
+  prevPop: Uint16Array; prevUse: Uint8Array; prevStreet: Uint8Array; prevOwner: Uint8Array;
+  mark: Uint8Array;
+}
+let lots: LotState | null = null;
+
+function lotState(m: GameMap, w: World, plants: [number, number][], hillB: Float32Array): LotState {
+  const plantsKey = plants.map(([x, y]) => `${x},${y}`).join(";");
+  const W = m.width, n = W * m.height, band = simBand(m), mask = band.mask;
+  const st = lots;
+  if (!st || st.m !== m || st.w !== w || st.year !== w.year || st.plantsKey !== plantsKey || st.settlements !== w.settlements.length) {
+    const s: LotState = lots && lots.elig.length === n ? lots : {
+      m, w, year: 0, plantsKey: "", settlements: 0, elig: new Uint8Array(n), near: new Uint8Array(n),
+      prevPop: new Uint16Array(n), prevUse: new Uint8Array(n), prevStreet: new Uint8Array(n), prevOwner: new Uint8Array(n), mark: new Uint8Array(n),
+    };
+    Object.assign(s, { m, w, year: w.year, plantsKey, settlements: w.settlements.length });
+    nearAll(m, w, plants, s.near);
+    s.elig.fill(0);
+    const sp = band.spans, blocked = lotBlocked(m, w.seed);
+    for (let k = 0; k < sp.length; k += 3) for (let y = sp[k], x = sp[k + 1], xe = sp[k + 2]; x < xe; x++) s.elig[y * W + x] = lotEligible(m, w, s.near, blocked, hillB, x, y);
+    s.prevPop.set(w.pop); s.prevUse.set(w.use); s.prevStreet.set(w.street); s.prevOwner.set(w.owner);
+    lots = s;
+    return s;
+  }
+  // what changed since last season (within each band row's extent, which takes in every tile within 2 of the band)
+  const { prevPop, prevUse, prevStreet, prevOwner, mark, near, elig } = st, pop = w.pop, use = w.use, street = w.street, owner = w.owner;
+  const { lo, hi } = diffRows(m), H = m.height, redo: number[] = [];
+  for (let y = 0; y < H; y++) for (let i = y * W + lo[y], ie = y * W + hi[y]; i < ie; i++) {
+    if (pop[i] === prevPop[i] && use[i] === prevUse[i] && street[i] === prevStreet[i] && owner[i] === prevOwner[i]) continue;
+    prevPop[i] = pop[i]; prevUse[i] = use[i]; prevStreet[i] = street[i]; prevOwner[i] = owner[i];
+    const x = i % W;
+    for (let yy = Math.max(0, y - 2); yy <= Math.min(H - 1, y + 2); yy++) for (let xx = Math.max(0, x - 2); xx <= Math.min(W - 1, x + 2); xx++) {
+      const j = yy * W + xx;
+      if (!mark[j] && mask[j]) { mark[j] = 1; redo.push(j); }
+    }
+  }
+  if (!redo.length) return st;
+  const blocked = lotBlocked(m, w.seed);
+  // near development first (eligibility reads it), then eligibility
+  for (const j of redo) near[j] = nearAt(m, w, plants, mask, j % W, (j / W) | 0);
+  for (const j of redo) { mark[j] = 0; elig[j] = lotEligible(m, w, near, blocked, hillB, j % W, (j / W) | 0); }
+  return st;
+}
+
+const diffCache = new WeakMap<GameMap, { lo: Int32Array; hi: Int32Array }>();
+/** per row, the columns where a change can reach a band lot: each band row's extent, spread 2 rows up and down */
+function diffRows(m: GameMap) {
+  let d = diffCache.get(m);
+  if (d) return d;
+  const H = m.height, b = simBand(m), lo = new Int32Array(H), hi = new Int32Array(H);
+  for (let y = 0; y < H; y++) {
+    let a = m.width, z = 0;
+    for (let yy = Math.max(0, y - 2); yy <= Math.min(H - 1, y + 2); yy++) if (b.rowHi[yy] > b.rowLo[yy]) { a = Math.min(a, b.rowLo[yy]); z = Math.max(z, b.rowHi[yy]); }
+    if (z > a) { lo[y] = a; hi[y] = z; }
+  }
+  d = { lo, hi };
+  diffCache.set(m, d);
+  return d;
+}
+
+/** developed: people, a shop or a civic building, in the band */
+const devAt = (w: World, mask: Uint8Array, i: number) => mask[i] === 1 && (w.pop[i] > 0 || w.use[i] === Use.Commerce || w.use[i] === Use.Civic);
+
+/** is (x, y) within 2 tiles of development in the band, or within 14 of a works? */
+function nearAt(m: GameMap, w: World, plants: [number, number][], mask: Uint8Array, x: number, y: number): number {
+  const W = m.width;
+  for (let yy = Math.max(0, y - 2), ye = Math.min(m.height - 1, y + 2); yy <= ye; yy++)
+    for (let xx = Math.max(0, x - 2), xe = Math.min(W - 1, x + 2); xx <= xe; xx++) if (devAt(w, mask, yy * W + xx)) return 1;
+  for (const [px, py] of plants) if (Math.abs(px - x) <= 14 && Math.abs(py - y) <= 14) return 1;
+  return 0;
+}
+
+/** the whole near-development field: developed band tiles grown by 2 (a 5×5 box) as two running-window passes */
+function nearAll(m: GameMap, w: World, plants: [number, number][], near: Uint8Array) {
+  const W = m.width, H = m.height, n = W * H, band = simBand(m), sp = band.spans;
+  const horiz = scratch(n).horiz;
+  horiz.fill(0); near.fill(0);
+  const pop = w.pop, use = w.use;
+  // each band run marks the tiles within 2 of its developed tiles; runs in the same row OR together
+  const ring = new Uint8Array(5);
+  for (let s = 0; s < sp.length; s += 3) {
+    const row = sp[s] * W, xs = sp[s + 1], xe = sp[s + 2];
+    let run = 0;
+    ring.fill(0);
+    for (let x = xs; x < xe + 4; x++) {
+      const k = x % 5;
+      run -= ring[k];
+      let d = 0;
+      if (x < xe) { const i = row + x; d = (pop[i] || use[i] === Use.Commerce || use[i] === Use.Civic) ? 1 : 0; }
+      ring[k] = d; run += d;
+      // the window holds x-4..x: its centre x-2 is near development if any of them is developed
+      const cx = x - 2;
+      if (run > 0 && cx >= 0 && cx < W) horiz[row + cx] = 1;
+    }
+  }
+  // vertical: a running column sum over a 5-row window, each row over its own band extent
+  const col = new Int32Array(W), lo = band.rowLo, hi = band.rowHi;
+  for (let y = 0; y < H + 2; y++) {
+    if (y < H) { const r = y * W; for (let x = lo[y], xe = hi[y]; x < xe; x++) col[x] += horiz[r + x]; }
+    if (y - 5 >= 0) { const r = (y - 5) * W; for (let x = lo[y - 5], xe = hi[y - 5]; x < xe; x++) col[x] -= horiz[r + x]; }
+    const cy = y - 2;
+    if (cy >= 0 && cy < H) { const r = cy * W; for (let x = lo[cy], xe = hi[cy]; x < xe; x++) if (col[x] > 0) near[r + x] = 1; }
+  }
+  for (const [px, py] of plants) for (let y = py - 14; y <= py + 14; y++) for (let x = px - 14; x <= px + 14; x++) if (inBounds(m, x, y)) near[y * W + x] = 1;
+}
+
+/** 0 not a candidate lot, 1 a candidate, 2 a candidate fronting a pike */
+function lotEligible(m: GameMap, w: World, near: Uint8Array, blocked: Uint8Array, hillB: Float32Array, x: number, y: number): number {
+  const W = m.width, H = m.height, i = y * W + x, street = w.street, road = m.road;
+  if (!near[i] || w.owner[i] || street[i] || road[i]) return 0;
+  const t = m.terrain[i];
+  if (NO_HOUSE[w.use[i]]) return 0;
+  if (!habitable(t) && !(t === Terrain.Steep && (hillB[i] > 0 || w.year >= 1900))) return 0;
+  const p = w.pop[i];
+  const cap = Math.min(POP_CAP.rowhouses, terrainCap(t), densityCap(m, w, i));
+  if (p >= cap) return 0;
+  // houses front onto streets: a street or road in the eight tiles around
+  let onStreet = false, pike = false;
+  const left = x > 0, right = x < W - 1, up = y > 0, down = y < H - 1;
+  for (let dy = up ? -1 : 0, de = down ? 1 : 0; dy <= de && !onStreet; dy++) {
+    const r = i + dy * W;
+    for (let dx = left ? -1 : 0, dxe = right ? 1 : 0; dx <= dxe; dx++) {
+      const j = r + dx, sj = street[j];
+      if (road[j] || sj) { onStreet = true; pike = sj === Street.Pike; break; }
+    }
+  }
+  if (!onStreet && !p) return 0;
+  if (!p && (blocked[i] || besideWorks(m, w, x, y))) return 0; // ravines and gardens; a works keeps a yard and a fence between it and the houses
+  return pike ? 2 : 1;
+}
+
+let cellBufs: { cells: number; cellPop: Float32Array; cellTot: Float32Array; church: Uint8Array; pull: Float32Array } | null = null;
+/** the per-cell community arrays, reused (zeroed) each season */
+function cellScratch(cells: number) {
+  if (!cellBufs || cellBufs.cells !== cells) cellBufs = { cells, cellPop: new Float32Array(cells * NG), cellTot: new Float32Array(cells), church: new Uint8Array(cells * NG), pull: new Float32Array(cells * NG) };
+  else { cellBufs.cellPop.fill(0); cellBufs.cellTot.fill(0); cellBufs.church.fill(0); cellBufs.pull.fill(0); }
+  return cellBufs;
+}
+
+let scratchBufs: { n: number; horiz: Uint8Array } | null = null;
+/** a whole-map byte array reused rather than allocated each rebuild */
 function scratch(n: number) {
-  if (!scratchBufs || scratchBufs.n !== n) scratchBufs = { n, horiz: new Uint8Array(n), near: new Uint8Array(n) };
+  if (!scratchBufs || scratchBufs.n !== n) scratchBufs = { n, horiz: new Uint8Array(n) };
   return scratchBufs;
 }
 
