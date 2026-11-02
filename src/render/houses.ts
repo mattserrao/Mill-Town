@@ -846,7 +846,25 @@ function civicSprite(s0: HouseSpec): Sprite {
       for (let t = 0.05; t < 0.95; t += 0.06) { const q = f.pt(p, t, 0.97, 0); p.px(q[0], q[1] - 3, "#2a2a2e", 1, 3); }
       break;
     }
-    case 3: { // firehouse: brick, big arched doors, hose-drying tower
+    case 3: { // engine house, by era: a volunteer hose house, the brick engine house with its tower, the motor house
+      if (s.style === 0) { // a frame hose house with a bell cupola (the volunteer companies)
+        const [u0, v0, u1, v1] = f.rect(0.22, 0.78, 0.1, 0.62);
+        const b = box(p, u0, v0, u1, v1, 16, { wall: "#c8b48a", z0, foundation: s.fnd });
+        gable(p, b, f.across, 9, "#5a4a3e");
+        const a = face === "left" ? b.D(z0) : b.C(z0), c = face === "left" ? b.C(z0) : b.B(z0);
+        const [x, y] = lerp(a, c, 0.5); p.px(x - 3, y - 9, "#8a2a20", 6, 9);
+        const cu = p.P((u0 + u1) / 2, (v0 + v1) / 2, z0 + 25); p.px(cu[0] - 2, cu[1] - 5, "#ece6d8", 4, 5); p.px(cu[0] - 1, cu[1] - 3, "#c9a24a", 2, 2); p.px(cu[0] - 3, cu[1] - 7, "#5a4a3e", 6, 2);
+        break;
+      }
+      if (s.style >= 3) { // a wide brick motor house: two broad doors, a flat roof and a parapet
+        const [u0, v0, u1, v1] = f.rect(0.08, 0.92, 0.08, 0.66);
+        const b = box(p, u0, v0, u1, v1, 20, { wall: BRICK[(s.v + 4) % 6], z0, foundation: s.fnd, top: "#4a4442" });
+        cornice(p, b, face, "#d8cbb0");
+        const a = face === "left" ? b.D(z0) : b.C(z0), c = face === "left" ? b.C(z0) : b.B(z0);
+        for (const t of [0.3, 0.7]) { const [x, y] = lerp(a, c, t); p.px(x - 5, y - 10, "#9a2a22", 10, 10); for (let k = 2; k < 10; k += 3) p.px(x - 5, y - k, "#7a1e18", 10, 1); }
+        facade(p, b, face, { n: 4, stories: 1, storyH: 10, style: 3, shop: null });
+        break;
+      }
       const [u0, v0, u1, v1] = f.rect(0.15, 0.85, 0.08, 0.6);
       const b = box(p, u0, v0, u1, v1, 22, { wall: BRICK[(s.v + 2) % 6], z0, foundation: s.fnd, top: "#3a3432" });
       cornice(p, b, face, "#4a3a32");
@@ -966,6 +984,40 @@ function civicSprite(s0: HouseSpec): Sprite {
         if (k === 9) for (let q = 0; q < 3; q++) p.px(x + 2 + q * 2, y - 16, "#f0ece0", 1, 1); // the Croatian checker
         if (k === 4) p.px(x + 3, y - 16, "#f0ece0", 2, 1); // Elks: the purple and white
       }
+      break;
+    }
+    case 9: { // police station house: a brick block with a stone base, a green lamp at the door, a patrol-wagon door
+      const [u0, v0, u1, v1] = f.rect(0.1, 0.9, 0.1, 0.66);
+      const b = box(p, u0, v0, u1, v1, 24, { wall: BRICK[(s.v + 1) % 6], z0, foundation: s.fnd + 2, fnd: "#b8ae96", top: "#3a3634" });
+      cornice(p, b, face, "#d8cbb0");
+      facade(p, b, face, { n: 4, stories: 2, storyH: 11, style: Math.max(1, s.style), door: 1 });
+      facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: 11, style: Math.max(1, s.style) });
+      const a = face === "left" ? b.D(z0) : b.C(z0), c = face === "left" ? b.C(z0) : b.B(z0);
+      const [x, y] = lerp(a, c, 0.82); p.px(x - 3, y - 9, "#3a3a40", 6, 9);
+      const [lx, ly] = lerp(a, c, 0.35); p.px(lx, ly - 13, "#2a2a2e", 1, 4); p.px(lx - 1, ly - 16, "#5ad070", 3, 3);
+      break;
+    }
+    case 10: { // borough building: the council chamber over the lockup, a clock in the gable, the flag
+      const [u0, v0, u1, v1] = f.rect(0.1, 0.9, 0.12, 0.7);
+      const b = box(p, u0, v0, u1, v1, 26, { wall: BRICK[(s.v + 3) % 6], z0, foundation: s.fnd + 3, fnd: "#b8ae96" });
+      gable(p, b, f.across, 10, "#3e4248");
+      facade(p, b, face, { n: 3, stories: 2, storyH: 12, style: Math.max(1, s.style), door: 1, tall: true });
+      facade(p, b, f.sideFace, { n: 3, stories: 2, storyH: 12, style: Math.max(1, s.style), tall: true });
+      const a = face === "left" ? b.D(z0 + 26) : b.C(z0 + 26), c = face === "left" ? b.C(z0 + 26) : b.B(z0 + 26);
+      const [x, y] = lerp(a, c, 0.5); p.px(x - 2, y - 2, "#f0ecd8", 4, 4); p.px(x - 1, y - 1, "#2a2a2e", 1, 2);
+      p.px(x, y - 22, "#3a3a3a", 1, 16); p.px(x + 1, y - 22, "#b03a2e", 5, 1); p.px(x + 1, y - 21, "#f0ece0", 5, 1); p.px(x + 1, y - 20, "#b03a2e", 5, 1); p.px(x + 1, y - 22, "#2e3e8a", 2, 2);
+      break;
+    }
+    case 11: { // union hall: a plain two-storey hall with a big lettered sign board, the union's banner over the door
+      const [u0, v0, u1, v1] = f.rect(0.06, 0.94, 0.08, 0.7);
+      const b = box(p, u0, v0, u1, v1, 22, { wall: s.style >= 3 ? "#b8a888" : BRICK[(s.v + 5) % 6], z0, foundation: s.fnd, top: "#3a3432" });
+      cornice(p, b, face, "#c8b898");
+      facade(p, b, face, { n: 4, stories: 2, storyH: 10, style: 1, door: 2 });
+      const a = face === "left" ? b.D(z0 + 22) : b.C(z0 + 22), c = face === "left" ? b.C(z0 + 22) : b.B(z0 + 22);
+      const [x, y] = lerp(a, c, 0.5);
+      p.px(x - 9, y - 6, "#f0e8d0", 18, 5); for (let k = -7; k < 8; k += 2) p.px(x + k, y - 4, "#1e1e22", 1, 2);
+      const [dx, dy] = lerp(face === "left" ? b.D(z0 + 11) : b.C(z0 + 11), face === "left" ? b.C(z0 + 11) : b.B(z0 + 11), 0.5);
+      p.px(dx - 4, dy - 3, "#b02a24", 8, 4); p.px(dx - 3, dy - 2, "#e8c040", 6, 1);
       break;
     }
     case 4: { // library: Beaux-Arts stone, columned entrance, dome

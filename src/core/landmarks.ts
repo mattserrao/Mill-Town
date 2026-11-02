@@ -19,6 +19,7 @@ export const LANDMARK_SIZE: Record<LandmarkKind, number> = {
   chapel: 1, school: 2, theatre: 1, observatory: 1, zoo: 2, amusement: 3, airport: 4, plant: 3, office: 2, housing: 3,
   fountain: 1, factory: 2, shipyard: 3, planetarium: 1, church: 1, hall: 1,
   skyscraper: 1, skytower: 2, glasstower: 2, lab: 3, reactor: 3,
+  cathedral: 2, jail: 2, prison: 3, store: 2, hotel: 1, reservoir: 3, barracks: 1, bathhouse: 1,
 };
 
 export interface LandmarkDef {
@@ -58,7 +59,7 @@ export function placeLandmark(g: GameState, def: LandmarkDef, state: "open" | "c
       if (!inBounds(m, xx, yy)) { ok = false; break; }
       const i = yy * m.width + xx, u = w.use[i];
       if (m.terrain[i] === Terrain.Water || m.terrain[i] === Terrain.Cliff || m.rail[i] || m.bridge[i] || w.owner[i]) { ok = false; break; }
-      if (u === Use.Industry || u === Use.Rival || u === Use.Landmark || u === Use.Civic || u === Use.Incline || u === Use.Wharf || u === Use.Mine) { ok = false; break; }
+      if (u === Use.Industry || u === Use.Rival || u === Use.Landmark || u === Use.Civic || u === Use.Incline || u === Use.Wharf || u === Use.Mine || u === Use.Cemetery) { ok = false; break; }
       cost += w.pop[i] * 0.05 + (m.terrain[i] === Terrain.Steep ? 6 : 0) + (u === Use.Park ? 3 : 0);
     }
     if (ok && cost < bs) { bs = cost; best = [x, y]; }

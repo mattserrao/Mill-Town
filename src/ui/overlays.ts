@@ -13,6 +13,7 @@ import { blockGrid, blockOf } from "../core/blocks";
 import { RIVER_REF, SOOT_SCALE } from "../core/environment";
 import { simBand } from "../core/band";
 import { blocksOf, wardOf } from "../core/sleuth";
+import { blockRisk, fireReach } from "../core/civiclife";
 
 /** how the Plats & wards layer colours the plats (v0.26) */
 export type WardMode = "ward" | "type" | "decade";
@@ -22,7 +23,7 @@ const TYPE_COL: Record<string, RGB> = { core: [214, 92, 70], mill: [150, 96, 60]
 const TYPE_NAME: Record<string, string> = { core: "city core", mill: "mill town", plat: "plat", hillside: "hillside", patch: "coal patch", company: "company rows", suburb: "streetcar suburb" };
 const DECADE: RGB[] = [[90, 50, 120], [180, 70, 110], [240, 140, 80], [250, 230, 140]];
 
-export type OverlayId = "none" | "band" | "wards" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
+export type OverlayId = "none" | "band" | "wards" | "elevation" | "terrain" | "coal" | "transport" | "commute" | "ancestry" | "population" | "landValue" | "pollution" | "air" | "river" | "health" | "unrest" | "traffic" | "fire" | "freight" | "supply" | "rivals" | "districts" | `site:${IndustryId}`;
 
 type RGB = [number, number, number];
 type RGBA = [number, number, number, number];
@@ -38,6 +39,7 @@ const P = {
   river: [[40, 120, 200], [90, 150, 120], [160, 150, 70], [140, 90, 40], [90, 50, 30]] as RGB[],           // clean → foul
   health: [[30, 150, 70], [140, 210, 80], [245, 220, 80], [240, 130, 50], [200, 40, 40]] as RGB[],         // healthy → sickly
   unrest: [[60, 90, 160], [120, 120, 170], [220, 160, 80], [220, 90, 50], [170, 20, 30]] as RGB[],         // quiet → angry
+  fire: [[90, 120, 90], [250, 200, 60], [240, 110, 40], [200, 30, 30]] as RGB[],                            // low → very high
   traffic: [[60, 70, 120], [70, 140, 200], [250, 220, 90], [245, 140, 40], [220, 40, 40]] as RGB[],        // quiet → packed
   freight: [[250, 210, 120], [245, 160, 60], [230, 90, 40], [200, 30, 40], [140, 0, 30]] as RGB[],         // light → heavy
 };
@@ -82,6 +84,7 @@ export const OVERLAYS: OverlayDef[] = [
   { id: "river", label: "Water", title: "River water", group: "Town", swatch: grad(P.river) },
   { id: "health", label: "Health", group: "Town", swatch: grad(P.health) },
   { id: "unrest", label: "Unrest", group: "Town", swatch: grad(P.unrest) },
+  { id: "fire", label: "Fire", title: "Fire risk and the engine houses' reach", group: "Town", swatch: steps([[90, 170, 230], [250, 200, 60], [240, 110, 40], [200, 30, 30]]) },
   { id: "traffic", label: "Commuters", title: "Commuter traffic", group: "Town", swatch: grad(P.traffic) },
   { id: "transport", label: "Rail & roads", title: "Rail & roads open this year", group: "Town", swatch: steps([[200, 30, 40], [190, 110, 230], [250, 205, 60]]) },
   { id: "commute", label: "Travel time", title: "Travel time to the works", group: "Town", swatch: steps(COMMUTE.map((b) => b.c)) },
@@ -164,6 +167,23 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
         }
       }
       return { key: `freight|${g.turn}`, fn: (i) => (d[i] > n * 0.02 ? ramp(P.freight, 0.2 + 0.8 * Math.min(1, d[i] / n), 0.95) : null) };
+    }
+    case "fire": {
+      // each plat by its fire risk; the engine houses' reach outlined in blue; burnt lots black
+      const bid = w.blockId, bs = blocksOf(g), W = m.width;
+      if (!bid || !bs.length) return { key: `${id}|none`, fn: () => null };
+      const reach = fireReach(w.year), fires = (g.civ?.services ?? []).filter((s) => s.kind === "fire" && w.use[s.tile] === 6);
+      const near = new Uint8Array(w.use.length);
+      for (const s of fires) { const sx = s.tile % W, sy = (s.tile / W) | 0; for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) { const xx = sx + dx, yy = sy + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue; const d = Math.hypot(dx, dy); if (d <= reach) { const j = yy * W + xx; near[j] = Math.max(near[j], d > reach - 1 ? 2 : 1); } } }
+      return { key: `${id}|${w.version}|${g.turn}`, fn: (i) => {
+        if (w.use[i] === 0 && w.sub[i] === 5) return [20, 16, 14, 0.9];
+        if (near[i] === 2) return [90, 170, 230, 0.9];
+        if (w.use[i] === 6 && w.sub[i] === 3) return [255, 255, 255, 1];
+        const k = bid[i];
+        if (!k || !w.pop[i]) return near[i] ? [90, 170, 230, 0.12] : null;
+        const r = Math.min(1, (blockRisk(g, bs[k - 1]) * 4) / 0.06);
+        return ramp(P.fire, r, 0.8);
+      } };
     }
     case "band": {
       const b = simBand(m);
@@ -275,6 +295,7 @@ export function overlayLegend(id: OverlayId, g?: GameState): string {
     case "river": return bar(steps(stepsOf(P.river, BANDS)), "clean", "foul") + `<p class="hint">Works outfalls and sewage, carried downstream. Until filtration (1908) the riverside towns drink it.</p>`;
     case "health": return bar(steps(stepsOf(P.health, BANDS)), "healthy", "sickly") + `<p class="hint">From smoke, drinking water and crowding. Poor health kills, slows families and cuts output at the works.</p>`;
     case "unrest": return bar(steps(stepsOf(P.unrest, BANDS)), "quiet", "angry") + `<p class="hint">Poor health, crowding and the era's grievances (the twelve-hour day, the Depression, the layoffs). Raises the chance of strikes.</p>`;
+    case "fire": return bar(steps(P.fire), "low", "very high") + keys([["rgb(90,170,230)", "an engine house's reach"], ["rgb(255,255,255)", "engine house"], ["rgb(20,16,14)", "burnt out"]]) + `<p class="hint">Frame houses, crowding and the sparks from the furnaces nearby raise it; an engine house in reach, water mains and your company's brigade cut it.</p>`;
     case "traffic": return bar(steps(stepsOf(P.traffic, BANDS)), "quiet", "packed") + `<p class="hint">Commuters this season: sampled trips to the works, downtown and the town centres, by foot, streetcar or car.</p>`;
     case "freight": return bar(steps(stepsOf(P.freight, BANDS)), "light", "heavy") + `<p class="hint">Coal, ore, limestone and sand moving this season by barge and rail, from the edge of the valley to every works.</p>`;
     case "supply":

@@ -1576,6 +1576,198 @@ function hall(): Sprite {
   return p.sprite();
 }
 
+// ---------------------------------------------------------------- v0.27 civic life
+
+function cathedral(): Sprite {
+  // Gothic cathedral: a long stone nave, transepts, and twin spires on the front (+u) end
+  const p = new Painter(2, 230);
+  lawn(p, -1, -1, 1, 1, 31);
+  const st = "#b4aa96", roof = "#4a4e58";
+  const nave = box(p, -0.85, -0.45, 0.45, 0.35, 30, { wall: st, foundation: 3 });
+  gable(p, nave, "u", 18, roof);
+  lancets(p, nave, "left", 6, 6, 14, "#4a3a6a");
+  const tr = box(p, -0.35, -0.8, -0.05, 0.7, 28, { wall: shade(st, 1.03) });
+  gable(p, tr, "v", 16, roof);
+  lancets(p, tr, "left", 1, 8, 12, "#6a3a5a");
+  for (const v of [-0.42, 0.18]) {
+    const t = box(p, 0.45, v, 0.75, v + 0.22, 64, { wall: shade(st, 1.06) });
+    lancets(p, t, "right", 1, 30, 14); lancets(p, t, "left", 1, 30, 14);
+    crenels(p, t, shade(st, 1.1));
+    const ap = p.P(0.6, v + 0.11, 64 + 40);
+    p.poly([t.D(64), t.C(64), ap], "#5a5e68"); p.poly([t.C(64), t.B(64), ap], "#44484f");
+    p.px(ap[0], ap[1] - 5, "#c9b26a", 1, 5); p.px(ap[0] - 1, ap[1] - 4, "#c9b26a", 3, 1);
+  }
+  // rose window and great door between the towers
+  const [rx, ry] = p.P(0.75, -0.08, 30);
+  p.px(rx - 3, ry - 4, "#6a3a6a", 6, 6); p.px(rx - 1, ry - 2, "#e0b860", 2, 2);
+  door(p, p.P(0.75, -0.08, 0), "#3a2a20", 4, 10);
+  treeAt(p, -0.8, 0.85, 1, 4); treeAt(p, 0.85, 0.8, 0.9, 7);
+  return p.sprite();
+}
+
+function jail(): Sprite {
+  // Richardson's county jail: rough granite blocks, a round watchtower, slit windows behind a high wall
+  const p = new Painter(2, 200);
+  flatQuad(p, -1, -1, 1, 1, 0, "#8a8478");
+  const gr = "#8c867a";
+  const wall = (u0: number, v0: number, u1: number, v1: number) => box(p, u0, v0, u1, v1, 14, { wall: shade(gr, 0.95), top: "#6e6a62" });
+  wall(-0.95, 0.82, 0.95, 0.95); wall(0.82, -0.95, 0.95, 0.82);
+  const b = box(p, -0.75, -0.75, 0.55, 0.6, 34, { wall: gr, top: "#5a5650", foundation: 2 });
+  hip(p, b, 12, "#5a4a44");
+  for (let z = 6; z < 34; z += 9) { p.line(b.D(z), b.C(z), shade(gr, 0.8)); p.line(b.C(z), b.B(z), shade(gr, 0.6)); }
+  lancets(p, b, "left", 7, 10, 6, "#22222a"); lancets(p, b, "right", 6, 10, 6, "#22222a");
+  cylinder(p, 0.55, -0.75, 0.18, 0, 56, shade(gr, 1.05), "#5a4a44");
+  const ap = p.P(0.55, -0.75, 70); const [tx, ty] = p.P(0.55, -0.75, 56);
+  p.poly([[tx - 9, ty], [tx + 9, ty], ap], "#5a4a44");
+  return p.sprite();
+}
+
+function prison(): Sprite {
+  // Western Penitentiary at Woods Run: cell blocks in a yard behind a high stone wall with guard towers
+  const p = new Painter(3, 230);
+  flatQuad(p, -2, -2, 1, 1, 0, "#9a9282");
+  const gr = "#a49c8a";
+  box(p, -1.95, 0.85, 0.95, 0.95, 18, { wall: gr, top: "#7a7468" });
+  box(p, 0.85, -1.95, 0.95, 0.85, 18, { wall: shade(gr, 0.95), top: "#7a7468" });
+  for (const [u, v] of [[0.9, 0.9], [-1.9, 0.9], [0.9, -1.9]] as const) { const t = box(p, u - 0.1, v - 0.1, u + 0.08, v + 0.08, 30, { wall: shade(gr, 1.05), top: "#5a5048" }); void t; }
+  for (const [u0, v0, u1, v1, h] of [[-1.6, -1.5, 0.3, -0.9, 30], [-1.6, -0.4, 0.3, 0.2, 30], [-1.9, -1.7, -1.4, 0.6, 26]] as const) {
+    const b = box(p, u0, v0, u1, v1, h, { wall: gr, foundation: 2 });
+    gable(p, b, u1 - u0 > v1 - v0 ? "u" : "v", 9, "#4e4a48");
+    windows(p, b, "left", Math.round((u1 - u0) * 8), [6, 14, 22], "#26262c", "#26262c");
+  }
+  return p.sprite();
+}
+
+function store(): Sprite {
+  // department store: a six-storey terra-cotta block with big plate-glass windows, awnings and a corner clock
+  const p = new Painter(2, 230);
+  const b = box(p, -0.9, -0.9, 0.9, 0.9, 64, { wall: "#d8c8a8", wallR: "#b4a284", top: "#6a6258" });
+  windows(p, b, "left", 9, [14, 23, 32, 41, 50], WIN, "#f0e0b0");
+  windows(p, b, "right", 9, [14, 23, 32, 41, 50], WIN, "#f0e0b0");
+  cornice(p, b, "#efe4cc");
+  // shop windows and striped awnings at the street
+  for (const [a, c] of [[b.D(0), b.C(0)], [b.C(0), b.B(0)]] as const) {
+    for (let k = 0; k < 6; k++) { const [x, y] = lerp(a, c, (k + 0.5) / 6); p.px(x - 2, y - 8, "#3a4048", 4, 6); p.px(x - 3, y - 10, k % 2 ? "#2e5a3a" : "#e8e0d0", 6, 2); }
+  }
+  // the clock at the corner
+  const [cx, cy] = p.P(0.9, 0.9, 12);
+  p.px(cx - 1, cy - 4, "#2a2a2e", 2, 6); p.px(cx - 3, cy - 9, "#c9a24a", 6, 6); p.px(cx - 2, cy - 8, "#f0ecd8", 4, 4); p.px(cx - 1, cy - 7, "#2a2a2e", 1, 2);
+  return p.sprite();
+}
+
+function hotel(): Sprite {
+  // a grand hotel: tall brick block with a stone base, a mansard and flags on the roof
+  const p = new Painter(1, 200);
+  const b = box(p, 0.1, 0.1, 0.9, 0.9, 58, { wall: "#a65a40", foundation: 2 });
+  box(p, 0.1, 0.1, 0.9, 0.9, 8, { wall: "#d8cbb0" });
+  windows(p, b, "left", 5, [12, 20, 28, 36, 44, 52], WIN, "#f0d890");
+  windows(p, b, "right", 5, [12, 20, 28, 36, 44, 52], WIN, "#f0d890");
+  cornice(p, b, "#e0d4b8");
+  hip(p, b, 9, "#4a4a52");
+  flag(p, 0.3, 0.5, 67, "#2e3e8a"); flag(p, 0.7, 0.5, 67, "#b03a2e");
+  door(p, p.P(0.5, 0.9, 0), "#3a2a20", 3, 6);
+  return p.sprite();
+}
+
+function reservoir(): Sprite {
+  // a city reservoir: a great basin of water behind a stone embankment, with a gatehouse
+  const p = new Painter(3, 120);
+  flatQuad(p, -2, -2, 1, 1, 0, GRASS[2]);
+  box(p, -1.85, -1.85, 0.85, 0.85, 4, { wall: "#b8b0a0", top: "#c8c0ae" });
+  flatQuad(p, -1.7, -1.7, 0.7, 0.7, 4.2, "#5a86a8");
+  for (let k = 0; k < 6; k++) { const [x, y] = p.P(-1.4 + k * 0.38, -0.6 + (k % 3) * 0.3, 4.2); p.px(x, y, "#8ab4d0", 4, 1); }
+  const gh = box(p, 0.7, -0.6, 0.95, -0.25, 12, { wall: "#c8bea6", z0: 4 });
+  hip(p, gh, 5, "#5a4a44");
+  return p.sprite();
+}
+
+function barracks(): Sprite {
+  // the company police barracks: a plain frame barracks, a flagpole, a horse at the rail
+  const p = new Painter(1, 110);
+  flatQuad(p, 0, 0, 1, 1, 0, "#8a7a5e");
+  const b = box(p, 0.12, 0.2, 0.88, 0.72, 14, { wall: "#6a6658", foundation: 1 });
+  gable(p, b, "u", 7, "#3e3c3a");
+  windows(p, b, "left", 4, [5], WIN, SILL, true);
+  flag(p, 0.85, 0.88, 0, "#2e3e8a");
+  const [hx, hy] = p.P(0.3, 0.9);
+  p.px(hx - 3, hy - 5, "#5a3a26", 6, 3); p.px(hx + 2, hy - 7, "#5a3a26", 2, 3); p.px(hx - 3, hy - 2, "#3a2a1e", 1, 2); p.px(hx + 2, hy - 2, "#3a2a1e", 1, 2);
+  return p.sprite();
+}
+
+function bathhouse(): Sprite {
+  // a public bath house: yellow brick, round-arched windows, a tall chimney for the boilers
+  const p = new Painter(1, 140);
+  const b = box(p, 0.1, 0.15, 0.9, 0.85, 22, { wall: "#d8b878", foundation: 2 });
+  hip(p, b, 6, "#5a4e48");
+  lancets(p, b, "left", 4, 6, 9, "#3a4a5a"); lancets(p, b, "right", 3, 6, 9, "#3a4a5a");
+  cornice(p, b, "#efe0c0");
+  chimney(p, 0.8, 0.25, 22, 26, "#9a5a3e");
+  door(p, p.P(0.5, 0.85, 0), "#4a3020", 3, 7);
+  return p.sprite();
+}
+
+/**
+ * Cemetery stones by faith, fill and variant: crosses for the Catholic grounds, three-barred crosses for the Orthodox
+ * and Greek Catholic, upright tablets (no crosses) for the Jewish; obelisks and urns in the old Protestant grounds; the
+ * great rural cemeteries get winding drives, old trees, monuments and a mausoleum here and there.
+ */
+function cemStones(faith: number, fill: number, v: number, rural: boolean): Sprite {
+  const p = new Painter(1, 70);
+  const n = fill === 1 ? 4 : fill === 2 ? 8 : 12;
+  let k = 0;
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 3; b++) {
+    const r = tileNoise(v + faith * 7, a, b, 931);
+    if (k++ >= n || (fill < 3 && r < 0.25)) continue;
+    const u = 0.16 + a * 0.21 + (b & 1) * 0.06, vv = 0.2 + b * 0.28;
+    const [x, y] = p.P(u, vv);
+    const grey = r < 0.5 ? "#c4c0b6" : "#9e9a90", hi = "#e4e0d6";
+    if (faith === 3) { p.px(x - 1, y - 5, grey, 3, 5); p.px(x - 1, y - 6, hi, 3, 1); p.px(x, y - 1, "#8a867e", 1, 1); }
+    else if (faith === 1) { if (r < 0.55) { p.px(x, y - 7, "#d8d4ca", 1, 7); p.px(x - 2, y - 5, "#d8d4ca", 5, 1); } else { p.px(x - 1, y - 4, grey, 3, 4); p.px(x - 1, y - 4, hi, 3, 1); } }
+    else if (faith === 2) { p.px(x, y - 8, "#d8d4ca", 1, 8); p.px(x - 1, y - 7, "#d8d4ca", 3, 1); p.px(x - 2, y - 5, "#d8d4ca", 5, 1); p.px(x - 1, y - 3, "#d8d4ca", 3, 1); }
+    else if (r < 0.14) { p.px(x, y - 10, "#cac6bc", 2, 10); p.px(x - 1, y - 2, "#a8a49a", 4, 2); }
+    else if (r < 0.22) { p.px(x - 1, y - 5, "#b8b4aa", 3, 3); p.px(x - 2, y - 2, "#a8a49a", 5, 2); }
+    else { p.px(x - 1, y - 4, grey, 3, 4); p.px(x - 1, y - 4, hi, 3, 1); }
+  }
+  if (rural && fill === 3 && v === 5) {
+    const m = box(p, 0.55, 0.55, 0.85, 0.85, 10, { wall: "#cfc8b8", top: "#9a948a" });
+    pediment(p, m, "left", 0.2, 0.8, 10, 4, "#dcd6c8");
+    door(p, p.P(0.7, 0.85, 0), "#4a4a4e", 2, 5);
+  }
+  return p.sprite();
+}
+
+/** the family plot: headstones round a low curb, then an obelisk, then a mausoleum */
+function familyPlot(level: number): Sprite {
+  const p = new Painter(1, 110);
+  flatQuad(p, 0.1, 0.1, 0.9, 0.9, 0, "#86ac58");
+  box(p, 0.1, 0.1, 0.9, 0.9, 2.5, { wall: "#e8e2d4", top: "#86ac58" });
+  // a low iron fence on the curb, the posts capped
+  for (let k = 0; k <= 8; k++) for (const [a, b] of [[p.P(0.1 + k * 0.1, 0.9, 2.5), 0], [p.P(0.9, 0.1 + k * 0.1, 2.5), 1]] as const) { void b; p.px(a[0], a[1] - 4, "#2a2a2e", 1, 4); }
+  p.line(p.P(0.1, 0.9, 6), p.P(0.9, 0.9, 6), "#2a2a2e"); p.line(p.P(0.9, 0.1, 6), p.P(0.9, 0.9, 6), "#2a2a2e");
+  for (const [u, v] of [[0.25, 0.3], [0.45, 0.3], [0.25, 0.7], [0.45, 0.7]] as const) { const [x, y] = p.P(u, v); p.px(x - 1, y - 4, "#d0ccc2", 3, 4); p.px(x - 1, y - 4, "#ece8de", 3, 1); }
+  if (level >= 2) {
+    const m = box(p, 0.5, 0.3, 0.85, 0.75, 20, { wall: "#e0dacb", wallR: "#bcb6a8", top: "#a8a296" });
+    pediment(p, m, "left", 0.1, 0.9, 20, 7, "#ece6d8");
+    for (let k = 0; k < 4; k++) { const [x, y] = lerp(m.D(0), m.C(0), 0.2 + k * 0.2); p.px(x, y - 18, "#f4f0e6", 1, 18); }
+    door(p, lerp(m.D(0), m.C(0), 0.5), "#3a3a3e", 3, 8);
+  } else if (level >= 1) {
+    const [x, y] = p.P(0.68, 0.5);
+    p.px(x - 3, y - 4, "#b8b2a4", 7, 4); p.px(x - 2, y - 26, "#dcd6c8", 4, 22); p.px(x - 1, y - 30, "#ece6d8", 2, 4);
+  } else { const [x, y] = p.P(0.68, 0.5); p.px(x - 2, y - 7, "#d0ccc2", 5, 7); p.px(x - 2, y - 7, "#ece8de", 5, 1); }
+  return p.sprite();
+}
+
+/** a burnt-out lot: char, a standing chimney, fallen timbers */
+function burntLot(v: number): Sprite {
+  const p = new Painter(1, 70);
+  flatQuad(p, 0.1, 0.1, 0.9, 0.9, 0, "#3a3430");
+  for (let k = 0; k < 7; k++) { const [x, y] = p.P(0.2 + tileNoise(v, k, 1, 933) * 0.6, 0.2 + tileNoise(v, k, 2, 933) * 0.6); p.px(x - 2, y - 1, k % 2 ? "#1e1a18" : "#5a4a3e", 4, 1); }
+  const [cx, cy] = p.P(0.3 + (v % 3) * 0.2, 0.35);
+  p.px(cx - 1, cy - 14, "#7a4a36", 3, 14); p.px(cx - 1, cy - 15, "#3a2a24", 3, 1);
+  if (v & 1) { const [x, y] = p.P(0.7, 0.7); p.px(x - 4, y - 3, "#2a2420", 8, 3); }
+  return p.sprite();
+}
+
 /** rubble and the burned-out shell of whatever stood here */
 function ruin(n: number): Sprite {
   const p = new Painter(n, 100 + n * 36);
@@ -1644,6 +1836,7 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
     ["amusement", amusement], ["airport", airport], ["plant", plant], ["office", office], ["housing", housing],
     ["fountain", fountain], ["factory", factory], ["shipyard", shipyard], ["planetarium", planetarium], ["church", church], ["hall", hall],
     ["skyscraper", skyscraper], ["skytower", skytower], ["glasstower", glasstower], ["lab", lab], ["reactor", reactor],
+    ["cathedral", cathedral], ["jail", jail], ["prison", prison], ["store", store], ["hotel", hotel], ["reservoir", reservoir], ["barracks", barracks], ["bathhouse", bathhouse],
   ];
   for (const [k, f] of LANDMARKS) s.set(`struct:${k}`, f());
   for (let n = 1; n <= 4; n++) s.set(`struct:ruin${n}`, ruin(n));
@@ -1660,6 +1853,10 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   s.set("incline:car", inclineCar());
   s.set("park:bandstand", bandstand());
   for (let v = 0; v < 2; v++) s.set(`cem:stones${v}`, gravestones(v));
+  // v0.27: stones by faith and fill (and the great cemeteries' monuments), the family plot, burnt-out lots
+  for (let f = 0; f < 4; f++) for (let fill = 1; fill <= 3; fill++) for (let v = 0; v < 2; v++) { s.set(`cem:${f}${fill}${v}`, cemStones(f, fill, v, false)); s.set(`cem:r${f}${fill}${v}`, cemStones(f, fill, v + 4, true)); }
+  for (let l = 0; l < 3; l++) s.set(`cem:plot${l}`, familyPlot(l));
+  for (let v = 0; v < 4; v++) s.set(`lot:burnt${v}`, burntLot(v));
   s.set("yard:scrap", scrapHeap());
   s.set("yard:kiln", brickKiln());
   s.set("lamp:gas", lamp("gas"));

@@ -37,7 +37,9 @@ export const enum HouseSub { Normal = 0, Estate = 1, Company = 2, Shanty = 3, Bo
 /** sub-types: commerce */
 export const enum ShopSub { Tavern = 1, Store = 2, Hotel = 3, Bank = 4, Market = 5, Warehouse = 6, Block = 7, Office = 8, Bakery = 9, Butcher = 10, Kosher = 11, Saloon = 12, Barber = 13 }
 /** sub-types: civic */
-export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4, TwinChurch = 5, Synagogue = 6, BlackChurch = 7, Hall = 8 }
+export const enum CivicSub { Church = 0, OnionChurch = 1, School = 2, Firehouse = 3, Library = 4, TwinChurch = 5, Synagogue = 6, BlackChurch = 7, Hall = 8,
+  // v0.27 civic life (civiclife.ts)
+  Police = 9, BoroughHall = 10, UnionHall = 11 }
 
 export const USE_NAMES: Record<number, string> = {
   0: "Open land", 1: "Woods", 2: "Farm", 3: "Cottages", 4: "Frame houses", 5: "Brick rowhouses",
@@ -48,10 +50,10 @@ export const SUB_NAMES: Record<number, Record<number, string>> = {
   3: { 1: "Estate", 2: "Company houses", 3: "Shanties" },
   4: { 1: "Mansion", 2: "Company double houses", 3: "Shanties", 4: "Boarding house" },
   5: { 4: "Boarding houses" },
-  6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Firehouse", 4: "Library", 5: "Church (twin towers)", 6: "Synagogue", 7: "Church (AME)", 8: "Social hall" },
+  6: { 0: "Church", 1: "Church (onion domes)", 2: "School", 3: "Engine house", 4: "Library", 5: "Church (twin towers)", 6: "Synagogue", 7: "Church (AME)", 8: "Social hall", 9: "Police station", 10: "Borough building", 11: "Union hall" },
   12: { 1: "Tavern", 2: "General store", 3: "Hotel", 4: "Bank", 5: "Market house", 6: "Warehouse", 7: "Commercial block", 8: "Office building", 9: "Bakery", 10: "Butcher shop", 11: "Kosher butcher", 12: "Saloon", 13: "Barbershop" },
   // v0.26 plat layout (platlayout.ts ParkSub / FarmSub / LotSub)
-  0: { 1: "Cleared lot", 2: "Yard" },
+  0: { 1: "Cleared lot", 2: "Yard", 5: "Burnt-out lot" },
   2: { 1: "Kitchen gardens", 2: "Orchard", 3: "Scrapyard", 4: "Brickyard" },
 };
 
@@ -63,7 +65,9 @@ export const STRUCTURES = ["", "blockhouse", "courthouse", "arsenal", "penitenti
   "school", "theatre", "observatory", "zoo", "amusement", "airport", "plant", "office", "housing", "fountain", "factory",
   "shipyard", "planetarium", "church", "hall", "ruin1", "ruin2", "ruin3", "ruin4",
   // v0.18 (appended so saved structure indices keep their meaning)
-  "skyscraper", "skytower", "glasstower", "lab", "reactor"] as const;
+  "skyscraper", "skytower", "glasstower", "lab", "reactor",
+  // v0.27 civic life
+  "cathedral", "jail", "prison", "store", "hotel", "reservoir", "barracks", "bathhouse"] as const;
 export type StructureKind = (typeof STRUCTURES)[number];
 const STRUCTURE_SIZE: Record<string, number> = { blockhouse: 1, courthouse: 2, arsenal: 3, penitentiary: 3 };
 

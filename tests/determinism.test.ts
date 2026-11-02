@@ -14,9 +14,9 @@ import { unpackGame } from "../src/core/save";
 // "1850-desire" is v0.24's growth model: it must keep v0.24's hash (the block model is beside it, not in it).
 const EXPECTED: Record<string, string> = {
   "1850-desire": "195c5413",
-  "1850": "688bf800",
-  "1893-steel": "777d81b5",
-  "1947-steel": "100594ae",
+  "1850": "84aaa795",
+  "1893-steel": "85007d6d",
+  "1947-steel": "f375d958",
 };
 const SEASONS = Number(process.env.SEASONS ?? 10);
 

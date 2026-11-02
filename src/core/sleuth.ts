@@ -1061,3 +1061,33 @@ export function blockTiles(g: GameState, b: Block): readonly number[] { return r
 export function sleuthSaving(g: GameState) { const r = runtimes.get(g); if (r) { for (const c of r.score) c.clear(); r.scoreYear = -1; } }
 
 export { ANCHORS, latLonToTile };
+
+// ---------------------------------------------------------------- v0.27 civic life: helpers for civiclife.ts
+
+/** a block's tiles, in index order */
+export function tilesOf(g: GameState, b: Block): number[] { return rt(g).tiles[b.id - 1] ?? []; }
+
+/** recount a block's people from its tiles (after a fire or a new public building took houses) */
+export function resyncBlock(g: GameState, b: Block) { resync(g, b, tilesOf(g, b)); }
+
+/**
+ * A lot for a public building (an engine house, a station house, a borough hall, a union hall): fronting the main
+ * street if it can, else any street, nearest `near` (default the seed). Open land first, then a frame house bought
+ * out; never a church, a shop or a brick block. -1 if there is none.
+ */
+export function serviceLot(g: GameState, b: Block, near?: [number, number]): number {
+  const m = g.map, w = g.world, W = m.width, tiles = tilesOf(g, b);
+  const [nx, ny] = near ?? [b.x, b.y];
+  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
+  let best = -1, bs = Infinity;
+  for (const i of tiles) {
+    const u = w.use[i];
+    if (w.street[i] || m.road[i] || m.rail[i] || m.terrain[i] === Terrain.Water || m.terrain[i] === Terrain.Cliff || b.res?.includes(i)) continue;
+    const house = u === Use.Houses || u === Use.Cottage;
+    if (!(u <= Use.Farm || (house && w.sub[i] !== HouseSub.Estate))) continue;
+    if (!onStreet(i)) continue;
+    const score = Math.hypot((i % W) - nx, ((i / W) | 0) - ny) + (frontsMain(g, b, i) ? 0 : 4) + (house ? 3 + w.pop[i] * 0.1 : 0) + (m.terrain[i] === Terrain.Steep ? 6 : 0);
+    if (score < bs) { bs = score; best = i; }
+  }
+  return best;
+}

@@ -7,6 +7,7 @@ import { lobbyInfluence, lobbySeasons, type RoadPlan, roadPlans } from "../core/
 import { distance, feet } from "../core/units";
 import { actionBlocked, actionCost, takeAction } from "../core/business";
 import { HOOD_ACTIONS, hoodReport, INVESTS } from "../core/hood";
+import { CIVIC_ACTIONS } from "../core/civiclife";
 import { Rng } from "../core/rng";
 import { teamGround, teamName } from "../core/sports";
 import { fund, fundBlocked, giveText, greatWorks, WINDOW } from "../core/patronage";
@@ -45,12 +46,29 @@ function hoodSection(g: GameState): string {
       ${bar("Health", r.health, "Smoke, water and crowding where your men live: sick men make less, and the sick and the poor strike")}
       ${bar("Housing", r.housing, "Crowding, lodgers, shanties and boarding houses")}
       ${bar("Amenity", r.amenity, "Baths, libraries, schools, parks and paving within reach")}
-      ${bar("Cohesion", r.cohesion, "Churches, halls and settlement houses; clearance tears it")}
+      ${bar("Cohesion", r.cohesion, `Churches, halls and settlement houses${y >= 1905 && y <= 1930 ? " (with their night schools: English and citizenship for the newcomers)" : ""}; union halls hold the men together, police stations don't; clearance tears it`)}
       ${bar("Land value", r.land, "Against the valley's average (50)")}
     </div>
     ${doneList ? `<div class="wk-techs">${doneList}</div>` : ""}
     ${rows.join("") || `<p class="hint">Nothing more to do here right now.</p>`}
     ${hoodMore ? later.join("") : ""}${later.length ? `<button class="link more" data-hoodmore="1">${hoodMore ? "Show fewer" : `Show later (${later.length})`}</button>` : ""}`;
+}
+
+/** v0.27: the city's engine houses and station houses, the year's fires, what the company can pay for, the family plot */
+function civicSection(g: GameState): string {
+  const civ = g.civ;
+  if (!g.company || !civ) return "";
+  const live = (k: string) => civ.services.filter((s) => s.kind === k && g.world.use[s.tile] === 6).length;
+  const rows = CIVIC_ACTIONS.map((a) => {
+    const blocked = actionBlocked(g, a), cost = actionCost(g, a);
+    if (blocked === "Already founded") return "";
+    const why = blocked ?? (g.company!.biz.actionsLeft <= 0 ? "No actions left this season" : g.company!.cash < cost ? `Needs ${money(cost)}` : null);
+    return actRow(esc(a.name), costButton(`data-civ="${a.id}"`, cost, why), "", `${a.blurb}${why ? ` — ${why}` : ""}`);
+  }).join("");
+  const fires = civ.fires.slice(-3).reverse().map((f) => `<div class="lm-row"><span>${esc(f.name)}</span><span class="${f.tiles >= 18 ? "bad" : ""}">${f.tiles} lots${f.dead ? ` · ${f.dead} dead` : ""}</span></div>`).join("");
+  const plot = civ.plot && g.family ? `<p class="hint">The ${esc(g.family.surname)} family plot: ${civ.plot.graves.length} buried${civ.plot.level === 2 ? ", under a mausoleum" : civ.plot.level === 1 ? ", beneath an obelisk" : ""}. Click it on the map to read the stones.</p>` : "";
+  return `${head("Fire & police", `${live("fire")} engine houses · ${live("police")} station houses${civ.brigade !== undefined ? " · your brigade" : ""}`)}
+    ${rows}${fires ? `<h4 class="mh">Recent fires</h4>${fires}` : ""}${plot}`;
 }
 
 /** the roads worth building, with what each would do; and roads the city is building for you */
@@ -93,6 +111,7 @@ export function townPanel(g: GameState, el: HTMLElement, changed: () => void, go
       <div class="card"><small>Out of work</small><b class="${g.jobless > 500 ? "down" : ""}">${fmt(g.jobless)}</b><em>in the valley</em></div>
     </div>
     ${hoodSection(g)}
+    ${civicSection(g)}
     ${g.company ? head("Roads & bridges") + roadRows(g) + head("Gifts to the town") + giftRows(g) : ""}
     ${head("Found ahead of history", canFound.length ? `${canFound.length} open` : "")}
     ${!g.company ? `<p class="hint">Found your company first.</p>` : foundList.length ? foundList.map((w) => {
@@ -120,6 +139,11 @@ export function townPanel(g: GameState, el: HTMLElement, changed: () => void, go
   el.querySelector<HTMLButtonElement>("button[data-hoodmore]")?.addEventListener("click", () => { hoodMore = !hoodMore; redo(); });
   el.querySelectorAll<HTMLButtonElement>("button[data-hood]").forEach((b) => b.addEventListener("click", () => {
     const r = takeAction(g, b.dataset.hood!, new Rng(`${g.seed}:hood:${g.turn}:${actionCount++}`), hoodWorks);
+    status = r.text;
+    changed();
+  }));
+  el.querySelectorAll<HTMLButtonElement>("button[data-civ]").forEach((b) => b.addEventListener("click", () => {
+    const r = takeAction(g, b.dataset.civ!, new Rng(`${g.seed}:civ:${g.turn}:${actionCount++}`));
     status = r.text;
     changed();
   }));

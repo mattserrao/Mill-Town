@@ -136,13 +136,15 @@ export interface HoodReport { health: number; housing: number; amenity: number; 
 export function hoodReport(g: GameState, w: Works): HoodReport {
   const m = g.map, W = g.world, bg = blockGrid(m), [cx, cy] = centre(w);
   let pop = 0, hp = 0, homes = 0, land = 0, lots = 0, amen = 0, coh = 0, parks = 0, bad = 0;
+  // v0.27: the night schools in the halls (English and citizenship for the newcomers, 1905–30)
+  const night = W.year >= 1905 && W.year <= 1930;
   for (let y = cy - HOOD_R; y <= cy + HOOD_R; y++) for (let x = cx - HOOD_R; x <= cx + HOOD_R; x++) {
     if (!inBounds(m, x, y) || Math.hypot(x - cx, y - cy) > HOOD_R) continue;
     const i = y * m.width + x, u = W.use[i];
     if (W.pop[i]) { pop += W.pop[i]; hp += g.env.health[blockOf(bg, x, y)] * W.pop[i]; }
     if (u >= Use.Cottage && u <= Use.Rowhouses) { homes++; land += W.landValue[i]; lots++; if (W.sub[i] === HouseSub.Shanty || W.sub[i] === HouseSub.Boarding) bad++; }
     if (u === Use.Park) parks++;
-    if (u === Use.Civic) { if (W.sub[i] === CivicSub.Library || W.sub[i] === CivicSub.School) amen += 4; else coh += W.sub[i] === CivicSub.Hall ? 3 : W.sub[i] === CivicSub.Firehouse ? 0 : 2; }
+    if (u === Use.Civic) { const cs = W.sub[i]; if (cs === CivicSub.Library || cs === CivicSub.School) amen += 4; else if (cs === CivicSub.Firehouse || cs === CivicSub.BoroughHall) amen += 2; else if (cs === CivicSub.Police) coh -= 1; else coh += cs === CivicSub.Hall || cs === CivicSub.UnionHall ? (cs === CivicSub.Hall && night ? 4 : 3) : 2; }
   }
   for (const l of g.landmarks) if (l.state === "open" && Math.hypot(l.x - cx, l.y - cy) <= HOOD_R && l.kind !== "factory" && l.kind !== "plant") amen += 8;
   let valley = 0, vn = 0;

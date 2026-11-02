@@ -27,6 +27,7 @@ import { type Camera, BASE_M, heightAt, HH, HW, project, ZPX } from "./iso";
 import { windFor } from "./pollution";
 import { stageOf } from "./renderer";
 import { waterFields } from "./waterfields";
+import { Gatherings, type GFig } from "./gatherings";
 
 type Kind = "walker" | "wagon" | "carriage" | "horsecar" | "streetcar" | "auto" | "truck" | "train" | "steamboat" | "tow";
 /** wander: drifts along the busy streets; in: heading to a job centre; out: heading home from a works; idle: out of work, standing about */
@@ -106,6 +107,8 @@ export class Traffic {
   /** set by the app: is this tile inside a works (trains don't run through the mills) */
   worksTile?: (i: number) => boolean;
   private pickets: PicketSite[] = [];
+  /** v0.27: funerals, parades, engine runs, crowds and fires (gatherings.ts) */
+  private gath: Gatherings;
   private parked: ParkedCut[] = [];
   private sceneKey = "";
   private parkedKey = "";
@@ -124,13 +127,14 @@ export class Traffic {
 
   /** forget everything from the last game (New town): agents, the freight field and the bridge decks */
   reset() {
-    this.agents = []; this.puffs = []; this.pickets = []; this.parked = []; this.blocked.clear();
+    this.agents = []; this.puffs = []; this.pickets = []; this.parked = []; this.blocked.clear(); this.gath.reset();
     this.sceneKey = ""; this.parkedKey = "";
     this.freightTurn = -1; this.freightBlock = undefined;
     this.deck.clear(); this.deckYear = -1; this.snapCache.clear();
   }
 
   constructor(private m: GameMap) {
+    this.gath = new Gatherings(m);
     const f = waterFields(m);
     this.shore = f.shore; this.down = f.down;
   }
@@ -249,6 +253,7 @@ export class Traffic {
     // people, horses, wagons, streetcars and cars appear from 0.375× in, where they're legible
     const small = z >= SMALL_AGENT_ZOOM;
     const w = g.world;
+    if (small) this.gath.update(g, (x, y) => this.tileInView(x, y, 160), `${Math.round(cam.x / 256)},${Math.round(cam.y / 256)},${z.toFixed(2)},${g.turn}`, v);
     this.agents = this.agents.filter((a) => {
       if (a.dying && a.alpha <= 0) return false;
       if (!(small || BIG.has(a.kind)) || !this.inView(a)) return false;
@@ -1050,7 +1055,7 @@ export class Traffic {
     ctx.globalAlpha = 1;
     if (z >= SMALL_AGENT_ZOOM) {
       // people and vehicles, back to front
-      type D = { d: number; a?: Agent; fx: number; fy: number; tx: number; ty: number; pk?: PicketSite; fig?: PicketSite["figs"][number]; barrel?: boolean };
+      type D = { d: number; a?: Agent; fx: number; fy: number; tx: number; ty: number; pk?: PicketSite; fig?: PicketSite["figs"][number]; barrel?: boolean; gf?: GFig };
       const list: D[] = [];
       for (const a of this.agents) {
         if (BIG.has(a.kind)) continue;
@@ -1071,6 +1076,7 @@ export class Traffic {
         }
         if (lit) list.push({ d: pk.barrel[0] + pk.barrel[1], fx: pk.barrel[0], fy: pk.barrel[1], tx: 0, ty: 0, pk, barrel: true });
       }
+      for (const f of this.gath.figs(time)) list.push({ d: f.fx + f.fy, fx: f.fx, fy: f.fy, tx: f.tx, ty: f.ty, gf: f });
       list.sort((p, q) => p.d - q.d);
       const k = z;
       ctx.imageSmoothingEnabled = false;
@@ -1089,6 +1095,33 @@ export class Traffic {
           ctx.fillRect(Math.round(sx - 2 * k), Math.round(sy - (10 + fl * 2) * k), Math.max(1, Math.round(4 * k)), Math.max(1, Math.round((3 + fl) * k)));
           ctx.fillStyle = "#ff6020"; ctx.fillRect(Math.round(sx - 1 * k), Math.round(sy - (12 + fl * 2) * k), Math.max(1, Math.round(2 * k)), Math.max(1, Math.round(2 * k)));
           this.light(sx, sy - 9 * k, (30 + fl * 4) * k, 0.9, 3);
+          continue;
+        }
+        if (e.gf) {
+          const f = e.gf;
+          if (f.flame) {
+            // flames over a burning lot, and their glow
+            for (let q = 0; q < 3; q++) {
+              const fl = Math.sin(time * (9 + q * 2.3) + f.seed + q) * Math.sin(time * 5.1 + q);
+              const ox = (q - 1) * 5 * k, hgt = (10 + fl * 4 + (q === 1 ? 6 : 0)) * k;
+              ctx.fillStyle = fl > 0 ? "#ffb030" : "#ff7020";
+              ctx.fillRect(Math.round(sx + ox - 2 * k), Math.round(sy - hgt), Math.max(1, Math.round(4 * k)), Math.max(1, Math.round(hgt)));
+              ctx.fillStyle = "#ffe080"; ctx.fillRect(Math.round(sx + ox - k), Math.round(sy - hgt * 0.6), Math.max(1, Math.round(2 * k)), Math.max(1, Math.round(hgt * 0.5)));
+            }
+            this.light(sx, sy - 10 * k, 46 * k, 0.95, 3);
+            continue;
+          }
+          if (f.spec) {
+            const fc: Facing = Math.abs(f.tx) > Math.abs(f.ty) ? (f.tx > 0 ? 0 : 2) : (f.ty > 0 ? 1 : 3);
+            ctx.fillStyle = "rgba(0,0,0,0.18)";
+            ctx.beginPath(); ctx.ellipse(sx, sy + k, 8 * k, 3.5 * k, 0, 0, Math.PI * 2); ctx.fill();
+            blit(vehicleFig(f.spec, fc, f.moving ? (((time * 6 + f.seed * 3) | 0) & 1) : 0, lit), sx, sy);
+            continue;
+          }
+          const front = f.tx + f.ty >= 0;
+          const frame = f.moving ? (((time * 2.6 + f.seed * 5) | 0) & 1) : ((time * 0.7 + f.fx * 3) % 5 < 0.4 ? 1 : 2);
+          blit(walkerFig(f.look!, front, frame), sx, sy);
+          if (f.placard !== undefined) blit(placardFig(f.placard), sx + 2 * k, sy - 6 * k);
           continue;
         }
         if (e.fig) {

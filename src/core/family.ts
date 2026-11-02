@@ -18,7 +18,7 @@ import { holdingsValue, sellBiz, sellShares, sellStake } from "./holdings";
 export type Path = "business" | "industry" | "politics" | "coop" | "financier";
 export type TraitId = "works" | "scholar" | "abroad" | "spoiled" | "married" | "orator" | "iron" | "reformer";
 
-export interface Person { first: string; sex: "m" | "f"; born: number; traits: TraitId[] }
+export interface Person { first: string; sex: "m" | "f"; born: number; traits: TraitId[]; /** v0.27: the year they died (buried in the family plot) */ died?: number }
 export interface Head extends Person {
   from: number; to?: number; path: Path;
   /** a line for the family tree: what they were remembered for */
@@ -88,7 +88,7 @@ const NAMES: Record<"m" | "f", [number, string[]][]> = {
 export const SURNAMES = ["Calder", "Ashworth", "Wolcott", "Brannock", "Haldane", "Strachan", "Kerr", "Lindsay", "Moorhead", "Thaw", "Denny", "Blackburn"];
 export const FOUNDER_NAMES = NAMES.m[0][1];
 
-const pickName = (rng: Rng, sex: "m" | "f", born: number) => { const list = [...NAMES[sex]].reverse().find(([y]) => born >= y)![1]; return list[rng.int(0, list.length - 1)]; };
+export const pickName = (rng: Rng, sex: "m" | "f", born: number) => { const list = [...NAMES[sex]].reverse().find(([y]) => born >= y)![1]; return list[rng.int(0, list.length - 1)]; };
 
 export const familyOf = (g: GameState) => g.family;
 export const head = (g: GameState): Head | undefined => g.family?.heads[g.family.heads.length - 1];

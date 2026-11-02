@@ -25,6 +25,7 @@ import { OFFICE_ACTIONS } from "./career";
 import { decisionMarks } from "./branches";
 import { OWNER_ACTIONS, recordMove, type MoveKind } from "./owners";
 import { HOOD_ACTIONS } from "./hood";
+import { CIVIC_ACTIONS, queueDead } from "./civiclife";
 import { ENV_ACTIONS } from "./enviro";
 import { MARKET_ACTIONS } from "./supply";
 
@@ -203,6 +204,7 @@ export function businessSeason(g: GameState, rng: Rng, employees: number): Seaso
   for (let k = 0; k < 6; k++) if (rng.chance(expected / 6)) deaths += 1 + (rng.chance(0.15) ? rng.int(1, 6) : 0);
   if (deaths) {
     out.deaths = deaths;
+    queueDead(g, c.x + (c.footprint >> 1), c.y + (c.footprint >> 1), deaths, deaths >= 2 ? { name: `the funeral of the men killed at ${c.name}` } : undefined);
     bump(g, "labour", -2 * deaths);
     bump(g, "reputation", -(deaths >= 3 ? 2 * deaths : deaths * 0.5));
     out.notes.push(deaths === 1 ? "A man was killed at the works." : `${deaths} men were killed at the works.`);
@@ -265,7 +267,7 @@ export function pushHeadline(g: GameState, name: string, description: string, ca
  */
 let actionList: ActionDef[] | null = null;
 export function allActions(): ActionDef[] {
-  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS, ...HOOD_ACTIONS, ...ENV_ACTIONS, ...MARKET_ACTIONS]);
+  return (actionList ??= [...BASE_ACTIONS, ...RIVAL_ACTIONS, ...SELL_ACTIONS, ...SPORTS_ACTIONS, ...POLITICS_ACTIONS, ...OFFICE_ACTIONS, ...OWNER_ACTIONS, ...HOOD_ACTIONS, ...CIVIC_ACTIONS, ...ENV_ACTIONS, ...MARKET_ACTIONS]);
 }
 
 const BASE_ACTIONS: ActionDef[] = [
@@ -301,6 +303,7 @@ const BASE_ACTIONS: ActionDef[] = [
         pushHeadline(g, `Battle at ${c.name}`, `Pinkerton guards and strikers exchange fire at the works; ${dead} are dead. The governor sends the militia.`);
         mark(g, { id: `martyrs${year(g)}`, side: "labour", kind: "grievance", weight: 10 * dead, text: `had strikers shot at the gates in ${year(g)}`, martyrs: dead });
         (g.memorials ??= []).push({ x: c.x + c.footprint + 1, y: c.y + (c.footprint >> 1), year: year(g), dead, text: `${dead} killed by Pinkertons` });
+        queueDead(g, c.x + c.footprint + 1, c.y + (c.footprint >> 1), dead, { name: `the funeral of the ${dead} men killed by the Pinkertons` });
         log(g, `Pinkertons and strikers fight at ${c.name}: ${dead} dead.`);
       }
       if (rng.chance(0.6)) { endStrikes(g); bump(g, "labour", -15); c.biz.policy.union = "fight"; return violence ? "The strike is broken, at a price in blood." : "The guards hold the gates; the strike collapses."; }
