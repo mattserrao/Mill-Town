@@ -1,6 +1,7 @@
 import { passTable, resetPassTimes } from "./core/passtimes";
 import { companyWorth } from "./core/holdings";
 import { distance, feet } from "./core/units";
+import { setDefaultGrowth } from "./core/game";
 import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, foundingCapital, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
 import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
 import { loadMap, type GameMap } from "./core/map";
@@ -183,6 +184,9 @@ function startLater(seed: number, o: NewGameOptions) {
     setTimeout(step, 30);
   }
 }
+
+// ?growth=desire grows new towns by v0.24's lots instead of seed blocks (for comparison)
+if (new URLSearchParams(location.search).get("growth") === "desire") setDefaultGrowth("desire");
 
 function newTown(seed: number) {
   resetUiState();

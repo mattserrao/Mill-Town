@@ -6,6 +6,7 @@
 //   Private dock         a landing of your own on the river: no wagon haul and first call on the barges
 //   A new works          from 1890: found a second works, in any industry, with the processes of the day
 
+import { platCompanyHousing } from "./sleuth";
 import { permitBlock } from "./enviro";
 import { feet } from "./units";
 import { bump } from "./business";
@@ -199,6 +200,8 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
     }
     c.annexes.push({ kind: "housing", x: q.x, y: q.y, fp: q.size, year });
     text = `${c.name} builds a block of company doubles.`;
+    // under the block model the doubles are a plat: a seed block that grows outward as the works draws men
+    if (g.growthModel === "sleuth" && platCompanyHousing(g, q.x + (q.size >> 1), q.y + (q.size >> 1), q.size)) text = `${c.name} plats company housing: the first doubles go up, and the plat will grow as the works hires.`;
   } else if (p.kind === "dock") {
     let water: [number, number] | undefined;
     for (let dy = 0; dy < q.size; dy++) for (let dx = 0; dx < q.size; dx++) {

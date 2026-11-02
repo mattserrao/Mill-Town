@@ -11,8 +11,10 @@ import { advanceTurn, newGame, type GameState } from "../src/core/game";
 import { parseMap, type MapMeta } from "../src/core/map";
 import { unpackGame } from "../src/core/save";
 
+// "1850-desire" is v0.24's growth model: it must keep v0.24's hash (the block model is beside it, not in it).
 const EXPECTED: Record<string, string> = {
-  "1850": "195c5413",
+  "1850-desire": "195c5413",
+  "1850": "",
   "1893-steel": "b315e326",
   "1947-steel": "db25bfff",
 };
@@ -31,6 +33,7 @@ export function hashGame(g: GameState): string {
   };
   const w = g.world;
   for (const a of [w.pop, w.eth, w.use, w.sub, w.street, w.landValue, w.pollution, w.kit, g.env.air, g.env.health, g.env.unrest, g.env.traffic]) bytes(a as ArrayBufferView);
+  if (w.blockId) { bytes(w.blockId); bytes(new TextEncoder().encode(JSON.stringify(g.sleuth))); }
   bytes(new Float64Array([g.turn, g.morale, g.jobless, g.company?.cash ?? 0]));
   bytes(new TextEncoder().encode(JSON.stringify(g.rivals)));
   return (h >>> 0).toString(16).padStart(8, "0");
@@ -39,7 +42,8 @@ export function hashGame(g: GameState): string {
 async function run(key: string): Promise<string> {
   const map = parseMap(meta, bin);
   let g: GameState;
-  if (key === "1850") g = newGame(map, 1234);
+  if (key === "1850-desire") g = newGame(map, 1234, "desire");
+  else if (key === "1850") g = newGame(map, 1234, "sleuth");
   else g = await unpackGame(new Blob([readFileSync(new URL(`../public/starts/${key}.mtsave`, import.meta.url))]), map);
   for (let k = 0; k < SEASONS; k++) advanceTurn(g);
   return hashGame(g);

@@ -139,6 +139,8 @@ export interface World {
   zoneCursor?: number;
   /** bumped whenever tiles change, so renderers can drop caches */
   version: number;
+  /** the seed block each tile belongs to (v0.25 block growth model; 0 none) */
+  blockId?: Uint16Array;
 }
 
 export function useForPop(p: number): Use {
@@ -524,8 +526,8 @@ export function walkField(m: GameMap, w: World, sx: number, sy: number, maxCost:
 /** the season the yearly steps, downtown, community styles and churches are done in (summer; spring before v0.24) */
 export const CIVIC_SEASON = 1;
 
-export function civicSeason(m: GameMap, w: World, season: number) {
-  turnover(m, w, season);
+export function civicSeason(m: GameMap, w: World, season: number, tileTurnover = true) {
+  if (tileTurnover) turnover(m, w, season);
   if (season !== CIVIC_SEASON) return;
   addSteps(m, w);
   rebuildDowntown(m, w);

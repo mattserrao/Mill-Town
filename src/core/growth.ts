@@ -324,7 +324,7 @@ function scratch(n: number) {
 
 let blockedCache: { m: GameMap; seed: number; f: Uint8Array } | null = null;
 /** lots that never take a first house: wooded ravines between the terraces, gardens, vacant lots and alleys (fixed per town) */
-function lotBlocked(m: GameMap, seed: number): Uint8Array {
+export function lotBlocked(m: GameMap, seed: number): Uint8Array {
   if (blockedCache && blockedCache.m === m && blockedCache.seed === seed) return blockedCache.f;
   const W = m.width, f = new Uint8Array(W * m.height);
   for (let y = 0; y < m.height; y++) for (let x = 0; x < W; x++) {
