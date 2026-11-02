@@ -25,7 +25,7 @@ import { CivicSub, densityCap, HouseSub, POP_CAP, Street, terrainCap, Use, useFo
 
 /** uses a house never goes on, by use id */
 const NO_HOUSE = new Uint8Array(64);
-for (const u of [Use.Civic, Use.Landmark, Use.Wharf, Use.Commerce, Use.Mine, Use.Incline, Use.Industry, Use.Rival, Use.Park]) NO_HOUSE[u] = 1;
+for (const u of [Use.Civic, Use.Landmark, Use.Wharf, Use.Commerce, Use.Mine, Use.Incline, Use.Industry, Use.Rival, Use.Park, Use.Cemetery]) NO_HOUSE[u] = 1;
 
 const CHURCH_SUBS = new Set<number>([CivicSub.Church, CivicSub.OnionChurch, CivicSub.TwinChurch, CivicSub.Synagogue, CivicSub.BlackChurch]);
 

@@ -32,8 +32,9 @@ import { NG } from "./neighbourhood";
 import { Rng, tileNoise } from "./rng";
 import { RIVALS } from "./rivals";
 import { SEED_TYPES, seedsFor, type PlacedSeed, type SeedType } from "./seeds";
+import { buildCivic, churchFor, civicDue, fringeOk, fringeSub, isYard, LotSub, mainAxis, platAngle, platStreet, seamStreet, SHOP_CLOSED, squareTiles } from "./platlayout";
 import { habitable, Terrain } from "./terrain";
-import { densityCap, HouseSub, POP_CAP, Street, terrainCap, Use, useForPop, type World } from "./town";
+import { densityCap, HouseSub, POP_CAP, ShopSub, Street, terrainCap, Use, useForPop, type World } from "./town";
 
 // ---------------------------------------------------------------- state
 
@@ -58,8 +59,20 @@ export interface Block {
   x: number; y: number;
   /** most land it will take */
   size: number;
-  /** street-grid orientation: 0 = rows run east–west, 1 = north–south */
-  angle: 0 | 1;
+  /** street-grid orientation: 0 = rows run east–west, 1 = north–south, 2 and 3 = the diagonals (v0.26) */
+  angle: number;
+  /** the main street runs along the rows (0) or across them (1) */
+  main?: number;
+  /** the lot set aside for the plat's church (v0.26) */
+  res?: number[];
+  /** civic land laid out so far: church, school, park, cemetery */
+  civ?: string[];
+  /** no room for civic land last time: look again from this year */
+  civTry?: number;
+  /** villas built (suburbs) */
+  villas?: number;
+  /** houses standing empty since the closures, and when they emptied: [tile, year] */
+  vacant?: [number, number][];
   /** land held, tiles with houses, people, people by community */
   land: number; built: number; pop: number; byGroup: number[];
   /** brick rowhouses allowed (the block has filled out) */
@@ -166,9 +179,10 @@ function openBlock(g: GameState, s: PlacedSeed | { id: string; name: string; typ
   if (st.opened[s.id] !== undefined) return null;
   const b: Block = {
     id: st.blocks.length + 1, seed: s.id, name: s.name, type: s.type, opened: w.year, ward: st.blocks.length + 1,
-    x: s.x, y: s.y, size: s.size, angle: gridAngle(g, s.x, s.y), land: 0, built: 0, pop: 0, byGroup: new Array(NG).fill(0),
-    dense: false, access: 0, lv: 0, smoke: 0, health: 1, sampledAt: 0, works,
+    x: s.x, y: s.y, size: s.size, angle: platAngle(m, s.x, s.y), land: 0, built: 0, pop: 0, byGroup: new Array(NG).fill(0),
+    dense: s.type === "core", access: 0, lv: 0, smoke: 0, health: 1, sampledAt: 0, works,
   };
+  b.main = mainAxis(b, worksPoints(g));
   if (!b.name) b.name = nameFor(g, b);
   st.blocks.push(b);
   st.opened[s.id] = b.id;
@@ -178,23 +192,11 @@ function openBlock(g: GameState, s: PlacedSeed | { id: string; name: string; typ
     const i = s.y * m.width + s.x;
     if (!w.blockId![i] && isAnnexable(g, i, true)) annex(g, b, i);
     else rebuildFrontier(g, b);
+    layOutSquare(g, b);
     grow(g, b, Math.min(16, Math.max(4, Math.round(b.size * 0.05))), new Rng(`${g.seed}:open:${s.id}`));
     sampleFields(g, b, g.commute?.access);
   }
   return b;
-}
-
-/** the street grid at a seed follows the roads around it: rows along whichever way more of them run */
-function gridAngle(g: GameState, x: number, y: number): 0 | 1 {
-  const m = g.map;
-  let ew = 0, ns = 0;
-  for (let dy = -8; dy <= 8; dy++) for (let dx = -8; dx <= 8; dx++) {
-    const xx = x + dx, yy = y + dy;
-    if (!inBounds(m, xx, yy) || !m.road[yy * m.width + xx]) continue;
-    if (inBounds(m, xx + 1, yy) && m.road[yy * m.width + xx + 1]) ew++;
-    if (inBounds(m, xx, yy + 1) && m.road[(yy + 1) * m.width + xx]) ns++;
-  }
-  return ns > ew ? 1 : 0;
 }
 
 function nameFor(g: GameState, b: Block): string {
@@ -206,7 +208,7 @@ function nameFor(g: GameState, b: Block): string {
 // ---------------------------------------------------------------- land
 
 const NEVER = new Uint8Array(64);
-for (const u of [Use.Industry, Use.Rival, Use.Landmark, Use.Incline, Use.Park, Use.Wharf, Use.Mine]) NEVER[u] = 1;
+for (const u of [Use.Industry, Use.Rival, Use.Landmark, Use.Incline, Use.Park, Use.Wharf, Use.Mine, Use.Cemetery]) NEVER[u] = 1;
 
 /** can a block take this tile? (`steepOk`: the block builds on steep ground) */
 let bandMask: { m: unknown; mask: Uint8Array } | null = null;
@@ -241,11 +243,13 @@ function annex(g: GameState, b: Block, i: number) {
   r.front[b.id - 1].delete(i);
   b.land++;
   if (w.pop[i]) { b.pop += w.pop[i]; b.byGroup[w.eth[i]] += w.pop[i]; b.built++; }
-  // the block's own lanes on its grid, where the road data has none
-  if (SEED_TYPES[b.type].lanes && !w.pop[i] && !w.street[i] && !m.road[i] && w.use[i] <= Use.Farm) {
-    let roadNear = false;
-    for (let dy = -2; dy <= 2 && !roadNear; dy++) for (let dx = -2; dx <= 2; dx++) if (inBounds(m, x + dx, y + dy) && m.road[(y + dy) * W + x + dx]) { roadNear = true; break; }
-    if (!roadNear && onLane(b, x, y)) { w.street[i] = Street.Lane; w.use[i] = Use.Empty; }
+  // the plat lays out its land (platlayout.ts): its own streets where the map has none, a seam street where it meets a
+  // plat on another angle, a suburb's yards, the woods left in its ravines
+  if (!w.pop[i] && !w.street[i] && !m.road[i] && w.use[i] <= Use.Farm) {
+    const st = platStreet(g, b, x, y) || (SEED_TYPES[b.type].lanes && seamStreet(g, b, x, y, g.sleuth!.blocks) ? Street.Lane : 0);
+    if (st) { w.street[i] = st; w.use[i] = Use.Empty; w.sub[i] = 0; }
+    else if (isYard(b, x, y)) { w.use[i] = Use.Empty; w.sub[i] = LotSub.Yard; }
+    else if (SEED_TYPES[b.type].loose > 0.05 && lotBlocked(m, w.seed)[i]) { w.use[i] = Use.Forest; w.sub[i] = 0; }
   }
   // the new lot takes its place in the block's order
   const had = r.order[b.id - 1] !== null, ord = fillOrder(g, b), v = lotWeight(g, b, i);
@@ -310,7 +314,7 @@ function grow(g: GameState, b: Block, n: number, rng: Rng): number {
         if (!inBounds(m, xx, yy)) continue;
         const j = yy * W + xx;
         if ((dx || dy) && w.blockId![j] === b.id) k++;
-        if (m.road[j] || (lanes && onLane(b, xx, yy))) road = true;
+        if (m.road[j] || (lanes && onLane(g, b, xx, yy))) road = true;
       }
       if (b.land > 0 && k < 2 && !(k >= 1 && road)) { cache.set(i, NaN); continue; }
       const t = m.terrain[i];
@@ -424,6 +428,7 @@ function lotWeight(g: GameState, b: Block, i: number): number {
   const m = g.map, w = g.world, W = m.width, def = SEED_TYPES[b.type];
   if (m.road[i]) return -Infinity;
   const x = i % W, y = (i / W) | 0, t = m.terrain[i];
+  if (isYard(b, x, y) || platStreet(g, b, x, y)) return -Infinity;
   if (lotBlocked(m, w.seed)[i] && def.loose > 0.05) return -Infinity;               // ravines and gardens stay open
   if (tileNoise(w.seed + 17, x, y, 802) < def.loose) return -Infinity;                 // the block's own looseness
   if (t === Terrain.Water || t === Terrain.Cliff) return -Infinity;
@@ -431,21 +436,20 @@ function lotWeight(g: GameState, b: Block, i: number): number {
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const xx = x + dx, yy = y + dy;
     if (!inBounds(m, xx, yy)) continue;
-    if (m.road[yy * W + xx] || (def.lanes && onLane(b, xx, yy))) front = 1;
+    if (m.road[yy * W + xx] || onLane(g, b, xx, yy)) front = 1;
   }
   return front * 1.0 + (t === Terrain.Flat || t === Terrain.Floodplain ? 0.3 : 0) + 0.4 * tileNoise(w.seed, x, y, 803) - 0.003 * Math.hypot(x - b.x, y - b.y);
 }
 
 /** is (x, y) on the block's own lane grid? (lanes every 5 rows along its angle, cross streets every 12) */
-function onLane(b: Block, x: number, y: number): boolean {
-  const along = b.angle === 0 ? y - b.y : x - b.x, across = b.angle === 0 ? x - b.x : y - b.y;
-  return ((along % 5) + 5) % 5 === 0 || ((across % 12) + 12) % 12 === 0;
+function onLane(g: GameState, b: Block, x: number, y: number): boolean {
+  return platStreet(g, b, x, y) !== 0;
 }
 
 /** can people live on this lot now? (the things that change: streets, buildings, steep ground before 1900) */
 function lotOpen(g: GameState, b: Block, i: number): boolean {
   const m = g.map, w = g.world, u = w.use[i];
-  if (w.street[i] || u === Use.Civic || u === Use.Commerce || NEVER[u] || w.owner[i]) return false;
+  if (w.street[i] || u === Use.Civic || u === Use.Commerce || NEVER[u] || w.owner[i] || b.res?.includes(i)) return false;
   if (!w.pop[i]) {
     const t = m.terrain[i];
     if (!habitable(t) && !(t === Terrain.Steep && (SEED_TYPES[b.type].steep || w.year >= 1900))) return false;
@@ -490,6 +494,12 @@ function settle(g: GameState, b: Block, gid: number, count: number, newness: num
       w.eth[i] = gid; w.built[i] = year; b.built++;
       const x = i % W, y = (i / W) | 0;
       w.sub[i] = b.type === "company" ? HouseSub.Company : newness > 0.4 && plants.some(([px, py]) => Math.hypot(px - x, py - y) < 12) ? HouseSub.Shanty : HouseSub.Normal;
+      // a streetcar suburb's high ground: a few villas (v0.26)
+      if (b.type === "suburb" && (b.villas ?? 0) < 4 && g.map.elevation[i] > g.map.elevation[b.y * W + b.x] + 12 && tileNoise(w.seed, x, y, 907) < 0.3) {
+        w.sub[i] = HouseSub.Estate; b.villas = (b.villas ?? 0) + 1;
+        w.pop[i] = Math.min(8, left); w.use[i] = Use.Houses; left -= w.pop[i]; b.pop += w.pop[i]; b.byGroup[gid] += w.pop[i];
+        return;
+      }
     }
     w.pop[i] = p + add;
     w.use[i] = useForPop(w.pop[i]);
@@ -543,6 +553,7 @@ function emptyHomes(g: GameState, b: Block, homes: number, rng: Rng) {
     const i = tiles[rng.int(0, tiles.length - 1)], p = w.pop[i];
     if (!p || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
     w.pop[i] = 0; b.pop -= p; b.byGroup[w.eth[i]] -= p; b.built--; homes--;
+    (b.vacant ??= []).push([i, w.year]);
   }
 }
 
@@ -653,6 +664,161 @@ export function sleuthSeason(g: GameState, access: Float32Array, plants: [number
   return { placed, byGroup, annexed, opened };
 }
 
+// ---------------------------------------------------------------- the plats' year (v0.26, platlayout.ts)
+
+/** the works on the map, as points (for mill towns' main streets and company rows) */
+function worksPoints(g: GameState): [number, number][] {
+  const pts: [number, number][] = g.rivals.filter((r) => !r.offmap).map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
+  if (g.company) pts.push([g.company.x + g.company.footprint / 2, g.company.y + g.company.footprint / 2]);
+  return pts;
+}
+
+/** the square a plat sets aside at founding (a market or a green), and the lot beside it kept for its church */
+function layOutSquare(g: GameState, b: Block) {
+  const w = g.world, m = g.map;
+  const sq = squareTiles(g, b);
+  let placed = 0;
+  for (const t of sq) {
+    if (w.blockId![t.i] && w.blockId![t.i] !== b.id) continue;
+    if (!w.blockId![t.i]) { if (!isAnnexable(g, t.i, false) || w.pop[t.i] || m.road[t.i] || w.street[t.i]) continue; annex(g, b, t.i); }
+    if (w.pop[t.i] || w.street[t.i] || w.use[t.i] > Use.Farm) continue;
+    w.use[t.i] = t.use; w.sub[t.i] = t.sub; w.built[t.i] = w.year; placed++;
+  }
+  // the church lot: on the main street beside the square
+  if (placed && b.type !== "patch") {
+    for (const t of sq) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = (t.i % m.width) + dx, y = ((t.i / m.width) | 0) + dy;
+        if (!inBounds(m, x, y)) continue;
+        const j = y * m.width + x;
+        if (w.blockId![j] && w.blockId![j] !== b.id) continue;
+        if (w.street[j] || m.road[j] || w.use[j] > Use.Farm || w.pop[j] || platStreet(g, b, x, y)) continue;
+        if (!w.blockId![j]) { if (!isAnnexable(g, j, false)) continue; annex(g, b, j); }
+        b.res = [j];
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * Once a year, each plat: builds the civic land it has grown into (its church on the lot it kept, a school, a park,
+ * a cemetery at its edge); opens shops on its main street; rebuilds old shanties as houses once it has filled; keeps a
+ * fringe of gardens and orchards at its edge; and after 1975 clears the houses that have stood empty six years.
+ */
+function platYear(g: GameState, b: Block) {
+  const w = g.world, m = g.map, W = m.width, year = w.year, r = rt(g), tiles = r.tiles[b.id - 1];
+  if (!tiles.length) return;
+  const rng = new Rng(`${g.seed}:plat:${b.id}:${year}`);
+  // the slow work (civic land, shops, rebuilding, the fringe) comes round every third year, the blocks staggered
+  const turn = (year + b.id) % 3 === 0;
+  // ---- civic land
+  if (turn) for (const kind of civicDue(b.type, b.pop, b.land, year)) {
+    if (b.civ?.includes(kind)) continue;
+    // a plat with no room for it looks again every fourth year, not every year
+    if (b.civTry && year < b.civTry) continue;
+    const at = civicLots(g, b, kind);
+    if (!at.length) { b.civTry = year + 4; continue; }
+    for (const i of at) buildCivic(w, i, kind, churchFor(b.byGroup));
+    (b.civ ??= []).push(kind);
+    if (kind === "church") b.res = [];
+    resync(g, b, tiles);
+    w.version++;
+  }
+  // ---- main-street shops: one for every 400 people, on lots fronting its main street
+  if (turn && b.pop >= 300 && year < 1975 && b.type !== "patch" && b.type !== "hillside") {
+    let shops = 0;
+    for (const i of tiles) if (w.use[i] === Use.Commerce && !(w.sub[i] & SHOP_CLOSED)) shops++;
+    let want = Math.min(12, Math.floor(b.pop / 400)) - shops;
+    for (const i of tiles) {
+      if (want <= 0) break;
+      if (w.use[i] !== Use.Houses && w.use[i] !== Use.Rowhouses) continue;
+      if (w.sub[i] === HouseSub.Estate || !frontsMain(g, b, i) || rng.next() > 0.35) continue;
+      b.pop -= w.pop[i]; b.byGroup[w.eth[i]] -= w.pop[i]; b.built--;
+      w.use[i] = Use.Commerce; w.sub[i] = rng.chance(0.4) ? ShopSub.Tavern : ShopSub.Store; w.pop[i] = 0; w.was[i] = w.eth[i]; w.built[i] = year;
+      want--;
+    }
+  }
+  // ---- old shanties rebuilt as houses once the plat has filled out
+  if (turn && year - b.opened >= 15 && b.built > 20 && b.pop / b.built > 14) {
+    for (const i of tiles) if (w.sub[i] === HouseSub.Shanty && w.pop[i] && year - w.built[i] >= 15) { w.sub[i] = HouseSub.Normal; w.built[i] = year; }
+  }
+  // ---- the fringe: gardens and orchards beyond the built edge (a scrapyard or brickyard near works and rail)
+  if (turn && year - b.opened >= 3 && year < 1960 && b.type !== "patch") {
+    let n = 0;
+    for (const i of r.front[b.id - 1]) {
+      if (n >= 60) break;
+      if (!fringeOk(g, i) || tileNoise(w.seed + b.id, i % W, (i / W) | 0, 906) > 0.55) continue;
+      w.use[i] = Use.Farm; w.sub[i] = fringeSub(g, i % W, (i / W) | 0); n++;
+    }
+  }
+  // ---- the decline: houses empty six years are cleared to bare lots; main-street shops close, then are cleared
+  if (year >= 1975 && b.vacant?.length) {
+    b.vacant = b.vacant.filter(([i, y0]) => {
+      if (w.pop[i]) return false; // someone moved back in
+      if (year - y0 < 6) return true;
+      w.use[i] = Use.Empty; w.sub[i] = LotSub.Cleared; w.built[i] = year; w.street[i] = 0;
+      return false;
+    });
+  }
+  if (year >= 1975 && steelTown(g, b, steelWorks(g))) {
+    for (const i of tiles) {
+      if (w.use[i] !== Use.Commerce) continue;
+      if (w.sub[i] & SHOP_CLOSED) { if (year - w.built[i] >= 6) { w.use[i] = Use.Empty; w.sub[i] = LotSub.Cleared; w.built[i] = year; } continue; }
+      if (rng.chance(0.12)) { w.sub[i] |= SHOP_CLOSED; w.built[i] = year; }
+    }
+  }
+}
+
+/** does lot i front its plat's main street? */
+function frontsMain(g: GameState, b: Block, i: number): boolean {
+  const m = g.map, w = g.world, W = m.width, x = i % W, y = (i / W) | 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const xx = x + dx, yy = y + dy;
+    if (!inBounds(m, xx, yy)) continue;
+    const j = yy * W + xx;
+    if (w.street[j] === Street.Pike && w.blockId![j] === b.id) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a plat puts civic land: its church on the lot it kept (else a lot on its main street); a school 6–12 tiles
+ * from the seed on a street; a park on a 2×2 of open land near its middle; a cemetery on a 2×3 at its edge, slope or
+ * not. Empty lots first; a school or church may take a house.
+ */
+function civicLots(g: GameState, b: Block, kind: string): number[] {
+  const m = g.map, w = g.world, W = m.width, tiles = rt(g).tiles[b.id - 1];
+  const open = (i: number) => w.blockId![i] === b.id && !w.street[i] && !m.road[i] && w.use[i] <= Use.Farm && !w.pop[i] && !b.res?.includes(i) && m.terrain[i] !== Terrain.Water;
+  const d = (i: number) => Math.hypot((i % W) - b.x, ((i / W) | 0) - b.y);
+  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
+  if (kind === "church") {
+    if (b.res?.length && w.blockId![b.res[0]] === b.id && !w.pop[b.res[0]] && w.use[b.res[0]] <= Use.Farm) return [b.res[0]];
+    const c = tiles.filter((i) => (open(i) || w.use[i] === Use.Houses) && frontsMain(g, b, i));
+    return c.length ? [c.reduce((a, i) => (d(i) < d(a) ? i : a))] : [];
+  }
+  if (kind === "school") {
+    const c = tiles.filter((i) => open(i) && onStreet(i) && d(i) >= 6 && d(i) <= 12);
+    return c.length ? [c[0]] : [];
+  }
+  // a cluster: park 2×2 near the middle, cemetery 2×3 at the edge
+  const [cw, ch] = kind === "park" ? [2, 2] : [3, 2];
+  let best: number[] = [], bs = -Infinity;
+  for (const i of tiles) {
+    if (!open(i)) continue;
+    const x = i % W, y = (i / W) | 0, cl: number[] = [];
+    for (let dy = 0; dy < ch && cl.length >= 0; dy++) for (let dx = 0; dx < cw; dx++) { const xx = x + dx, yy = y + dy; if (inBounds(m, xx, yy) && open(yy * W + xx) && m.terrain[yy * W + xx] !== Terrain.Cliff) cl.push(yy * W + xx); }
+    if (cl.length < cw * ch) continue;
+    const score = kind === "park" ? -d(i) : d(i);
+    if (score > bs) { bs = score; best = cl; }
+  }
+  return best;
+}
+
+function steelWorks(g: GameState): [number, number][] {
+  return g.rivals.filter((r) => RIVALS.find((d) => d.id === r.id)?.industry === "steel").map((r) => [r.x + r.footprint / 2, r.y + r.footprint / 2]);
+}
+
 /** births and deaths per block (and after 1975 the steel towns empty), in place of v0.24's sampled tiles */
 export function sleuthNatural(g: GameState) {
   if (!g.sleuth) return;
@@ -683,6 +849,8 @@ export function sleuthYear(g: GameState) {
   if (!g.sleuth) return;
   const r = rt(g), y = g.world.year;
   for (const b of g.sleuth.blocks) { resync(g, b, r.tiles[b.id - 1]); sampleFields(g, b, g.commute?.access); b.full = 0; b.builtTo = 0; }
+  // the plats' own year (v0.26): civic land, main-street shops, houses upgraded, the fringe, the decline
+  for (const b of g.sleuth.blocks) platYear(g, b);
 
   void y;
   annexations(g);
