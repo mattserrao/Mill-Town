@@ -5,6 +5,7 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { lineIndex, segDist, type Seg } from "../core/lines";
+import { shoreDist, shoreField, wetAt } from "../core/shore";
 import { rivalRunning, techsForYear, type GameState, type Works } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
@@ -16,7 +17,7 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -90,6 +91,26 @@ const PAL = {
   ],
 };
 const WATER = [0x33668e, 0x366b94, 0x306188, 0x386e96];
+/** draw natural river banks along the smooth shoreline (core/shore) rather than the tile edges */
+export let SMOOTH_SHORE = true;
+/** a ground shader's flag on a colour: draw it at full light whatever the slope (river water on a bank tile) */
+const UNLIT = 0x1000000;
+export function setSmoothShore(on: boolean) { SMOOTH_SHORE = on; }
+
+/** open water `d` tiles out from the shoreline: deep blue with ripples, a shallow band and a broken line of foam at the edge */
+function waterPx(d: number, gx: number, gy: number): number {
+  if (d < 0.045 && hash(gx, gy, 5) < 0.4) return 0x9cc0d4;
+  if (d < 0.13 + hash(gx >> 2, gy >> 2, 28) * 0.04) return 0x3f7598;
+  const r = hash(gx >> 2, gy, 4);
+  if (r > 0.97 && (gx & 3) < 3) return 0x6f9cc0;
+  return pick(WATER, hash(gx >> 2, gy >> 1, 3));
+}
+/** the bank `-d` tiles in from the shoreline: wet mud at the waterline, then a ragged strip of sand or gravel, then `ground` */
+function bankPx(d: number, gx: number, gy: number, ground = -1): number {
+  if (d > -0.07) return pick(PAL.wet, hash(gx, gy, 25));
+  if (d > -0.2 - hash(gx >> 2, gy >> 2, 27) * 0.1 || ground < 0) return pick(PAL.sand, hash(gx, gy, 26));
+  return ground;
+}
 
 // 8 neighbour directions (dx, dy)
 const N8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -304,7 +325,7 @@ export class Renderer {
     const s = Math.min(1, cam.zoom);
     this.setScale(s);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const tail = `|${view.overlayKey}|${view.grid}`;
+    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -417,6 +438,7 @@ export class Renderer {
   }
 
   private sigs = new Map<number, { stamp: string; sig: string }>();
+  private ws: [number, number, number] = [0, 0, 0];
 
   /**
    * A signature of everything a chunk's pixels depend on: the tiles in it and one tile around it
@@ -516,8 +538,10 @@ export class Renderer {
           const w2 = 1 - w0 - w1;
           if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
           const u = w0 * au + w1 * bu + w2 * qu, v = w0 * av + w1 * bv + w2 * qv, h = w0 * ah + w1 * bh + w2 * qh;
-          const c = tex(u, v, h, px + ox, py + oy);
-          let k = light + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          let c = tex(u, v, h, px + ox, py + oy);
+          // water drawn over the corner of a sloping bank tile is lit like the river, not like the slope
+          let k = (c & UNLIT ? 1 : light) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          c &= 0xffffff;
           k = Math.round(k * 14) / 14;
           let r = ((c >> 16) & 255) * k, gg = ((c >> 8) & 255) * k, b = (c & 255) * k;
           if (tintA > 0) { r += (tr - r) * tintA; gg += (tg - gg) * tintA; b += (tb - b) * tintA; }
@@ -565,6 +589,7 @@ export class Renderer {
       return 0.42 + 0.78 * Math.max(0, d);
     };
     const MPT = m.metersPerTile;
+    const SHADE_K = Math.sqrt(RELIEF);
 
     const tilesD = (x1 - x0) + (y1 - y0) - 1;
     for (let d = 0; d < tilesD; d++) {
@@ -585,8 +610,9 @@ export class Renderer {
           else { tint = 0x8c8a86; tintA = 0.62; }
         }
         const isWater = m.terrain[i] === Terrain.Water;
-        const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT), -MPT * (hL - hT), MPT * MPT);
-        const l2 = isWater ? 1 : lightOf(MPT * (hL - hB), MPT * (hR - hB), MPT * MPT);
+        // shade by the slopes as drawn (stretched by the hill relief, eased so the far sides don't go black)
+        const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT) * SHADE_K, -MPT * (hL - hT) * SHADE_K, MPT * MPT);
+        const l2 = isWater ? 1 : lightOf(MPT * (hL - hB) * SHADE_K, MPT * (hR - hB) * SHADE_K, MPT * MPT);
         tri(Tx, Ty, Rx, Ry, Lx, Ly, 0, 0, hT, 1, 0, hR, 0, 1, hL, l1, tex, tint, tintA);
         tri(Lx, Ly, Rx, Ry, Bx, By, 0, 1, hL, 1, 0, hR, 1, 1, hB, l2, tex, tint, tintA);
 
@@ -607,7 +633,10 @@ export class Renderer {
         }
 
         // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
+        const sf = SMOOTH_SHORE && m.terrain[i] !== Terrain.Water ? shoreField(m) : null;
         for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) {
+          // no trees standing in the river where the smooth bank gave the corner of the tile to the water
+          if (sf && sp.key.startsWith("tree:") && wetAt(sf, tx + sp.u, ty + sp.v, this.ws)[0] > 0.42) continue;
           // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
           objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
           blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
@@ -709,6 +738,19 @@ export class Renderer {
       // a notch between two wharf tiles is filled with quay paving, so the quay runs on the 45° line too
       const quay = shoreL && [at(shoreL[0], 0), at(0, shoreL[1])].every((j) => j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf));
       const polluted = Math.min(8, Math.floor(w.pollution[i] * 6)) * 0.05; // stepped, so chunk signatures stay stable
+      // a natural bank: the shoreline is the smooth curve through the staircase (core/shore), not the tile edges.
+      // Quays and wharves keep their straight stone edges.
+      const wharfNear = landMask && N8.some(([dx, dy]) => { const j = at(dx, dy); return j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf); });
+      if (SMOOTH_SHORE && landMask && !wharfNear) {
+        const sf = shoreField(m), ws: [number, number, number] = [0, 0, 0];
+        return (u: number, v: number, _h: number, gx: number, gy: number) => {
+          const d = shoreDist(wetAt(sf, x + u, y + v, ws));
+          if (d < 0) return bankPx(d, gx, gy);
+          let c = waterPx(d, gx, gy);
+          if (polluted > 0) c = rgb(((c >> 16) & 255) * (1 - polluted) + 70 * polluted, ((c >> 8) & 255) * (1 - polluted) + 64 * polluted, (c & 255) * (1 - polluted) + 50 * polluted);
+          return c;
+        };
+      }
       return (u: number, v: number, _h: number, gx: number, gy: number) => {
         let c = pick(WATER, hash(gx >> 2, gy >> 1, 3));
         const r = hash(gx >> 2, gy, 4);
@@ -863,6 +905,11 @@ export class Renderer {
     const wharf = m.special[i] === Special.Wharf;
     const paved = wharf || use === Use.Wharf;
     const waterL = paved || (!w.street[i] && !w.owner[i]) ? lCorner(waterMask, false) : null;
+    // open ground along a natural bank: the river may take part of the tile, up to the smooth shoreline
+    const natural = use === Use.Empty || use === Use.Forest || use === Use.Farm || use === Use.Rock || (use === Use.Park && w.sub[i] !== ParkSub.Paved);
+    const smoothBank = SMOOTH_SHORE && waterMask !== 0 && !paved && natural && !w.street[i] && !w.owner[i] && !w.structure[i] && rail < 0
+      && !N8.some(([dx, dy]) => { const j = at(dx, dy); return j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf); });
+    const sf = smoothBank ? shoreField(m) : null, ws: [number, number, number] = [0, 0, 0];
 
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
@@ -873,7 +920,11 @@ export class Renderer {
         if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
         if (dc < 0.04) return 0x4a463e;
       }
-      if (waterMask && !paved) {
+      if (sf) {
+        const d = shoreDist(wetAt(sf, x + u, y + v, ws));
+        if (d >= 0) return waterPx(d, gx, gy) | UNLIT;
+        if (d > -0.3) c = bankPx(d, gx, gy, c);
+      } else if (waterMask && !paved) {
         let dw = edgeDist(waterMask, u, v);
         if (waterL) {
           // a point of land between two water sides: the river takes the corner (45° bank)

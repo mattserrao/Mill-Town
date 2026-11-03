@@ -1,0 +1,65 @@
+# v0.30 — Hills, bridges and tunnels (plan + test-branch results)
+
+Branch: `test/hills-bridges-shoreline`. Two parts are built and ready to look at; the third (infrastructure) is a plan.
+
+## Built on the branch
+
+### 1. Hill relief (exaggerated heights)
+- `render/iso.ts`: `ZPX` (screen px per metre) is now `ZPX_BASE × RELIEF`, a live binding. Default **2×**; options 1×, 1.5×, 2×, 2.5×, 3×.
+- ☰ menu → **Hill relief** (remembered); `?relief=3` in the address overrides. Changing it keeps the tile at screen centre where it was.
+- Terrain shading uses the drawn slopes (eased by √relief) so hillsides read as hillsides, not just taller.
+- Everything that projects heights (houses' cut-and-fill terraces, bridges, traffic, smoke, picking) already went through `ZPX`, so it follows automatically. Chunks are keyed by relief so a change re-rasterizes.
+- Gameplay untouched: heights in metres, slope classes and costs are unchanged.
+
+### 2. Smooth shorelines (a line across many tiles)
+- `core/shore.ts`: the river raster is blurred (σ ≈ 1.15 tiles) into a wetness field, then **pinned at every tile centre** (water centres stay wet, land stays dry) so the sim and the drawing never disagree about a tile. The shoreline is the field's 0.5 contour, interpolated Catmull-Rom so there are no kinks at tile seams.
+- The renderer draws natural banks along that curve per pixel: water tiles can show a strip of mud/sand bank, open-ground land tiles (woods, fields, empty, rock, parks) can give a corner to the river. Water on a bank tile is lit like the river (no dark wedges). Trees on the water side are dropped.
+- Wharves, quays, streets, rail, owned and built tiles keep their straight stone edges (which is what real quays look like).
+- `shoreLines()` traces the same contour into polylines: the longest river line crosses 400+ tiles. That's the "pre-drawn line" — it can later be replaced by baked NHD/OSM shoreline vectors in `map.lines` (format already holds creek and rail vectors) without touching the renderer.
+- `?shore=0` shows the old tile-edge banks for comparison. Tests: `tests/shore.test.ts`.
+
+## Plan — Pittsburgh's bridges and tunnels
+
+The map already has 23 road and 9 rail bridges with rebuild stages (Smithfield 1846/1883, Sixth/Seventh/Ninth 1928, Liberty 1928, West End 1932, Fort Pitt 1959, Fort Duquesne 1969…). What's missing is the look of the modern ones and the tunnels.
+
+### A. Bridge paint by date, not by build year
+Today any bridge built ≥1955 is drawn gold. Replace with a paint history per span (`stages[].paint`):
+- Pre-1975: grey/black iron; the Sisters in their 1928 scheme (green deck girders, silver superstructure).
+- **Aztec Gold from 1975** on the Sisters, and on the West End, Fort Pitt and Fort Duquesne bridges as they're repainted 1978–81. Tenth Street gold too.
+- Era IV hook: a "Paint the bridges gold" event (city adopts black and gold) — cheap civic-pride morale bump, fits the final era's last good years before the collapse.
+
+### B. Bridge silhouettes worth recognizing
+- **Three Sisters**: self-anchored suspension (cables tied into the deck ends, no anchorages ashore), identical trio in a row — the most iconic shape, needs its own `type: "selfanchored"`.
+- **Fort Pitt Bridge**: double-deck tied arch that lands straight into the tunnel portal.
+- **West End / Fort Duquesne**: tied through-arches; **Smithfield**: lenticular trusses (exists); **Hot Metal**: truss with the ladle track.
+- Night lights on the Sisters and Fort Pitt (deck lamps; later eras).
+
+### C. Tunnels through Mount Washington (west/south side of the Point)
+New map entity `tunnels: { id, name, kind: road|rail|trolley, a, b, year, closed? }` with two portals and a buried route:
+
+| Tunnel | Opened | Notes |
+|---|---|---|
+| Wabash Tunnel | 1903 (rail) | Gould's Wabash line into the Wabash Terminal; freight ends 1946; car lane only in 2004 (after the game) |
+| Mount Washington Transit (trolley) Tunnel | 1904 | South Hills streetcars |
+| Liberty Tunnels ("Liberty Tubes") | 1924 | twin road bores, paired with the Liberty Bridge (1928) |
+| Fort Pitt Tunnel | 1960 | last link of the Parkway West, a year after the Fort Pitt Bridge; city "bursts into view" at the north portal |
+
+- **Drawing**: stone/concrete portal sprites set into the hillside at each end (the Fort Pitt portal with its staggered upper/lower decks); the bore isn't drawn. Traffic enters a portal and re-emerges at the other after a delay. Ventilation building on the hilltop for the Liberty Tubes.
+- **Simulation**: a tunnel is a road link with travel cost ≈ its length on the flat. Opening one lets the town's growth reach the South Hills (Dormont, Mt. Lebanon, Beechview seeds become active from 1924), shortens commutes and freight to the west, and drops land value pressure on the slopes. Tunnel openings become headlines (Liberty Tubes 1924; Fort Pitt 1960 already in era-4 events).
+- **Player**: in later eras the company or the county can fund a tunnel (big cost, like the existing bridges/roads projects); a funded tunnel opens early and earns opinion.
+
+### D. Modernizing the hillsides
+- Inclines already exist as a player build; add the real Duquesne (1877) and Monongahela (1870) inclines as fixed landmarks on Mt Washington's face — they read much better with 2–3× relief.
+- Grandview Avenue overlooks and the hilltop billboard as a late-era landmark.
+
+### Order of work
+1. Paint history + Aztec Gold (small, data + renderer colours).
+2. Self-anchored Sisters and tied-arch silhouettes.
+3. Tunnel data (coordinates from the four portals), portal sprites, traffic through.
+4. Tunnel sim effects + growth seeds + headlines; player-funded tunnels.
+5. Bake real shoreline vectors into the map if the derived ones fall short anywhere.
+
+### Open questions
+- Keep 2× as the default relief, or 3×?
+- Should the Aztec Gold repaint be automatic in 1975 or a player/city decision?
+- Tunnels as pure scenery + travel shortcut first, or with the full growth/commute effects in the same PR?
