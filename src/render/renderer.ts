@@ -17,7 +17,8 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Camera, BASE_M, heightAt, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
+import { tunnelsIn } from "../core/tunnels";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -91,6 +92,24 @@ const PAL = {
   ],
 };
 const WATER = [0x33668e, 0x366b94, 0x306188, 0x386e96];
+/**
+ * A bridge's paint in a given year. Pittsburgh's downtown bridges went Aztec Gold (the city's black and gold) from
+ * 1975: the Three Sisters that year, then the West End, Fort Pitt and Fort Duquesne bridges in the 1978–81 repaint.
+ * Before that the Sisters wore a silver superstructure over green deck girders; other steel was grey or black.
+ */
+const GOLD_FROM: Record<string, number> = {
+  "Sixth Street Bridge": 1975, "Seventh Street Bridge": 1975, "Ninth Street Bridge": 1975, "South Tenth Street Bridge": 1975,
+  "West End Bridge": 1978, "Fort Pitt Bridge": 1979, "Fort Duquesne Bridge": 1981,
+};
+const SISTERS = new Set(["Sixth Street Bridge", "Seventh Street Bridge", "Ninth Street Bridge"]);
+export function bridgePaint(name: string, rail: boolean, built: number, year: number): { steel: string; girder: string } {
+  if (rail) return { steel: built < 1890 ? "#3e3e46" : "#4e525c", girder: "#4a4440" };
+  const gold = GOLD_FROM[name];
+  if (gold !== undefined && year >= gold) return { steel: "#c8a23a", girder: "#a8842a" };
+  if (SISTERS.has(name) && built >= 1920) return { steel: "#a4a8ac", girder: "#4e6a48" };
+  return { steel: built >= 1890 ? "#5a6470" : "#3e3e46", girder: "#4a4440" };
+}
+
 /** draw natural river banks along the smooth shoreline (core/shore) rather than the tile edges */
 export let SMOOTH_SHORE = true;
 /** a ground shader's flag on a colour: draw it at full light whatever the slope (river water on a bank tile) */
@@ -1228,7 +1247,8 @@ export class Renderer {
       const hAt = (t: number) => gA + (gB - gA) * t + lift * Math.pow(Math.sin(Math.PI * t), 0.45);
       const at = (t: number, side: number, dz = 0): [number, number] => S(ax + (bx - ax) * t + px * side, ay + (by - ay) * t + py * side, hAt(t) + dz);
       const ts: number[] = []; for (let k = 0; k <= N; k++) ts.push(k / N);
-      const steel = rail ? (built < 1890 ? "#3e3e46" : "#4e525c") : built >= 1955 ? "#c8a23a" : built >= 1890 ? "#5a6470" : "#3e3e46";
+      const paint = bridgePaint(sp.name, rail, built, year);
+      const steel = paint.steel;
       const lw = (w: number) => Math.max(1, w * z);
       const line = (pts: [number, number][], col: string, w: number) => { ctx.strokeStyle = col; ctx.lineWidth = lw(w); ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); };
       const seg = (p: [number, number], q: [number, number], col: string, w: number) => line([p, q], col, w);
@@ -1292,8 +1312,10 @@ export class Renderer {
             else { const u = (t - 0.5) / 0.3; zc = 2 + (TH - 2) * u * u; }
             cable.push(at(t, s, zc));
           }
-          line(cable, "#2a2a2e", 1.3);
-          for (let k = 1; k < N; k++) { const t = k / N; if (k % 2) continue; seg(at(t, s, 0.5), cable[k], "#4a4a50", 0.6); }
+          // the 1920s eyebar chains carry the paint (gold Sisters); older wire cables stay dark
+          const painted = !rail && built >= 1920;
+          line(cable, painted ? steel : "#2a2a2e", painted ? 1.7 : 1.3);
+          for (let k = 1; k < N; k++) { const t = k / N; if (k % 2) continue; seg(at(t, s, 0.5), cable[k], painted ? shade6(steel, 0.8) : "#4a4a50", 0.6); }
           ctx.fillStyle = "#2a2a2e";
           line(ts.map((t) => at(t, s, 1.2)), "#3a3a40", 0.8);
         } else if (type === "arch") {
@@ -1322,7 +1344,7 @@ export class Renderer {
       if (!rail && z >= 0.375) line(ts.map((t) => at(t, 0, 0.05)), built >= 1920 ? "#c8c040" : "#6e5c44", 0.5);
       if (rail && z >= 0.375) { line(ts.map((t) => at(t, -0.3, 0.1)), "#a8a8b0", 0.6); line(ts.map((t) => at(t, 0.3, 0.1)), "#a8a8b0", 0.6); }
       const fasc = ts.map((t) => at(t, 1, -1.8));
-      poly([...near, ...[...fasc].reverse()], type === "covered" ? "#5a2a1c" : "#4a4440");
+      poly([...near, ...[...fasc].reverse()], type === "covered" ? "#5a2a1c" : paint.girder);
       side(1);
       if (type === "covered") {
         const rf = ts.map((t) => at(t, -1, 5.5)), rn = ts.map((t) => at(t, 1, 5.5)), ridge = ts.map((t) => at(t, 0, 8));
@@ -1331,6 +1353,76 @@ export class Renderer {
       }
       if (type === "truss" && z >= 0.375) {
         for (let k = 0; k <= N; k += 3) seg(at(k / N, -1, rail ? 9 : 8), at(k / N, 1, rail ? 9 : 8), steel, 0.7);
+      }
+    }
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------ tunnels (portals, drawn live)
+  /**
+   * The tunnels under Mount Washington, as scenery: a portal facade set into the hillside at each end, square to
+   * the bore, with its arches (dark, lamp-lit once the road tunnels have lights; boarded up once closed) and
+   * short wing walls holding back the hill.
+   */
+  drawTunnels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const m = this.map, z = cam.zoom, year = g.world.year;
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    const poly = (pts: [number, number][], col: string) => { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); };
+    const portals: { x: number; y: number; dx: number; dy: number; t: ReturnType<typeof tunnelsIn>[number]; city: boolean }[] = [];
+    for (const t of tunnelsIn(year)) {
+      const L = Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]);
+      const ux = (t.b[0] - t.a[0]) / L, uy = (t.b[1] - t.a[1]) / L;
+      portals.push({ x: t.a[0], y: t.a[1], dx: ux, dy: uy, t, city: true }, { x: t.b[0], y: t.b[1], dx: -ux, dy: -uy, t, city: false });
+    }
+    // the facade is squared to the tile grid like everything else in the iso view (an arbitrary bearing read as an
+    // edge-on slab): it faces whichever grid direction is nearest the way out of the hill
+    for (const pt of portals) {
+      const nx = -pt.dx, ny = -pt.dy;
+      if (Math.abs(nx) >= Math.abs(ny)) { pt.dx = -Math.sign(nx); pt.dy = 0; } else { pt.dx = 0; pt.dy = -Math.sign(ny); }
+    }
+    // back to front
+    portals.sort((p, q) => p.x + p.y - (q.x + q.y));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (const pt of portals) {
+      const { t } = pt;
+      const c = S(pt.x, pt.y, heightAt(m, pt.x, pt.y));
+      if (c[0] < -200 || c[0] > cw + 200 || c[1] < -200 || c[1] > ch + 300) continue;
+      // the facade sits a little way into the slope; (dx, dy) points into the hill
+      const px = -pt.dy, py = pt.dx;
+      const hw = t.bores === 2 ? 1.0 : 0.6, H = t.kind === "trolley" ? 9 : t.bores === 2 ? 12 : 11;
+      const h0 = Math.min(heightAt(m, pt.x - px * hw, pt.y - py * hw), heightAt(m, pt.x + px * hw, pt.y + py * hw), heightAt(m, pt.x, pt.y)) - 0.5;
+      const F = (u: number, zz: number, out = 0): [number, number] => S(pt.x + px * u - pt.dx * out, pt.y + py * u - pt.dy * out, h0 + zz);
+      const closed = t.closed !== undefined && year > t.closed;
+      const face = t.look === "concrete" ? "#c4c0b4" : t.look === "brick" ? "#8e4c38" : "#b2a68e";
+      const lit = !closed && (t.kind === "road" || year >= 1920);
+      // facing the camera (south/east) the face is in light, facing away it's in shade
+      const toCam = -(pt.dx + pt.dy) > 0;
+      const faceCol = toCam ? face : shade6(face, 0.8);
+      // seen from behind (the portals on Mount Washington's north face look away from the camera): only the top of
+      // the headwall shows over the hill, with the road running up to it
+      const facing = -(pt.dx + pt.dy) / Math.SQRT2;
+      // facade and coping
+      poly([F(-hw, -1), F(hw, -1), F(hw, H), F(-hw, H)], faceCol);
+      poly([F(-hw - 0.06, H), F(hw + 0.06, H), F(hw + 0.06, H + 1.2), F(-hw - 0.06, H + 1.2)], shade6(face, toCam ? 0.85 : 0.6));
+      if (t.look === "concrete") poly([F(-hw, H * 0.62), F(hw, H * 0.62), F(hw, H * 0.7), F(-hw, H * 0.7)], "#3a3a3e"); // name band
+      if (t.look === "stone" && z >= 0.375) for (let k = 1; k < 4; k++) { const a = F(-hw, (H * k) / 4), b = F(hw, (H * k) / 4); ctx.strokeStyle = shade6(faceCol, 0.85); ctx.lineWidth = Math.max(1, 0.5 * z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+      // the bores: a rectangle with a round top (postwar: a flatter, wider mouth)
+      const aw = t.bores === 2 ? 0.36 : 0.4, ah = t.look === "concrete" ? H * 0.5 : H * 0.55;
+      for (let k = 0; k < t.bores && facing > 0; k++) {
+        const uc = t.bores === 2 ? (k ? 0.45 : -0.45) : 0;
+        const arch: [number, number][] = [F(uc - aw, 0), F(uc + aw, 0)];
+        for (let j = 0; j <= 10; j++) { const a = (Math.PI * j) / 10; arch.push(F(uc + Math.cos(a) * aw, ah + Math.sin(a) * aw * (t.look === "concrete" ? 2.5 : 6))); }
+        poly(arch, closed ? "#4a3a2a" : "#151517");
+        if (lit && z >= 0.375) { ctx.fillStyle = "#e8d070"; for (let j = 1; j < 4; j++) { const q = F(uc - aw + (2 * aw * j) / 4, ah * 0.8); ctx.fillRect(q[0], q[1], Math.max(1, z), Math.max(1, z)); } }
+        if (closed && z >= 0.5) { ctx.strokeStyle = "#2a2018"; ctx.lineWidth = Math.max(1, 0.6 * z); for (let j = 1; j < 4; j++) { const a = F(uc - aw + (2 * aw * j) / 4, 0), b = F(uc - aw + (2 * aw * j) / 4, ah); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
+      }
+      // road or track running out of the mouth, laid on the ground
+      if (!(pt.city && t.bridged)) for (let k = 0; k < t.bores; k++) {
+        const uc = t.bores === 2 ? (k ? 0.45 : -0.45) : 0;
+        const G = (u: number, o: number): [number, number] => { const gx = pt.x + px * u - pt.dx * o, gy = pt.y + py * u - pt.dy * o; return S(gx, gy, Math.max(heightAt(m, gx, gy), o < 0.3 ? h0 : -1e9) + 0.15); };
+        for (let o = 0; o < 2.4; o += 0.3) poly([G(uc - aw, o), G(uc + aw, o), G(uc + aw, o + 0.32), G(uc - aw, o + 0.32)], t.kind === "road" ? "#5a5a5c" : "#5c544a");
       }
     }
     ctx.restore();

@@ -1,11 +1,11 @@
 # v0.30 — Hills, bridges and tunnels (plan + test-branch results)
 
-Branch: `test/hills-bridges-shoreline`. Two parts are built and ready to look at; the third (infrastructure) is a plan.
+Branch: `test/hills-bridges-shoreline`. Relief, shorelines, bridge paint and tunnel portals (scenery) are built; the rest of the infrastructure work is a plan.
 
 ## Built on the branch
 
 ### 1. Hill relief (exaggerated heights)
-- `render/iso.ts`: `ZPX` (screen px per metre) is now `ZPX_BASE × RELIEF`, a live binding. Default **2×**; options 1×, 1.5×, 2×, 2.5×, 3×.
+- `render/iso.ts`: `ZPX` (screen px per metre) is now `ZPX_BASE × RELIEF`, a live binding. Default **2.5×** (decided); options 1×, 1.5×, 2×, 2.5×, 3×.
 - ☰ menu → **Hill relief** (remembered); `?relief=3` in the address overrides. Changing it keeps the tile at screen centre where it was.
 - Terrain shading uses the drawn slopes (eased by √relief) so hillsides read as hillsides, not just taller.
 - Everything that projects heights (houses' cut-and-fill terraces, bridges, traffic, smoke, picking) already went through `ZPX`, so it follows automatically. Chunks are keyed by relief so a change re-rasterizes.
@@ -59,7 +59,7 @@ New map entity `tunnels: { id, name, kind: road|rail|trolley, a, b, year, closed
 4. Tunnel sim effects + growth seeds + headlines; player-funded tunnels.
 5. Bake real shoreline vectors into the map if the derived ones fall short anywhere.
 
-### Open questions
-- Keep 2× as the default relief, or 3×?
-- Should the Aztec Gold repaint be automatic in 1975 or a player/city decision?
-- Tunnels as pure scenery + travel shortcut first, or with the full growth/commute effects in the same PR?
+### Decisions (Nov 2026)
+- Default relief 2.5×.
+- Aztec Gold repaint is automatic: Sisters and South Tenth Street 1975, West End 1978, Fort Pitt 1979, Fort Duquesne 1981 (dates within the documented 1978–81 repaint are approximate). Built: `bridgePaint()` in the renderer; before then the Sisters are silver over green girders, the eyebar chains carry the paint.
+- Tunnels are scenery first. Built: `core/tunnels.ts` (Wabash 1903, closed and boarded after 1946; trolley tunnel 1904; Liberty Tunnels 1924; Fort Pitt Tunnel 1960), portal facades squared to the tile grid (stone, brick or concrete, twin bores, lamps), approach roads laid on the ground, city-side portals of the Liberty and Fort Pitt opening onto their bridges. Portal positions are approximate to a tile or two. No traffic, growth or commute effects yet.

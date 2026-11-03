@@ -14,7 +14,7 @@ export const ZPX_BASE = 1.15;
  * hills read as the city's signature, so they're drawn taller than life. A live binding: every importer sees
  * a change at once; the renderer has to rebuild its chunks after one (see setRelief's callers).
  */
-export let RELIEF = 2;
+export let RELIEF = 2.5;
 /** screen pixels per metre of height at zoom 1 */
 export let ZPX = ZPX_BASE * RELIEF;
 export const RELIEFS = [1, 1.5, 2, 2.5, 3];

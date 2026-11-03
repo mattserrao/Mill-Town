@@ -397,7 +397,7 @@ function requestRender() {
     // up nearest-neighbour like the chunks, so at 1.5× and 2× they keep the pixel grid instead of reading as
     // smooth lines next to 2×2 pixel blocks
     pixelLayer((c2, cm) => {
-      if (cm.zoom >= 0.1875) renderer.drawBridges(c2, cm, game);
+      if (cm.zoom >= 0.1875) { renderer.drawTunnels(c2, cm, game); renderer.drawBridges(c2, cm, game); }
       if (cm.zoom >= 0.25) renderer.drawSpur(c2, cm, game);
       if (cm.zoom >= 0.25) renderer.drawMemorials(c2, cm, game);
       if (game.world.inclines.length && cm.zoom >= 0.25) renderer.drawInclines(c2, cm, game, anim ? t : 0);
