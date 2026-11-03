@@ -182,7 +182,9 @@ describe("cards that read the ledger", () => {
 describe("a whole succession in play", () => {
   it("plays to 1893, hands over, saves and loads", async () => {
     const g = founded(9);
-    while (cal(g).year < 1893) { while (g.pendingDecision) resolveDecision(g, new Rng(g.turn)); advanceTurn(g); }
+    // the test is about the succession, not the books: an idle works on the hex map can be flooded into receivership
+    // before 1893 (it does on the square map too in some seeds), so keep the till topped up
+    while (cal(g).year < 1893) { while (g.pendingDecision) resolveDecision(g, new Rng(g.turn)); g.company!.cash = Math.max(g.company!.cash, 200000); advanceTurn(g); }
     expect(g.family!.succession).toBeTruthy();
     expect(g.ledger!.length).toBeGreaterThan(0);
     resolveSuccession(g, { heir: 0, path: "politics", side: "reform" });
