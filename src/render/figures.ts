@@ -7,6 +7,7 @@
 // live as a few projected polygons).
 
 import { shade } from "./sprites";
+import { HEX_STEP } from "../core/hex";
 
 /** a sprite in the atlas: source rect (sx, sy, w, h) and the anchor within it */
 export interface Fig { c: HTMLCanvasElement; sx: number; sy: number; w: number; h: number; ax: number; ay: number }
@@ -455,14 +456,14 @@ export function frontOf(kind: string, era: number): number {
 
 /**
  * A box at tile position (cx, cy) on ground height `base` (screen y at that point = by), oriented along
- * (dx, dy) in tile space: length L, width W (tiles), from z0 to z1 px above the ground. sx, sy: screen
+ * the ground-frame unit heading (dx, dy): length L, width W (tiles), from z0 to z1 px above the ground. sx, sy: screen
  * point of the centre on the ground; k: zoom. Draws the faces the viewer can see, then the top.
  */
 export function obox(ctx: CanvasRenderingContext2D, sx: number, sy: number, k: number, dx: number, dy: number, a0: number, a1: number, c0: number, c1: number, z0: number, z1: number, col: string, top?: string) {
+  // (dx, dy) is a unit heading in the ground frame (hex steps; see viewcells.ts): x right, y down before the 2:1 squash
   const nx = -dy, ny = dx;
-  // corners in tile offsets → screen offsets
-  const X = (a: number, c: number) => (dx * a + nx * c - (dy * a + ny * c)) * 32 * k;
-  const Y = (a: number, c: number) => (dx * a + nx * c + (dy * a + ny * c)) * 16 * k;
+  const X = (a: number, c: number) => (dx * a + nx * c) * HEX_STEP * k;
+  const Y = (a: number, c: number) => (dy * a + ny * c) * HEX_STEP * 0.5 * k;
   const cs: [number, number][] = [[a0, c0], [a1, c0], [a1, c1], [a0, c1]];
   const px = cs.map(([a, c]) => sx + X(a, c)), py = cs.map(([a, c]) => sy + Y(a, c));
   const zb = z0 * k, zt = z1 * k;
@@ -472,9 +473,9 @@ export function obox(ctx: CanvasRenderingContext2D, sx: number, sy: number, k: n
   const edgeNormal = [norms[0], norms[1], norms[2], norms[3]];
   for (let e = 0; e < 4; e++) {
     const [ex, ey] = edgeNormal[e];
-    if (ex + ey <= 0.001) continue; // faces away from the viewer
+    if (ey <= 0.001) continue; // faces away from the viewer
     const i = e, j = (e + 1) % 4;
-    const light = (ey - ex) * 0.7071; // light from screen-left
+    const light = -ex; // light from screen-left
     ctx.fillStyle = sh(col, Math.max(0.55, Math.min(1.05, 0.84 + 0.18 * light)));
     ctx.beginPath();
     ctx.moveTo(px[i], py[i] - zb); ctx.lineTo(px[j], py[j] - zb); ctx.lineTo(px[j], py[j] - zt); ctx.lineTo(px[i], py[i] - zt);
@@ -489,7 +490,7 @@ export function obox(ctx: CanvasRenderingContext2D, sx: number, sy: number, k: n
 /** screen offset of a point (along a, across c) of a body oriented along (dx, dy), at height z px */
 export function ooff(k: number, dx: number, dy: number, a: number, c: number, z = 0): [number, number] {
   const ox = dx * a - dy * c, oy = dy * a + dx * c;
-  return [(ox - oy) * 32 * k, (ox + oy) * 16 * k - z * k];
+  return [ox * HEX_STEP * k, oy * HEX_STEP * 0.5 * k - z * k];
 }
 
 const glowCache = new Map<string, HTMLCanvasElement>();

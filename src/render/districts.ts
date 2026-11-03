@@ -4,7 +4,8 @@
 import { cityKey, cityName, districts, zoneName } from "../core/districts";
 import type { GameState } from "../core/game";
 import { GROUPS } from "../core/ancestry";
-import type { GameMap } from "../core/map";
+import { HEX6, HEX_CORNERS } from "../core/hex";
+import { type GameMap, inBounds } from "../core/map";
 import { zoneCensus } from "../core/town";
 import { type Camera, heightAt, placeLabelRects, project } from "./iso";
 
@@ -15,7 +16,7 @@ let censusCache: { g: GameState; version: number; dom: { group: number; pop: num
 type Seg = [number, number, number, number];
 
 /**
- * Join unit tile-edge segments into polylines (walking vertex to vertex; chains break at junctions),
+ * Join hex-edge segments into polylines (walking vertex to vertex; chains break at junctions),
  * so the staircase can be smoothed instead of drawn edge by edge.
  */
 function chains(edges: Seg[]): { pts: [number, number][]; closed: boolean }[] {
@@ -88,11 +89,20 @@ function smooth(pts: [number, number][], closed: boolean): [number, number][] {
   return p;
 }
 
+/** hex corners are at thirds of a cell, so vertices are kept as integers in sixths (offset by 8 to stay positive) */
+const SIX = 6, OFF = 8;
+/** the segment along side k of cell (x, y), from corner k-1 to corner k, in sixths */
+function sideSeg(x: number, y: number, k: number): Seg {
+  const a = HEX_CORNERS[(k + 5) % 6], b = HEX_CORNERS[k];
+  return [SIX * x + 3 + Math.round(SIX * a[0]) + OFF, SIX * y + 3 + Math.round(SIX * a[1]) + OFF, SIX * x + 3 + Math.round(SIX * b[0]) + OFF, SIX * y + 3 + Math.round(SIX * b[1]) + OFF];
+}
+
 function edgePath(m: GameMap, edges: Seg[]): Path2D {
   const p = new Path2D();
   for (const ch of chains(edges)) {
     const pts = smooth(ch.pts, ch.closed);
-    pts.forEach(([x, y], k) => {
+    pts.forEach(([sx6, sy6], k) => {
+      const x = (sx6 - OFF) / SIX, y = (sy6 - OFF) / SIX;
       const [sx, sy] = project(x, y, heightAt(m, x, y) + 1);
       if (k) p.lineTo(sx, sy); else p.moveTo(sx, sy);
     });
@@ -109,13 +119,13 @@ function paths(m: GameMap, year: number) {
   const ck = (i: number) => cityKey(d, d.muni[i], year);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
-    if (d.zone[i] < 0) continue;
-    for (const [dx, dy] of [[1, 0], [0, 1]]) {
-      const xx = x + dx, yy = y + dy;
-      if (xx >= W || yy >= H) continue;
+    if (!m.valid[i] || d.zone[i] < 0) continue;
+    for (const k of [0, 1, 2]) { // each shared side once (the other three are seen from the neighbour)
+      const xx = x + HEX6[k][0], yy = y + HEX6[k][1];
+      if (!inBounds(m, xx, yy)) continue;
       const j = yy * W + xx;
       if (d.zone[j] < 0) continue;
-      const seg: Seg = dx ? [x + 1, y, x + 1, y + 1] : [x, y + 1, x + 1, y + 1];
+      const seg = sideSeg(x, y, k);
       if (ck(i) !== ck(j)) city.push(seg);
       else if (d.nb[i] !== d.nb[j] && (d.nb[i] >= 0 || d.nb[j] >= 0)) nb.push(seg);
     }
@@ -126,14 +136,13 @@ function paths(m: GameMap, year: number) {
 
 function selectedPath(m: GameMap, zone: number): Path2D {
   if (selCache && selCache.m === m && selCache.zone === zone) return selCache.path;
-  const d = districts(m), W = m.width, H = m.height, e: Seg[] = [];
+  const d = districts(m), W = m.width, e: Seg[] = [];
   for (let k = d.zoneStart[zone]; k < d.zoneStart[zone + 1]; k++) {
     const i = d.zoneTiles[k], x = i % W, y = (i / W) | 0;
-    const other = (xx: number, yy: number) => xx < 0 || yy < 0 || xx >= W || yy >= H || d.zone[yy * W + xx] !== zone;
-    if (other(x + 1, y)) e.push([x + 1, y, x + 1, y + 1]);
-    if (other(x - 1, y)) e.push([x, y, x, y + 1]);
-    if (other(x, y + 1)) e.push([x, y + 1, x + 1, y + 1]);
-    if (other(x, y - 1)) e.push([x, y, x + 1, y]);
+    for (let n = 0; n < 6; n++) {
+      const xx = x + HEX6[n][0], yy = y + HEX6[n][1];
+      if (!inBounds(m, xx, yy) || d.zone[yy * W + xx] !== zone) e.push(sideSeg(x, y, n));
+    }
   }
   selCache = { m, zone, path: edgePath(m, e) };
   return selCache.path;

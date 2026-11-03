@@ -11,6 +11,7 @@ import { Rng, tileNoise, valueNoise } from "./rng";
 import { anchorAt, G, GROUPS, pickGroup, SETTLED_1850 } from "./ancestry";
 import { habitable, Terrain, TRAVEL_COST } from "./terrain";
 import { districts } from "./districts";
+import { stepDist, HEX6 } from "./hex";
 
 export const enum Use {
   Empty = 0,
@@ -108,9 +109,10 @@ function coreMask(m: GameMap, w: World): Uint8Array {
   for (const s of w.settlements) {
     const core = s.name.startsWith("The Point") ? 60 : s.name === "Allegheny City" ? 45 : s.name.startsWith("Birmingham") ? 28 : 0;
     if (!core) continue;
-    for (let y = Math.max(0, s.y - core); y <= Math.min(m.height - 1, s.y + core); y++)
-      for (let x = Math.max(0, s.x - core); x <= Math.min(m.width - 1, s.x + core); x++)
-        if (Math.hypot(s.x - x, s.y - y) < core) mask[y * m.width + x] = 1;
+    const cb = Math.ceil(core * 1.6); // a disc of `core` steps reaches ~1.6x along an axial row
+    for (let y = Math.max(0, s.y - cb); y <= Math.min(m.height - 1, s.y + cb); y++)
+      for (let x = Math.max(0, s.x - cb); x <= Math.min(m.width - 1, s.x + cb); x++)
+        if (stepDist(s.x - x, s.y - y) < core) mask[y * m.width + x] = 1;
   }
   coreCache = { m, settlements: w.settlements, n: w.settlements.length, mask };
   return mask;
@@ -252,7 +254,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   const nearRoad = new Uint8Array(n);
   for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
     if (!m.road[y * m.width + x]) continue;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+    for (const [dx, dy] of [[0, 0], ...HEX6])
       if (inBounds(m, x + dx, y + dy)) nearRoad[(y + dy) * m.width + x + dx] = 1;
   }
   SETTLEMENTS_1850.forEach((s, si) => {
@@ -326,7 +328,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     if (w.sub[i]) continue;
     const x = i % m.width, y = (i / m.width) | 0;
     let pike = false, lane = false;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       if (!inBounds(m, x + dx, y + dy)) continue;
       const st = w.street[(y + dy) * m.width + x + dx];
       if (st === Street.Pike) pike = true;
@@ -336,7 +338,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     const r = tileNoise(seed, x, y, 301);
     if (r > (pike ? 0.16 : 0.05)) continue;
     let near = w.settlements[0], nd = Infinity;
-    for (const st of w.settlements) { const d = Math.hypot(st.x - x, st.y - y); if (d < nd) { nd = d; near = st; } }
+    for (const st of w.settlements) { const d = stepDist(st.x - x, st.y - y); if (d < nd) { nd = d; near = st; } }
     if (!big.has(near.name)) continue;
     const k = tileNoise(seed, x, y, 302);
     const pgh = near.name.startsWith("The Point");
@@ -403,8 +405,8 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
     for (const i of order) {
       if (mines.length >= 16) break;
       const x = i % m.width, y = (i / m.width) | 0;
-      if (mines.some(([a, b]) => Math.hypot(a - x, b - y) < 18)) continue;
-      if (!w.settlements.some((s) => Math.hypot(s.x - x, s.y - y) < 110)) continue;
+      if (mines.some(([a, b]) => stepDist(a - x, b - y) < 18)) continue;
+      if (!w.settlements.some((s) => stepDist(s.x - x, s.y - y) < 110)) continue;
       if (!riverNear(x, y)) continue;
       mines.push([x, y]);
       w.use[i] = Use.Mine; w.pop[i] = 0;
@@ -424,7 +426,7 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
   while (order.length) {
     let best = 0, bestFrom = connected[0], bestD = Infinity;
     order.forEach((s, k) => connected.forEach((c) => {
-      const d = Math.hypot(s.x - c.x, s.y - c.y);
+      const d = stepDist(s.x - c.x, s.y - c.y);
       if (d < bestD) { bestD = d; best = k; bestFrom = c; }
     }));
     const s = order.splice(best, 1)[0];
@@ -440,12 +442,13 @@ export function generateTown(m: GameMap, seed: number, year = 1850): World {
 /** Nearest lowest (dir -1) or highest (dir 1) dry tile within r — stations sit at the foot and the brow. */
 function snapHeight(m: GameMap, x: number, y: number, r: number, dir: number): [number, number] {
   let best: [number, number] = [x, y], bv = -Infinity;
-  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+  const rb = Math.ceil(r * 1.6);
+  for (let dy = -rb; dy <= rb; dy++) for (let dx = -rb; dx <= rb; dx++) {
     const nx = x + dx, ny = y + dy;
-    if (!inBounds(m, nx, ny) || dx * dx + dy * dy > r * r) continue;
+    if (!inBounds(m, nx, ny) || stepDist(dx, dy) > r) continue;
     const i = ny * m.width + nx;
     if (m.terrain[i] === Terrain.Water) continue;
-    const v = m.elevation[i] * dir - Math.hypot(dx, dy) * 0.4;
+    const v = m.elevation[i] * dir - stepDist(dx, dy) * 0.4;
     if (v > bv) { bv = v; best = [nx, ny]; }
   }
   return best;
@@ -456,8 +459,9 @@ export function layPark(m: GameMap, w: World, pk: (typeof PARKS)[number]) {
   {
     const [cx, cy] = latLonToTile(m, pk.lat, pk.lon);
     const r = pk.radiusM / m.metersPerTile;
-    for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
-      if (!inBounds(m, x, y) || Math.hypot(x - cx, y - cy) > r * (0.85 + tileNoise(7, x >> 2, y >> 2, 9) * 0.3)) continue;
+    const rb = r * 1.9;
+    for (let y = Math.floor(cy - rb); y <= cy + rb; y++) for (let x = Math.floor(cx - rb); x <= cx + rb; x++) {
+      if (!inBounds(m, x, y) || stepDist(x - cx, y - cy) > r * (0.85 + tileNoise(7, x >> 2, y >> 2, 9) * 0.3)) continue;
       const i = y * m.width + x;
       const u = w.use[i];
       if (m.terrain[i] === Terrain.Water || w.street[i] || u === Use.Landmark || u === Use.Civic || u === Use.Industry || u === Use.Rival || u === Use.Incline || u === Use.Commerce) continue;
@@ -682,9 +686,9 @@ export function communityBuildings(m: GameMap, w: World, maxNew = 10) {
       const i = d.zoneTiles[k];
       if (w.eth[i] !== g || !(w.use[i] === Use.Houses || w.use[i] === Use.Rowhouses) || w.owner[i] || w.sub[i] === HouseSub.Boarding) continue;
       const x = i % m.width, y = (i / m.width) | 0;
-      let st = 0, ax = false, ay = false;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) { st++; if (dx) ax = true; else ay = true; }
-      if (!st || (corner && !(ax && ay) && st < 2)) continue;
+      let st = 0, axes = 0;
+      HEX6.forEach(([dx, dy], k) => { if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) { st++; axes |= 1 << (k % 3); } });
+      if (!st || (corner && (axes & (axes - 1)) === 0 && st < 2)) continue;
       // spread a community's buildings out: prefer lots away from its others
       const score = w.pop[i] + tileNoise(w.year, x, y, 61) * 20;
       if (score > bp) { bp = score; best = i; }
@@ -770,9 +774,9 @@ export function downtownMask(m: GameMap): Uint8Array {
     while (q.length) {
       const i = q.pop()!;
       const x = i % m.width, y = (i / m.width) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const nx = x + dx, ny = y + dy;
-        if (!inBounds(m, nx, ny) || Math.hypot(nx - p.x, ny - p.y) > 55) continue;
+        if (!inBounds(m, nx, ny) || stepDist(nx - p.x, ny - p.y) > 55) continue;
         const j = ny * m.width + nx;
         const t = m.terrain[j];
         if (mask[j] || !(t === Terrain.Flat || t === Terrain.Floodplain)) continue;
@@ -805,11 +809,11 @@ export function rebuildDowntown(m: GameMap, w: World) {
     if (u !== Use.Rowhouses && u !== Use.Commerce) continue;
     if (u === Use.Commerce && (w.sub[i] === ShopSub.Market || w.sub[i] === ShopSub.Bank)) continue;
     const x = i % m.width, y = (i / m.width) | 0;
-    const near = 1 - Math.hypot(x - hx, y - hy) / 45;
-    const tip = Math.hypot(x - p.x, y - p.y) < 14 && w.year < 1950;
+    const near = 1 - stepDist(x - hx, y - hy) / 45;
+    const tip = stepDist(x - p.x, y - p.y) < 14 && w.year < 1950;
     if (tileNoise(w.seed, x, y, 801) > 0.25 + near * 0.5) continue; // some blocks stay residential
     let street = false;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) street = true;
+    for (const [dx, dy] of HEX6) if (inBounds(m, x + dx, y + dy) && w.street[(y + dy) * m.width + x + dx]) street = true;
     if (!street) continue;
     const age = w.year - (w.built[i] || 1850);
     const office = w.year >= 1880 && near > 0.4 && offices < officeCap && !tip;
@@ -837,14 +841,14 @@ export function addSteps(m: GameMap, w: World, maxNew = 24, around?: [number, nu
   for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
     const i = y * W + x;
     if (!w.pop[i] || (m.terrain[i] !== Terrain.Steep && m.terrain[i] !== Terrain.Slope)) continue;
-    if (around && Math.hypot(x - around[0], y - around[1]) > around[2]) continue;
+    if (around && stepDist(x - around[0], y - around[1]) > around[2]) continue;
     if (!any) {
       if (tileNoise(w.seed, Math.floor(x / 6), Math.floor(y / 6), 707) > 0.75) continue; // ~one candidate per 6x6 block
       if (x % 6 !== 3 || y % 6 !== 3) continue;
     }
     tops.push(i);
   }
-  if (around) tops.sort((a, b) => Math.hypot((a % W) - around[0], ((a / W) | 0) - around[1]) - Math.hypot((b % W) - around[0], ((b / W) | 0) - around[1]));
+  if (around) tops.sort((a, b) => stepDist((a % W) - around[0], ((a / W) | 0) - around[1]) - stepDist((b % W) - around[0], ((b / W) | 0) - around[1]));
   for (const top of tops) {
     if (made >= maxNew) break;
     const tx = top % W, ty = (top / W) | 0;
@@ -895,7 +899,7 @@ export function activateStreets(m: GameMap, w: World) {
     if (activeBridge(m, i, w.year)) { w.street[i] = m.terrain[i] === Terrain.Water ? Street.Bridge : Street.Pike; continue; }
     if (!m.road[i] || w.street[i] || m.terrain[i] === Terrain.Water || w.use[i] === Use.Incline) continue;
     let settled = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of [[0, 0], ...HEX6]) {
       if (!inBounds(m, x + dx, y + dy)) continue;
       const u = w.use[(y + dy) * W + x + dx];
       if (u >= Use.Cottage && u <= Use.Civic || u === Use.Wharf || u === Use.Landmark || u === Use.Commerce) settled++;

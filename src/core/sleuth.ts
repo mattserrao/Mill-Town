@@ -35,6 +35,7 @@ import { SEED_TYPES, seedsFor, type PlacedSeed, type SeedType } from "./seeds";
 import { buildCivic, churchFor, civicDue, ParkSub, fringeOk, fringeSub, isYard, LotSub, mainAxis, platAngle, platStreet, seamStreet, SHOP_CLOSED, squareTiles } from "./platlayout";
 import { habitable, Terrain } from "./terrain";
 import { densityCap, HouseSub, POP_CAP, ShopSub, Street, terrainCap, Use, useForPop, type World } from "./town";
+import { stepDist, HEX6 } from "./hex";
 
 // ---------------------------------------------------------------- state
 
@@ -157,7 +158,7 @@ export function initSleuth(g: GameState) {
   while (h < t) {
     const i = q[h++], x = i % m.width, y = (i / m.width) | 0;
     if (steps[i] >= 160) continue;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of HEX6) {
       const xx = x + dx, yy = y + dy;
       if ((!dx && !dy) || !inBounds(m, xx, yy)) continue;
       const j = yy * m.width + xx;
@@ -278,7 +279,7 @@ function annex(g: GameState, b: Block, i: number) {
     if (at < (b.full ?? 0)) b.full = at;
     if (at < (b.builtTo ?? 0)) b.builtTo = at;
   }
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+  for (const [dx, dy] of HEX6) {
     const xx = x + dx, yy = y + dy;
     if ((!dx && !dy) || !inBounds(m, xx, yy)) continue;
     const j = yy * W + xx, o = w.blockId![j];
@@ -294,7 +295,7 @@ function rebuildFrontier(g: GameState, b: Block) {
   r.score[b.id - 1].clear();
   for (const i of r.tiles[b.id - 1]) {
     const x = i % W, y = (i / W) | 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of HEX6) {
       const xx = x + dx, yy = y + dy;
       if ((!dx && !dy) || !inBounds(m, xx, yy)) continue;
       const j = yy * W + xx;
@@ -328,7 +329,7 @@ function grow(g: GameState, b: Block, n: number, rng: Rng): number {
       if (c !== undefined) { if (c === c) scored.push([c, i]); continue; }
       const x = i % W, y = (i / W) | 0;
       let k = 0, road = false;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      for (const [dx, dy] of [[0, 0], ...HEX6]) {
         const xx = x + dx, yy = y + dy;
         if (!inBounds(m, xx, yy)) continue;
         const j = yy * W + xx;
@@ -338,7 +339,7 @@ function grow(g: GameState, b: Block, n: number, rng: Rng): number {
       if (b.land > 0 && k < 2 && !(k >= 1 && road)) { cache.set(i, NaN); continue; }
       const t = m.terrain[i];
       const s = -slopeK * (m.slope[i] / 30) + (road ? 0.6 : 0) + (access ? 1.6 * sampleBlock(bg, access, x, y) : 0)
-        + (t === Terrain.Floodplain || t === Terrain.Flat ? 0.3 : 0) + 0.18 * k - 0.004 * Math.hypot(x - b.x, y - b.y)
+        + (t === Terrain.Floodplain || t === Terrain.Flat ? 0.3 : 0) + 0.18 * k - 0.004 * stepDist(x - b.x, y - b.y)
         + 0.35 * tileNoise(g.seed + w.year, x, y, 801);
       cache.set(i, s);
       scored.push([s, i]);
@@ -385,22 +386,22 @@ function roadWalk(g: GameState, b: Block, rng: Rng): number {
   let made = 0, prev = -1;
   for (let s = 0; s < steps && b.land < b.size; s++) {
     const x = cur % W, y = (cur / W) | 0, opts: number[] = [];
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of HEX6) {
       const xx = x + dx, yy = y + dy;
       if ((!dx && !dy) || !inBounds(m, xx, yy)) continue;
       const j = yy * W + xx;
       if (j === prev || !(w.street[j] || m.road[j])) continue;
       if (w.blockId![j] && w.blockId![j] !== b.id) { join(g, b.id, w.blockId![j]); continue; }
       // away from the seed, but within reach
-      const d = Math.hypot(xx - b.x, yy - b.y);
-      if (d >= Math.hypot(x - b.x, y - b.y) && d <= reach) opts.push(j);
+      const d = stepDist(xx - b.x, yy - b.y);
+      if (d >= stepDist(x - b.x, y - b.y) && d <= reach) opts.push(j);
     }
     if (!opts.length) break;
     prev = cur; cur = opts[rng.int(0, opts.length - 1)];
     if (!w.blockId![cur] && isAnnexable(g, cur, steepOk)) { annex(g, b, cur); made++; }
     // the lots either side of the line
     const cx = cur % W, cy = (cur / W) | 0;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const xx = cx + dx, yy = cy + dy;
       if (!inBounds(m, xx, yy) || b.land >= b.size) continue;
       const j = yy * W + xx;
@@ -452,12 +453,12 @@ function lotWeight(g: GameState, b: Block, i: number): number {
   if (tileNoise(w.seed + 17, x, y, 802) < def.loose) return -Infinity;                 // the block's own looseness
   if (t === Terrain.Water || t === Terrain.Cliff) return -Infinity;
   let front = 0;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  for (const [dx, dy] of HEX6) {
     const xx = x + dx, yy = y + dy;
     if (!inBounds(m, xx, yy)) continue;
     if (m.road[yy * W + xx] || onLane(g, b, xx, yy)) front = 1;
   }
-  return front * 1.0 + (t === Terrain.Flat || t === Terrain.Floodplain ? 0.3 : 0) + 0.4 * tileNoise(w.seed, x, y, 803) - 0.003 * Math.hypot(x - b.x, y - b.y);
+  return front * 1.0 + (t === Terrain.Flat || t === Terrain.Floodplain ? 0.3 : 0) + 0.4 * tileNoise(w.seed, x, y, 803) - 0.003 * stepDist(x - b.x, y - b.y);
 }
 
 /** is (x, y) on the block's own lane grid? (lanes every 5 rows along its angle, cross streets every 12) */
@@ -512,7 +513,7 @@ function settle(g: GameState, b: Block, gid: number, count: number, newness: num
     if (!p) {
       w.eth[i] = gid; w.built[i] = year; b.built++;
       const x = i % W, y = (i / W) | 0;
-      w.sub[i] = b.type === "company" ? HouseSub.Company : newness > 0.4 && plants.some(([px, py]) => Math.hypot(px - x, py - y) < 12) ? HouseSub.Shanty : HouseSub.Normal;
+      w.sub[i] = b.type === "company" ? HouseSub.Company : newness > 0.4 && plants.some(([px, py]) => stepDist(px - x, py - y) < 12) ? HouseSub.Shanty : HouseSub.Normal;
       // a streetcar suburb's high ground: a few villas (v0.26)
       if (b.type === "suburb" && (b.villas ?? 0) < 4 && g.map.elevation[i] > g.map.elevation[b.y * W + b.x] + 12 && tileNoise(w.seed, x, y, 907) < 0.3) {
         w.sub[i] = HouseSub.Estate; b.villas = (b.villas ?? 0) + 1;
@@ -707,7 +708,7 @@ function layOutSquare(g: GameState, b: Block) {
   // the church lot: on the main street beside the square
   if (placed && b.type !== "patch") {
     for (const t of sq) {
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const x = (t.i % m.width) + dx, y = ((t.i / m.width) | 0) + dy;
         if (!inBounds(m, x, y)) continue;
         const j = y * m.width + x;
@@ -811,7 +812,7 @@ function platYear(g: GameState, b: Block) {
 /** does lot i front its plat's main street? */
 function frontsMain(g: GameState, b: Block, i: number): boolean {
   const m = g.map, w = g.world, W = m.width, x = i % W, y = (i / W) | 0;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  for (const [dx, dy] of HEX6) {
     const xx = x + dx, yy = y + dy;
     if (!inBounds(m, xx, yy)) continue;
     const j = yy * W + xx;
@@ -828,8 +829,8 @@ function frontsMain(g: GameState, b: Block, i: number): boolean {
 function civicLots(g: GameState, b: Block, kind: string): number[] {
   const m = g.map, w = g.world, W = m.width, tiles = rt(g).tiles[b.id - 1];
   const open = (i: number) => w.blockId![i] === b.id && !w.street[i] && !m.road[i] && w.use[i] <= Use.Farm && !w.pop[i] && !b.res?.includes(i) && m.terrain[i] !== Terrain.Water;
-  const d = (i: number) => Math.hypot((i % W) - b.x, ((i / W) | 0) - b.y);
-  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
+  const d = (i: number) => stepDist((i % W) - b.x, ((i / W) | 0) - b.y);
+  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of HEX6) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
   if (kind === "market") {
     // a 2×2 square within 10 tiles of the seed, beside a street: open land first, else frame houses bought and cleared
     const ok = (i: number) => w.blockId![i] === b.id && !w.street[i] && !m.road[i] && !b.res?.includes(i) && m.terrain[i] !== Terrain.Water && m.terrain[i] !== Terrain.Cliff
@@ -1001,7 +1002,7 @@ function besideWorks(g: GameState, x: number, y: number, fp: number): [number, n
   for (let dy = -20; dy <= 20; dy += 2) for (let dx = -20; dx <= 20; dx += 2) {
     const xx = Math.round(cx + dx), yy = Math.round(cy + dy);
     if (!inBounds(m, xx, yy)) continue;
-    const d = Math.hypot(dx, dy) - fp / 2;
+    const d = stepDist(dx, dy) - fp / 2;
     if (d < 6 || d > 20) continue;
     const i = yy * m.width + xx;
     if (!isAnnexable(g, i, false) || w.pop[i] || !habitable(m.terrain[i])) continue;
@@ -1078,7 +1079,7 @@ export function resyncBlock(g: GameState, b: Block) { resync(g, b, tilesOf(g, b)
 export function serviceLot(g: GameState, b: Block, near?: [number, number]): number {
   const m = g.map, w = g.world, W = m.width, tiles = tilesOf(g, b);
   const [nx, ny] = near ?? [b.x, b.y];
-  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
+  const onStreet = (i: number) => { const x = i % W, y = (i / W) | 0; for (const [dx, dy] of HEX6) { if (!inBounds(m, x + dx, y + dy)) continue; const j = (y + dy) * W + x + dx; if (w.street[j] || m.road[j]) return true; } return false; };
   let best = -1, bs = Infinity;
   for (const i of tiles) {
     const u = w.use[i];
@@ -1086,7 +1087,7 @@ export function serviceLot(g: GameState, b: Block, near?: [number, number]): num
     const house = u === Use.Houses || u === Use.Cottage;
     if (!(u <= Use.Farm || (house && w.sub[i] !== HouseSub.Estate))) continue;
     if (!onStreet(i)) continue;
-    const score = Math.hypot((i % W) - nx, ((i / W) | 0) - ny) + (frontsMain(g, b, i) ? 0 : 4) + (house ? 3 + w.pop[i] * 0.1 : 0) + (m.terrain[i] === Terrain.Steep ? 6 : 0);
+    const score = stepDist((i % W) - nx, ((i / W) | 0) - ny) + (frontsMain(g, b, i) ? 0 : 4) + (house ? 3 + w.pop[i] * 0.1 : 0) + (m.terrain[i] === Terrain.Steep ? 6 : 0);
     if (score < bs) { bs = score; best = i; }
   }
   return best;

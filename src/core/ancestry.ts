@@ -4,6 +4,7 @@
 import { latLonToTile } from "./features";
 import { type GameMap, inBounds } from "./map";
 import { Rng } from "./rng";
+import { stepDist } from "./hex";
 
 export interface Group {
   id: number;
@@ -121,9 +122,9 @@ export function anchorIndex(m: GameMap): Int16Array {
   a = new Int16Array(m.width * m.height).fill(-1);
   const best = new Float32Array(m.width * m.height).fill(Infinity);
   list.forEach((t, k) => {
-    for (let y = Math.max(0, Math.floor(t.y - t.r)); y <= Math.min(m.height - 1, Math.ceil(t.y + t.r)); y++)
-      for (let x = Math.max(0, Math.floor(t.x - t.r)); x <= Math.min(m.width - 1, Math.ceil(t.x + t.r)); x++) {
-        const d = Math.hypot(t.x - x, t.y - y), i = y * m.width + x;
+    for (let y = Math.max(0, Math.floor(t.y - t.r * 1.6)); y <= Math.min(m.height - 1, Math.ceil(t.y + t.r * 1.6)); y++)
+      for (let x = Math.max(0, Math.floor(t.x - t.r * 1.6)); x <= Math.min(m.width - 1, Math.ceil(t.x + t.r * 1.6)); x++) {
+        const d = stepDist(t.x - x, t.y - y), i = y * m.width + x;
         if (d < t.r && d < best[i]) { best[i] = d; a![i] = k; }
       }
   });

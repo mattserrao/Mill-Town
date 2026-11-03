@@ -9,6 +9,8 @@ import type { GameMap } from "../core/map";
 import { Rng, tileNoise } from "../core/rng";
 import { CivicSub, ShopSub, Street, Use } from "../core/town";
 import { type Look, motorEra, poolLook, type VehicleSpec } from "./figures";
+import { HEX6 } from "../core/hex";
+import { avec, gunit, hyp } from "./viewcells";
 
 export interface GFig {
   fx: number; fy: number;
@@ -83,7 +85,8 @@ export class Gatherings {
         if (d < 0 || d > p.len) continue;
         const [fx, fy, tx, ty] = this.along(p.path, d);
         const moving = !(p.stay && head >= p.len);
-        out.push({ fx: fx - ty * mb.side, fy: fy + tx * mb.side, tx, ty, look: mb.look, spec: mb.spec, moving, placard: mb.placard, seed: k * 0.37, ref: mb });
+        const [oq, or] = avec(-ty * mb.side, tx * mb.side);
+        out.push({ fx: fx + oq, fy: fy + or, tx, ty, look: mb.look, spec: mb.spec, moving, placard: mb.placard, seed: k * 0.37, ref: mb });
       }
       for (const c of p.crowd) out.push({ fx: c.fx, fy: c.fy, tx: 0, ty: 1, look: c.look, moving: false, seed: c.fx, ref: c });
     }
@@ -172,7 +175,7 @@ export class Gatherings {
   private route(g: GameState, a: number, b: number): [number, number][] {
     const m = this.m, w = g.world, W = m.width;
     const ok = (i: number) => w.street[i] !== 0 && w.street[i] !== Street.Steps;
-    const snap = (i: number) => { const x = i % W, y = (i / W) | 0; let best = -1, bd = Infinity; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue; const j = yy * W + xx; if (ok(j) && Math.abs(dx) + Math.abs(dy) < bd) { bd = Math.abs(dx) + Math.abs(dy); best = j; } } return best; };
+    const snap = (i: number) => { const x = i % W, y = (i / W) | 0; let best = -1, bd = Infinity; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue; const j = yy * W + xx; if (ok(j) && hyp(dx, dy) < bd) { bd = hyp(dx, dy); best = j; } } return best; };
     const s = snap(a), t = snap(b);
     if (s < 0 || t < 0) return [];
     const prev = new Map<number, number>([[s, -1]]);
@@ -181,7 +184,7 @@ export class Gatherings {
       const next: number[] = [];
       for (const i of q) {
         const x = i % W, y = (i / W) | 0;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [dx, dy] of HEX6) {
           const xx = x + dx, yy = y + dy;
           if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue;
           const j = yy * W + xx;
@@ -206,16 +209,18 @@ export class Gatherings {
     let x = a % W, y = (a / W) | 0;
     // the nearest pike to the start
     let bd = Infinity, bx = -1, by = -1;
-    for (let dy = -8; dy <= 8; dy++) for (let dx = -8; dx <= 8; dx++) { const xx = x + dx, yy = y + dy; if (!ok(xx, yy)) continue; const d = Math.abs(dx) + Math.abs(dy) - (w.street[yy * W + xx] === Street.Pike ? 3 : 0); if (d < bd) { bd = d; bx = xx; by = yy; } }
+    for (let dy = -8; dy <= 8; dy++) for (let dx = -8; dx <= 8; dx++) { const xx = x + dx, yy = y + dy; if (!ok(xx, yy)) continue; const d = hyp(dx, dy) - (w.street[yy * W + xx] === Street.Pike ? 3 : 0); if (d < bd) { bd = d; bx = xx; by = yy; } }
     if (bx < 0) return [];
     x = bx; y = by;
     const seen = new Set<number>([y * W + x]);
     const path: [number, number][] = [[x + 0.5, y + 0.5]];
-    let dir = [[1, 0], [0, 1], [-1, 0], [0, -1]].find(([dx, dy]) => ok(x + dx, y + dy)) ?? [1, 0];
+    let di = HEX6.findIndex(([dx, dy]) => ok(x + dx, y + dy)); if (di < 0) di = 0;
     for (let k = 0; k < n; k++) {
-      const opts = [dir, [dir[1], -dir[0]], [-dir[1], dir[0]]].filter(([dx, dy]) => ok(x + dx, y + dy) && !seen.has((y + dy) * W + x + dx));
+      // straight on, else a 60° turn either way
+      const opts = [di, (di + 1) % 6, (di + 5) % 6].filter((d) => ok(x + HEX6[d][0], y + HEX6[d][1]) && !seen.has((y + HEX6[d][1]) * W + x + HEX6[d][0]));
       if (!opts.length) break;
-      dir = opts[0];
+      di = opts[0];
+      const dir = HEX6[di];
       x += dir[0]; y += dir[1]; seen.add(y * W + x); path.push([x + 0.5, y + 0.5]);
     }
     return path;
@@ -224,7 +229,7 @@ export class Gatherings {
   /** a lot beside a street tile for onlookers to stand on (another street tile, or open ground) */
   private beside(g: GameState, x: number, y: number): [number, number] | null {
     const w = g.world, W = this.m.width;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const xx = x + dx, yy = y + dy;
       if (xx < 0 || yy < 0 || xx >= W || yy >= this.m.height) continue;
       const u = w.use[yy * W + xx];
@@ -236,6 +241,7 @@ export class Gatherings {
   private along(path: [number, number][], d: number): [number, number, number, number] {
     const k = Math.min(path.length - 2, Math.floor(d)), t = d - k;
     const [x0, y0] = path[Math.max(0, k)], [x1, y1] = path[Math.min(path.length - 1, k + 1)];
-    return [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, x1 - x0, y1 - y0];
+    const [gx, gy] = gunit(x1 - x0, y1 - y0); // heading in the ground frame
+    return [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, gx, gy];
   }
 }

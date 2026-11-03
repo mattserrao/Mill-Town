@@ -10,7 +10,8 @@
 
 import { simBand } from "./band";
 import { B, blockGrid, blockOf, blockStatics, disperse, percentile, upsampleTo } from "./blocks";
-import type { GameMap } from "./map";
+import { type GameMap, inBounds } from "./map";
+import { HEX6, stepDist } from "./hex";
 import { Terrain } from "./terrain";
 import { Use, type World } from "./town";
 
@@ -165,16 +166,16 @@ function riverStatics(m: GameMap): RiverStatics {
   const q = new Int32Array(n);
   let h = 0, t = 0;
   let start = -1, bd = Infinity;
-  for (let i = 0; i < n; i++) if (m.terrain[i] === Terrain.Water && point) {
-    const dd = Math.hypot((i % W) - point.x, ((i / W) | 0) - point.y);
+  for (let i = 0; i < n; i++) if (m.terrain[i] === Terrain.Water && m.valid[i] && point) {
+    const dd = stepDist((i % W) - point.x, ((i / W) | 0) - point.y);
     if (dd < bd) { bd = dd; start = i; }
   }
   if (start >= 0) { d[start] = 0; q[t++] = start; }
   while (h < t) {
     const i = q[h++], x = i % W, y = (i / W) | 0;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       if (d[j] < 0 && m.terrain[j] === Terrain.Water) { d[j] = d[i] + 1; q[t++] = j; }
     }
@@ -193,9 +194,9 @@ function riverStatics(m: GameMap): RiverStatics {
   water.forEach((i, k) => (pos[i] = k));
   const up: Int32Array[] = water.map((i) => {
     const x = i % W, y = (i / W) | 0, l: number[] = [];
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       if (pos[j] >= 0 && flow[j] < flow[i]) l.push(pos[j]);
     }
@@ -207,9 +208,9 @@ function riverStatics(m: GameMap): RiverStatics {
   for (const i of water) { nearWater[i] = i; nearDist[i] = 0; q[t++] = i; }
   while (h < t) {
     const i = q[h++], x = i % W, y = (i / W) | 0;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       if (nearDist[j] === 65535) { nearDist[j] = nearDist[i] + 1; nearWater[j] = nearWater[i]; q[t++] = j; }
     }

@@ -12,7 +12,8 @@
 
 import { percentile } from "./blocks";
 import type { Good } from "./industries";
-import { inBounds, type GameMap } from "./map";
+import { inBounds, neighbours, onEdge, type GameMap } from "./map";
+import { HEX6, cellAt, stepDist } from "./hex";
 import { Terrain } from "./terrain";
 
 export type GatewayId = "upper_mon" | "allegheny" | "ohio";
@@ -69,14 +70,13 @@ function statics(m: GameMap): Statics {
     const d = new Int32Array(n).fill(-1), q = new Int32Array(n);
     let h = 0, t = 0;
     for (let i = 0; i < n; i++) {
-      const x = i % W, y = (i / W) | 0;
-      if ((x === 0 || y === 0 || x === W - 1 || y === H - 1) && m.terrain[i] === Terrain.Water && re.test(m.waterNames[String(m.water[i])] ?? "")) { d[i] = 0; q[t++] = i; }
+      if (onEdge(m, i) && m.terrain[i] === Terrain.Water && re.test(m.waterNames[String(m.water[i])] ?? "")) { d[i] = 0; q[t++] = i; }
     }
     while (h < t) {
       const i = q[h++], x = i % W, y = (i / W) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (!inBounds(m, nx, ny)) continue;
         const j = ny * W + nx;
         if (d[j] < 0 && m.terrain[j] === Terrain.Water) { d[j] = d[i] + 1; q[t++] = j; }
       }
@@ -96,15 +96,15 @@ function railDist(m: GameMap, year: number): Int32Array {
   const open = (i: number) => m.rail[i] > 0 && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= year;
   const d = new Int32Array(n).fill(-1), q = new Int32Array(n);
   let h = 0, t = 0;
+  const nbs: number[] = [];
   for (let i = 0; i < n; i++) {
-    const x = i % W, y = (i / W) | 0;
-    if ((x <= 1 || y <= 1 || x >= W - 2 || y >= H - 2) && open(i)) { d[i] = 0; q[t++] = i; }
+    if (open(i) && (onEdge(m, i) || neighbours(m, i, nbs).some((j) => onEdge(m, j)))) { d[i] = 0; q[t++] = i; }
   }
   while (h < t) {
     const i = q[h++], x = i % W, y = (i / W) | 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
-      if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       if (d[j] < 0 && open(j)) { d[j] = d[i] + 1; q[t++] = j; }
     }
@@ -126,8 +126,10 @@ function nearest(m: GameMap, s: Site, r: number, ok: (i: number) => boolean): [n
     if (!inBounds(m, x, y)) continue;
     const i = y * m.width + x;
     if (!ok(i)) continue;
-    const dx = Math.max(s.x - x, 0, x - (s.x + s.fp - 1)), dy = Math.max(s.y - y, 0, y - (s.y + s.fp - 1));
-    const d = Math.hypot(dx, dy);
+    // offset to the nearest cell of the footprint (a rhombus of cells)
+    const dx = x < s.x ? x - s.x : x > s.x + s.fp - 1 ? x - (s.x + s.fp - 1) : 0;
+    const dy = y < s.y ? y - s.y : y > s.y + s.fp - 1 ? y - (s.y + s.fp - 1) : 0;
+    const d = stepDist(dx, dy);
     if (d < bd) { bd = d; best = i; }
   }
   return [best, bd];
@@ -241,9 +243,9 @@ export function shipSeason(m: GameMap, year: number, riverFactor: number, shippe
         freight[i] += delivered;
         const x = i % W, y = (i / W) | 0;
         let next = -1;
-        for (let dy = -1; dy <= 1 && next < 0; dy++) for (let dx = -1; dx <= 1; dx++) {
+        for (const [dx, dy] of HEX6) {
           const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+          if (!inBounds(m, nx, ny)) continue;
           const j = ny * W + nx;
           if (d[j] >= 0 && d[j] < d[i]) { next = j; break; }
         }
@@ -288,9 +290,9 @@ export function spurOption(m: GameMap, s: Site, year: number): { to: [number, nu
 
 /** does the straight line between two points pass over water? (sampled every half tile) */
 function crossesWater(m: GameMap, x0: number, y0: number, x1: number, y1: number): boolean {
-  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2));
+  const n = Math.max(1, Math.ceil(stepDist(x1 - x0, y1 - y0) * 2));
   for (let k = 0; k <= n; k++) {
-    const f = k / n, x = Math.floor(x0 + (x1 - x0) * f), y = Math.floor(y0 + (y1 - y0) * f);
+    const f = k / n, [x, y] = cellAt(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
     if (inBounds(m, x, y) && m.terrain[y * m.width + x] === Terrain.Water) return true;
   }
   return false;

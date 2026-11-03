@@ -14,10 +14,14 @@ import { type GameState, rivalRunning, type Works } from "../core/game";
 import type { GameMap } from "../core/map";
 import { RIVALS } from "../core/rivals";
 import { Terrain } from "../core/terrain";
-import { type Camera, BASE_M, HH, HW, project, ZPX } from "./iso";
+import { type Camera, project } from "./iso";
+import { CW, HEX6 } from "../core/hex";
+/** half the screen width of one cell column (was HW = 32 on the square grid) */
+const HW = CW / 2;
+import { avec, gunit, hyp, viewBox } from "./viewcells";
 import { waterFields } from "./waterfields";
 
-const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
+const DIR8 = HEX6;
 
 function hash(a: number, b: number, c = 0): number {
   let h = (a * 374761393) ^ (b * 668265263) ^ (c * 2147483647);
@@ -249,15 +253,8 @@ export function drawFire(ctx: CanvasRenderingContext2D, sx: number, sy: number, 
 
 /** the tile rectangle under the screen (with a margin) */
 function viewTiles(m: GameState["map"], cam: Camera, cw: number, ch: number) {
-  const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
-    const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom + (260 - BASE_M) * ZPX;
-    const a = wx / HW, b = wy / HH;
-    return [(a + b) / 2, (b - a) / 2];
-  });
-  return {
-    x0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 6), x1: Math.min(m.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 12),
-    y0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 6), y1: Math.min(m.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 12),
-  };
+  const v = viewBox(cam, cw, ch);
+  return { x0: Math.max(0, v.x0), x1: Math.min(m.width - 1, v.x1), y0: Math.max(0, v.y0), y1: Math.min(m.height - 1, v.y1) };
 }
 
 /** colour of the smoke pall: brown coal smoke early, greyer later */
@@ -376,7 +373,7 @@ function spillPath(m: GameMap, x0: number, y0: number, fp: number): SpillPath | 
     const x = Math.round(cx + dx), y = Math.round(cy + dy);
     if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
     const j = y * m.width + x;
-    if (m.terrain[j] === Terrain.Water && down[j] >= 0 && Math.hypot(dx, dy) < bd) { bd = Math.hypot(dx, dy); out = j; }
+    if (m.terrain[j] === Terrain.Water && down[j] >= 0 && hyp(dx, dy) < bd) { bd = hyp(dx, dy); out = j; }
   }
   if (out < 0) { cache.set(key, null); return null; }
   const ohio = /Ohio/.test(m.waterNames[String(m.water[out])] ?? "");
@@ -405,7 +402,7 @@ function spillPath(m: GameMap, x0: number, y0: number, fp: number): SpillPath | 
   }
   // the bank above the outfall, a little way towards the works, for slag pours
   const ox = out % m.width + 0.5, oy = ((out / m.width) | 0) + 0.5;
-  const dl = Math.hypot(cx - ox, cy - oy) || 1;
+  const dl = hyp(cx - ox, cy - oy) || 1;
   let land: [number, number, number] | null = null;
   // slag is tipped only where the works stands on the bank
   if (bd <= fp / 2 + 4) for (let d = 0.8; d <= 3; d += 0.4) {
@@ -428,8 +425,9 @@ function along(pts: [number, number, number][], u: number): [number, number, num
   const k = Math.max(0, Math.min(pts.length - 2, Math.floor(u)));
   const f = Math.max(0, Math.min(1, u - k));
   const a = pts[k], b = pts[k + 1] ?? a;
-  const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-  return [a[0] + dx * f, a[1] + dy * f, a[2] + (b[2] - a[2]) * f, dx / l, dy / l];
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const [gx, gy] = gunit(dx, dy); // the local direction, in the ground frame
+  return [a[0] + dx * f, a[1] + dy * f, a[2] + (b[2] - a[2]) * f, gx, gy];
 }
 
 const SPILL_COL: Record<string, [number, number, number]> = {
@@ -457,9 +455,10 @@ function drawStain(ctx: CanvasRenderingContext2D, S: (fx: number, fy: number, h:
     const wide = 0.4 + s * 2.4;
     let lat = (h1 - 0.5) * wide + Math.sin(time * 0.4 + k * 1.7 + seed) * 0.25 * s;
     // keep to the water: a plume hugging the bank spreads out into the river, not over the land
-    const lx = Math.floor(fx - dy * lat), ly = Math.floor(fy + dx * lat);
-    if (m.terrain[ly * m.width + lx] !== Terrain.Water) lat = -lat;
-    const [sx, sy] = S(fx - dy * lat, fy + dx * lat, h);
+    let [oq, orr] = avec(-dy * lat, dx * lat);
+    const lx = Math.floor(fx + oq), ly = Math.floor(fy + orr);
+    if (m.terrain[ly * m.width + lx] !== Terrain.Water) { lat = -lat; [oq, orr] = avec(-dy * lat, dx * lat); }
+    const [sx, sy] = S(fx + oq, fy + orr, h);
     const r = (10 + s * 56) * z * (0.75 + 0.5 * h2);
     // thickest at the mouth of the outfall, thinning as it spreads downstream
     const a = Math.min(1, s * 40) * Math.pow(1 - s, 1.4) * 0.2 * ak * strength;

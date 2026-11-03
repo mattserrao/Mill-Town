@@ -8,7 +8,8 @@
 import type { RiverSide } from "../core/game";
 import type { IndustryId } from "../core/industries";
 import { tileNoise } from "../core/rng";
-import { blob, box, type Box, chimney, cylinder, gable, lerp, Painter, shade, type Sprite } from "./sprites";
+import { blob, box, type Box, chimney, cylinder, gable, lerp, Painter, shade, SPRITE_K, type Sprite } from "./sprites";
+import { CW, RH } from "../core/hex";
 import { weather } from "./houses";
 
 export type Seg = "s" | "m" | "e" | "1";
@@ -299,7 +300,20 @@ export function plantKey(t: PlantTile, c: PlantCtx, soot: number, variant: numbe
 // ---------------------------------------------------------------- emitters for the animation layer
 export interface Emitter { u: number; v: number; z: number; kind: "smoke" | "glow" | "flame" | "steam"; size: number }
 
+/**
+ * Where a part's smoke, glow and flame come from. (u, v) here are positions on the sprite's own isometric tile; the
+ * result is converted to the hex lattice's axial offsets, so project(x + e.u, y + e.v, h) lands on the same spot of
+ * the sprite (the sprite is drawn on the cell's centre).
+ */
 export function emittersFor(part: string): Emitter[] {
+  return emittersRaw(part).map((e) => {
+    const sx = (e.u - e.v) * 32 * SPRITE_K, sy = (e.u + e.v - 1) * 16 * SPRITE_K; // from the cell centre, screen px
+    const q = sx / CW, r = sy / RH - q / 2;
+    return { ...e, u: 0.5 + q, v: 0.5 + r };
+  });
+}
+
+function emittersRaw(part: string): Emitter[] {
   switch (part) {
     case "stack": return [{ u: 0.5, v: 0.5, z: 112, kind: "smoke", size: 1.7 }];
     case "furnace_iron": return [{ u: 0.5, v: 0.5, z: 82, kind: "smoke", size: 1 }, { u: 0.6, v: 0.75, z: 6, kind: "glow", size: 1 }];

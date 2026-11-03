@@ -30,6 +30,7 @@ import { Terrain } from "./terrain";
 import { priceLevel } from "./time";
 import { CivicSub, HouseSub, Use } from "./town";
 import { placeLandmark } from "./landmarks";
+import { stepDist, HEX6 } from "./hex";
 
 // ---------------------------------------------------------------- state
 
@@ -182,15 +183,15 @@ function layCemeteries(g: GameState, year: number, quiet: boolean) {
     seen.add(start);
     const R = Math.sqrt(want / Math.PI) * 1.9;
     while (frontier.length && out.length < want) {
-      frontier.sort((p, q) => Math.hypot((p % W) - cx, ((p / W) | 0) - cy) - Math.hypot((q % W) - cx, ((q / W) | 0) - cy) || p - q);
+      frontier.sort((p, q) => stepDist((p % W) - cx, ((p / W) | 0) - cy) - stepDist((q % W) - cx, ((q / W) | 0) - cy) || p - q);
       const next: number[] = [];
       for (const i of frontier) {
         if (out.length >= want) break;
         const x = i % W, y = (i / W) | 0;
-        if (Math.hypot(x - cx, y - cy) > R) continue;
+        if (stepDist(x - cx, y - cy) > R) continue;
         if (ok(i)) out.push(i);
         if (m.terrain[i] === Terrain.Water) continue;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [dx, dy] of HEX6) {
           const xx = x + dx, yy = y + dy;
           if (!inBounds(m, xx, yy)) continue;
           const j = yy * W + xx;
@@ -228,7 +229,7 @@ function cemeteryFor(g: GameState, x: number, y: number, faith: Faith): number {
   let best = -1, bd = Infinity, any = -1, ad = Infinity;
   CEMETERIES.forEach((c, k) => {
     if (!civ.laid.includes(c.id) || !lists[k]?.length) return;
-    const [cx, cy] = tileOf(g, c.at), d = Math.hypot(cx - x, cy - y);
+    const [cx, cy] = tileOf(g, c.at), d = stepDist(cx - x, cy - y);
     if (d < ad) { ad = d; any = k; }
     const fits = c.faith === faith || (faith === Faith.Mixed && c.faith === Faith.Mixed) || (faith === Faith.Orthodox && c.faith === Faith.Catholic);
     if (fits && d < bd && d < 220) { bd = d; best = k; }
@@ -243,7 +244,7 @@ function cemeteryShares(g: GameState, x: number, y: number, faith: Faith): [numb
   CEMETERIES.forEach((c, k) => {
     if (!civ.laid.includes(c.id) || !lists[k]?.length) return;
     const fits = c.faith === faith || (faith === Faith.Orthodox && c.faith === Faith.Catholic);
-    const [cx, cy] = tileOf(g, c.at), d = Math.hypot(cx - x, cy - y);
+    const [cx, cy] = tileOf(g, c.at), d = stepDist(cx - x, cy - y);
     if (!fits || d > 220) return;
     const wt = lists[k].length / Math.max(12, d) ** 1.6;
     out.push([k, wt]); tot += wt;
@@ -412,7 +413,7 @@ function wardBlocks(g: GameState): Map<number, Block[]> {
 function nearestSvc(g: GameState, list: Service[], x: number, y: number): number {
   const W = g.map.width;
   let d = Infinity;
-  for (const s of list) d = Math.min(d, Math.hypot((s.tile % W) - x, ((s.tile / W) | 0) - y));
+  for (const s of list) d = Math.min(d, stepDist((s.tile % W) - x, ((s.tile / W) | 0) - y));
   return d;
 }
 
@@ -462,7 +463,7 @@ function services(g: GameState, year: number, quiet: boolean) {
     // a union hall in a mill ward by a steel works: the Amalgamated's lodges (1877–92), the Steelworkers' locals (from 1937)
     const lodgeEra = (year >= SERVICE_DATES.amalgamated + 1 && year <= 1892) || year >= SERVICE_DATES.swoc + 1;
     if (lodgeEra && P >= 900 && !unions.some(inWard)) {
-      const b = biggest.find((x) => steel.some(([sx, sy]) => Math.hypot(sx - x.x, sy - x.y) < 34));
+      const b = biggest.find((x) => steel.some(([sx, sy]) => stepDist(sx - x.x, sy - x.y) < 34));
       if (b) {
         const i = serviceLot(g, b);
         if (i >= 0) {
@@ -534,7 +535,7 @@ function fireRisk(g: GameState, year: number) {
     for (let k = 0; k < tiles.length; k += Math.max(1, Math.floor(tiles.length / 60))) { const u = w.use[tiles[k]]; if (u === Use.Cottage || u === Use.Houses) { frame++; built++; } else if (u === Use.Rowhouses || u === Use.Commerce) built++; }
     const fr = built ? frame / built : 0.5;
     let ind = 0;
-    for (const h of hot) ind = Math.max(ind, h.heat * sparks(Math.hypot(h.x - b.x, h.y - b.y)));
+    for (const h of hot) ind = Math.max(ind, h.heat * sparks(stepDist(h.x - b.x, h.y - b.y)));
     const cover = Math.max(0, 1 - nearestSvc(g, fires, b.x, b.y) / fireReach(year)) * fireSkill(year, isCity(b));
     civ.risk[b.id - 1] = (0.003 + 0.022 * ind) * (0.35 + fr) * Math.min(1.5, b.pop / 600) * era * (1 - 0.6 * cover);
   }
@@ -564,13 +565,13 @@ export function ignite(g: GameState, b: Block, rng: Rng, opts: { at?: number; si
   const burnable = (i: number) => { const u = w.use[i]; return (u >= Use.Cottage && u <= Use.Rowhouses) || u === Use.Commerce || (u === Use.Civic && w.sub[i] !== CivicSub.Firehouse); };
   const hot = hotWorks(g);
   let src: Hot | null = null, sd = Infinity;
-  for (const h of hot) { const d = Math.hypot(h.x - b.x, h.y - b.y); if (h.heat * sparks(d) > 0.25 && d < sd) { sd = d; src = h; } }
+  for (const h of hot) { const d = stepDist(h.x - b.x, h.y - b.y); if (h.heat * sparks(d) > 0.25 && d < sd) { sd = d; src = h; } }
   // where it starts: near the furnaces if they threw the sparks, else a lot anywhere in the block
   let start = opts.at ?? -1;
   if (start < 0) {
     const cands = tiles.filter(burnable);
     if (!cands.length) return null;
-    if (src && rng.chance(0.65)) start = cands.reduce((a, i) => (Math.hypot((i % W) - src!.x, ((i / W) | 0) - src!.y) < Math.hypot((a % W) - src!.x, ((a / W) | 0) - src!.y) ? i : a), cands[0]);
+    if (src && rng.chance(0.65)) start = cands.reduce((a, i) => (stepDist((i % W) - src!.x, ((i / W) | 0) - src!.y) < stepDist((a % W) - src!.x, ((a / W) | 0) - src!.y) ? i : a), cands[0]);
     else start = cands[rng.int(0, cands.length - 1)];
   }
   const cause = opts.cause ?? (src && rng.chance(0.65) ? `sparks from the ${src.name}` : CAUSES[rng.int(0, CAUSES.length - 1)]);
@@ -578,12 +579,12 @@ export function ignite(g: GameState, b: Block, rng: Rng, opts: { at?: number; si
   const fires = svcOf(g, "fire"), reach = fireReach(year), skill = fireSkill(year, isCity(b));
   const c = g.company, cx = c ? c.x + c.footprint / 2 : -999, cy = c ? c.y + c.footprint / 2 : -999;
   const brigade = civ.brigade !== undefined;
-  const water = (i: number) => { const x = i % W, y = (i / W) | 0; return c && c.hood?.water && Math.hypot(x - cx, y - cy) < 40 ? 0.12 : year >= 1910 ? 0.1 : 0; };
+  const water = (i: number) => { const x = i % W, y = (i / W) | 0; return c && c.hood?.water && stepDist(x - cx, y - cy) < 40 ? 0.12 : year >= 1910 ? 0.1 : 0; };
   const defend = (i: number) => {
     const x = i % W, y = (i / W) | 0;
     const d = nearestSvc(g, fires, x, y);
     let s = Math.max(0, 1 - d / reach) * skill + water(i);
-    if (brigade && Math.hypot(x - cx, y - cy) < 40) s += 0.25;
+    if (brigade && stepDist(x - cx, y - cy) < 40) s += 0.25;
     return Math.min(0.92, s);
   };
   const spreadP = (i: number) => {
@@ -598,12 +599,12 @@ export function ignite(g: GameState, b: Block, rng: Rng, opts: { at?: number; si
     const next: number[] = [];
     for (const i of front) {
       const x = i % W, y = (i / W) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const xx = x + dx, yy = y + dy;
         if (!inBounds(m, xx, yy)) continue;
-        let j = yy * W + xx, jump = dx && dy ? 0.65 : 1;
+        let j = yy * W + xx, jump = 1;
         // a street or alley in the way: it jumps across only now and then
-        if (!burnable(j) && (w.street[j] || m.road[j]) && !dx !== !dy) {
+        if (!burnable(j) && (w.street[j] || m.road[j])) {
           const x2 = xx + dx, y2 = yy + dy;
           if (!inBounds(m, x2, y2)) continue;
           j = y2 * W + x2; jump = 0.3;
@@ -635,18 +636,18 @@ export function ignite(g: GameState, b: Block, rng: Rng, opts: { at?: number; si
   if (dead) queueDead(g, x, y, dead, { name: `the funeral of the fire's dead` });
   // an engine run to the fire
   if (fires.length) {
-    const fh = fires.reduce((a, s) => (Math.hypot((s.tile % W) - x, ((s.tile / W) | 0) - y) < Math.hypot((a.tile % W) - x, ((a.tile / W) | 0) - y) ? s : a), fires[0]);
-    if (Math.hypot((fh.tile % W) - x, ((fh.tile / W) | 0) - y) < reach * 2) civ.happen.push({ kind: "engine", name: fh.name, a: fh.tile, b: start, until: g.turn + 1 });
+    const fh = fires.reduce((a, s) => (stepDist((s.tile % W) - x, ((s.tile / W) | 0) - y) < stepDist((a.tile % W) - x, ((a.tile / W) | 0) - y) ? s : a), fires[0]);
+    if (stepDist((fh.tile % W) - x, ((fh.tile / W) | 0) - y) < reach * 2) civ.happen.push({ kind: "engine", name: fh.name, a: fh.tile, b: start, until: g.turn + 1 });
   }
   const homes = burnt.length, families = Math.round(people / 5);
   const mine = !!src?.mine && cause.startsWith("sparks");
   if (homes >= 18) {
-    pushHeadline(g, `Fire Sweeps ${b.name}`, `${name} burns ${homes} lots${families ? ` and turns ${families.toLocaleString()} families into the street` : ""}${dead ? `; ${dead} dead` : ""}. It began with ${cause}.${brigade && Math.hypot(x - cx, y - cy) < 40 ? ` The ${c!.name} fire brigade held the line.` : fires.length ? "" : " There is no engine house within reach."}`, "Disaster");
+    pushHeadline(g, `Fire Sweeps ${b.name}`, `${name} burns ${homes} lots${families ? ` and turns ${families.toLocaleString()} families into the street` : ""}${dead ? `; ${dead} dead` : ""}. It began with ${cause}.${brigade && stepDist(x - cx, y - cy) < 40 ? ` The ${c!.name} fire brigade held the line.` : fires.length ? "" : " There is no engine house within reach."}`, "Disaster");
   } else if (homes >= 4) log(g, `Fire in ${b.name}: ${homes} lots burn (${cause}).`);
   if (c && mine && homes >= 4) {
     bump(g, "reputation", -Math.min(8, 1 + homes / 12));
     mark(g, { id: `fire${year}`, side: "public", kind: "grievance", weight: Math.min(10, 2 + homes / 10), text: `burned out ${b.name} with the sparks from the works` });
-  } else if (c && brigade && homes >= 4 && Math.hypot(x - cx, y - cy) < 40) bump(g, "reputation", 1);
+  } else if (c && brigade && homes >= 4 && stepDist(x - cx, y - cy) < 40) bump(g, "reputation", 1);
   g.morale = Math.max(0, g.morale - Math.min(4, homes / 15));
   return rec;
 }
@@ -657,7 +658,7 @@ export function fireAt(g: GameState, i: number): FireRec | null {
   if (!g.civ || w.use[i] !== Use.Empty || w.sub[i] !== LotSub.Burnt) return null;
   const x = i % W, y = (i / W) | 0;
   let best: FireRec | null = null, bd = Infinity;
-  for (const f of g.civ.fires) if (f.year === w.built[i]) { const d = Math.hypot(f.x - x, f.y - y); if (d < bd) { bd = d; best = f; } }
+  for (const f of g.civ.fires) if (f.year === w.built[i]) { const d = stepDist(f.x - x, f.y - y); if (d < bd) { bd = d; best = f; } }
   return best;
 }
 
@@ -779,7 +780,7 @@ function blockByWorks(g: GameState): Block | null {
   if (!c) return null;
   const cx = c.x + c.footprint / 2, cy = c.y + c.footprint / 2;
   let best: Block | null = null, bd = Infinity;
-  for (const b of blocksOf(g)) { if (b.pop < 150) continue; const d = Math.hypot(b.x - cx, b.y - cy); if (d < bd) { bd = d; best = b; } }
+  for (const b of blocksOf(g)) { if (b.pop < 150) continue; const d = stepDist(b.x - cx, b.y - cy); if (d < bd) { bd = d; best = b; } }
   return best && bd < 60 ? best : null;
 }
 

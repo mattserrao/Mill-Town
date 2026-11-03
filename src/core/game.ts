@@ -6,7 +6,8 @@ import { initSleuth, sleuthNatural, sleuthSeason, sleuthYear, type SleuthState }
 import { passClock } from "./passtimes";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
+import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, srcToHex, tilesFor } from "./map";
+import { HEX6, cellAt, stepDist } from "./hex";
 import { roadsSeason } from "./roads";
 import { freightMult, holdingsSeason, type Holdings, inputMult, upkeepMult } from "./holdings";
 import { nameNow, RIVALS, type RivalDef } from "./rivals";
@@ -15,7 +16,7 @@ import { evaluateSite, footprintTiles, popSAT, siteFields, type SiteFields } fro
 import { habitable, Terrain } from "./terrain";
 import { calendar, priceLevel, SEASON_EFFECTS, TOTAL_TURNS, type Calendar } from "./time";
 import { activateFeatures, activateStreets, addSteps, CivicSub, densityCap, terrainCap, generateTown, civicSeason, HouseSub, POP_CAP, recomputeLandValue, landValueScratch, CIVIC_SEASON, Street, Use, useForPop, type World } from "./town";
-import { HILLSIDES, INCLINES, latLonToTile, PARKS, regionTarget, tileLine } from "./features";
+import { HILLSIDES, INCLINES, PARKS, regionTarget, tileLine } from "./features";
 import { blockCosts, buildCommute, type Commute, jobCenters, runTrips, travelField, type WorksSite } from "./commute";
 import { besideWorks, growByDesire } from "./growth";
 import { PRICE, shipSeason, type Shipper, type ShipResult, siteAccess, spurOption } from "./freight";
@@ -594,7 +595,7 @@ export function buildIncline(g: GameState): { ok: boolean; reason?: string } {
     for (let ty = y - MAXL; ty <= y + MAXL; ty += 2) for (let tx = x - MAXL; tx <= x + MAXL; tx += 2) {
       if (!inBounds(m, tx, ty)) continue;
       const t = ty * m.width + tx;
-      const len = Math.hypot(tx - x, ty - y);
+      const len = stepDist(tx - x, ty - y);
       if (!w.pop[t] || len < 5 || len > MAXL || w.use[t] === Use.Incline) continue;
       const rise = m.elevation[t] - m.elevation[b];
       if (rise < 35) continue;
@@ -688,7 +689,7 @@ function placeCivic(g: GameState, cx: number, cy: number, sub: CivicSub): boolea
       const u = w.use[i];
       if (u !== Use.Houses && u !== Use.Rowhouses && u !== Use.Cottage) continue;
       if (w.owner[i] || !nearStreet(g, x, y)) continue;
-      const d = Math.hypot(x - cx, y - cy) + tileNoise(g.seed, x, y, 77) * 3;
+      const d = stepDist(x - cx, y - cy) + tileNoise(g.seed, x, y, 77) * 3;
       if (d < bd) { bd = d; best = i; }
     }
   }
@@ -703,19 +704,27 @@ function placeCivic(g: GameState, cx: number, cy: number, sub: CivicSub): boolea
   return true;
 }
 
-/** Take the land, clear it, and grade it flat (vertex heights averaged). */
+/** Take the land, clear it, and grade it flat (cell heights averaged). */
 export function claimFootprint(g: GameState, x: number, y: number, fp: number, owner: number, use: Use) {
   const { map: m, world: w } = g;
-  const V = m.width + 1;
+  const W = m.width;
   let sum = 0, cnt = 0;
-  for (let vy = y; vy <= y + fp; vy++) for (let vx = x; vx <= x + fp; vx++) { sum += m.vert[vy * V + vx]; cnt++; }
-  const level = sum / cnt;
-  // inner vertices flat; edge vertices meet the surrounding ground halfway (an embankment)
-  for (let vy = y; vy <= y + fp; vy++) for (let vx = x; vx <= x + fp; vx++) {
-    const edge = vx === x || vy === y || vx === x + fp || vy === y + fp;
-    const k = vy * V + vx;
-    m.vert[k] = edge ? (m.vert[k] + level) / 2 : level;
+  for (let dy = 0; dy < fp; dy++) for (let dx = 0; dx < fp; dx++) { const k = (y + dy) * W + x + dx; if (m.valid[k]) { sum += m.vert[k]; cnt++; } }
+  const level = cnt ? sum / cnt : 0;
+  // the footprint's cells go flat; the ring of cells round it meets the surrounding ground halfway (an embankment)
+  const ring = new Set<number>();
+  for (let dy = 0; dy < fp; dy++) for (let dx = 0; dx < fp; dx++) {
+    const k = (y + dy) * W + x + dx;
+    if (m.valid[k]) m.vert[k] = level;
   }
+  for (let dy = -1; dy <= fp; dy++) for (let dx = -1; dx <= fp; dx++) {
+    if (dx >= 0 && dy >= 0 && dx < fp && dy < fp) continue;
+    if (!inBounds(m, x + dx, y + dy)) continue;
+    // only cells that actually touch the footprint (the rhombus's corner cells at (-1,-1) and (fp,fp) do not)
+    if (!HEX6.some(([ax, ay]) => dx + ax >= 0 && dy + ay >= 0 && dx + ax < fp && dy + ay < fp)) continue;
+    ring.add((y + dy) * W + x + dx);
+  }
+  for (const k of ring) m.vert[k] = (m.vert[k] + level) / 2;
   recomputeElevation(m);
   for (let dy = 0; dy < fp; dy++) for (let dx = 0; dx < fp; dx++) {
     const i = (y + dy) * m.width + (x + dx);
@@ -1265,7 +1274,7 @@ export function settleMigrants(g: GameState, cx: number, cy: number, r: number, 
     if (!w.pop[i] && besideWorks(m, w, x, y)) continue;
     // prefer lots on today's street grid (where the real town grew)
     const streetBonus = m.road[i] ? 6 : nearStreet(g, x, y) ? -3 : 4;
-    cands.push({ i, d: Math.hypot(x - cx, y - cy) + (m.terrain[i] === Terrain.Slope ? 4 : 0) + streetBonus });
+    cands.push({ i, d: stepDist(x - cx, y - cy) + (m.terrain[i] === Terrain.Slope ? 4 : 0) + streetBonus });
   }
   cands.sort((a, b) => a.d - b.d);
   let left = count;
@@ -1280,7 +1289,7 @@ export function settleMigrants(g: GameState, cx: number, cy: number, r: number, 
     w.use[i] = useForPop(w.pop[i]);
     if (fresh && w.use[i] === Use.Cottage) w.use[i] = Use.Houses;
     const x = i % m.width, y = (i / m.width) | 0;
-    const d = Math.hypot(x - cx, y - cy);
+    const d = stepDist(x - cx, y - cy);
     if (fresh) {
       w.built[i] = g.world.year;
       w.eth[i] = group ?? pickGroup(m, w.eth, w.pop, i % m.width, (i / m.width) | 0, w.year, ethRng(g));
@@ -1304,9 +1313,18 @@ function capFor(sub: number) {
   return sub === HouseSub.Shanty ? 16 : sub === HouseSub.Company ? POP_CAP.houses : POP_CAP.rowhouses;
 }
 
+/** the cell for a lat/lon, pulled in at least `margin` source tiles from the mapped area's edge */
+function clampedCell(m: GameMap, lat: number, lon: number, margin: number): [number, number] {
+  const b = m.bounds;
+  const tx = ((lon - b.west) / (b.east - b.west)) * m.srcW, ty = ((b.north - lat) / (b.north - b.south)) * m.srcH;
+  const [fx, fy] = srcToHex(m, Math.max(margin, Math.min(m.srcW - margin, tx)), Math.max(margin, Math.min(m.srcH - margin, ty)));
+  return cellAt(fx, fy);
+}
+
 function nearStreet(g: GameState, x: number, y: number) {
   const m = g.map;
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+  if (g.world.street[y * m.width + x]) return true;
+  for (const [dx, dy] of HEX6)
     if (inBounds(m, x + dx, y + dy) && g.world.street[(y + dy) * m.width + x + dx]) return true;
   return false;
 }
@@ -1323,7 +1341,7 @@ function naturalGrowth(g: GameState, rng: Rng) {
     for (let s = 0; s < sp.length; s += 3) for (let y = sp[s], x = sp[s + 1], xe = sp[s + 2]; x < xe; x++) {
       const i = y * W + x;
       if (!w.pop[i] || w.use[i] < Use.Cottage || w.use[i] > Use.Rowhouses || w.sub[i] === HouseSub.Estate) continue;
-      const millTown = steel.some(([px, py]) => Math.abs(px - x) < 45 && Math.abs(py - y) < 45);
+      const millTown = steel.some(([px, py]) => stepDist(px - x, py - y) < 45);
       // the steel towns lose about a third of their people over the decade (empty houses stand boarded up)
       if (millTown && rng.chance(0.008)) w.pop[i] = 0;
       else if (millTown && rng.chance(0.5)) w.pop[i] = Math.floor(w.pop[i] * 0.985);
@@ -1455,15 +1473,14 @@ function spawnRivals(g: GameState, year: number) {
     if (year < def.entryYear || year > def.entryYear + 10 || g.rivals.some((r) => r.id === def.id)) continue;
     if (def.offmap) {
       // a works beyond the map's edge: it competes from there (marked at the edge toward it)
-      const [ex, ey] = latLonToTile(g.map, def.at![0], def.at![1]);
-      const x = Math.max(1, Math.min(g.map.width - 2, ex)), y = Math.max(1, Math.min(g.map.height - 2, ey));
+            const [x, y] = clampedCell(g.map, def.at![0], def.at![1], 1);
       g.rivals.push({ id: def.id, ownerId: 2 + g.rivals.length, x, y, footprint: 0, active: true, riverSide: "N", expand: 0, damage: [], grudge: 0, offmap: true });
       log(g, `${def.figures.join(" & ")} open ${def.company} at ${def.offmap}.`);
       applyPendingRivalFx(g);
       continue;
     }
     const named = g.map.landmarks.find((l) => l.name === def.site);
-    const lm = def.at ? (() => { const [x, y] = latLonToTile(g.map, def.at![0], def.at![1]); return { x: Math.max(4, Math.min(g.map.width - 12, x)), y: Math.max(4, Math.min(g.map.height - 12, y)) }; })() : named;
+    const lm = def.at ? (() => { const [x, y] = clampedCell(g.map, def.at![0], def.at![1], 8); return { x, y }; })() : named;
     if (!lm) continue;
     const ps = popSAT(g.map, g.world);
     let best: { x: number; y: number; s: number } | null = null;
@@ -1472,7 +1489,7 @@ function spawnRivals(g: GameState, year: number) {
       const x = lm.x + dx, y = lm.y + dy;
       const rep = evaluateSite(g.map, g.world, g.fields, def.industry, x, y, ps);
       if (!rep.ok) continue;
-      const s = rep.score - Math.hypot(dx, dy) * 0.8;
+      const s = rep.score - stepDist(dx, dy) * 0.8;
       if (!best || s > best.s) best = { x, y, s };
     }
     if (!best) continue;
@@ -1490,7 +1507,7 @@ function placeOffsets(g: GameState, x: number, y: number) {
   let unrest = 0, health = 0;
   for (const f of g.placeFx) {
     const p = placeNamed(g.map, f.place);
-    if (!p || Math.hypot(p.x - x, p.y - y) > p.r + 40) continue;
+    if (!p || stepDist(p.x - x, p.y - y) > p.r + 40) continue;
     unrest += f.unrest; health += f.health;
   }
   return { unrest, health };
@@ -1507,7 +1524,7 @@ function worksRiver(g: GameState, w: Works): string | undefined {
 /** strikes nearby last season make one here likelier (the men talk; the organisers move on) */
 function strikeContagion(g: GameState, w: Works): number {
   let n = 0;
-  for (const [x, y] of g.lastStrikes) if (Math.hypot(x - w.x, y - w.y) < 70 && (x !== w.x || y !== w.y)) n++;
+  for (const [x, y] of g.lastStrikes) if (stepDist(x - w.x, y - w.y) < 70 && (x !== w.x || y !== w.y)) n++;
   return Math.min(2.5, 1 + 0.5 * n);
 }
 

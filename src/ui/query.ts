@@ -7,6 +7,7 @@ import { SEED_TYPES } from "../core/seeds";
 import { distance, feet } from "../core/units";
 import { commuteWeight, type GameState, walkMinutes } from "../core/game";
 import { GROUPS } from "../core/ancestry";
+import { groundOf } from "../core/hex";
 import { tileLatLon, type GameMap } from "../core/map";
 import { areaAt, areaReport, civicLabel, type AreaReport } from "../core/neighbourhood";
 import { RIVALS } from "../core/rivals";
@@ -134,9 +135,11 @@ export function queryCard(q: QueryCtx, x: number, y: number): string {
   for (const sp of [...m.spans, ...(q.game.spans ?? [])]) {
     const st = stageOf(sp, w.year);
     if (!st) continue;
-    const dx = sp.b[0] - sp.a[0], dy = sp.b[1] - sp.a[1], L2 = dx * dx + dy * dy;
-    const t = Math.max(0, Math.min(1, ((x + 0.5 - sp.a[0]) * dx + (y + 0.5 - sp.a[1]) * dy) / L2));
-    if (Math.hypot(x + 0.5 - sp.a[0] - dx * t, y + 0.5 - sp.a[1] - dy * t) < 0.8) add(`${sp.name} overhead (${st.type}, ${st.year})`);
+    // in the true (ground) metric: the cell centre's distance to the span, in neighbour steps
+    const [ax, ay] = groundOf(sp.a[0], sp.a[1]), [bx, by] = groundOf(sp.b[0], sp.b[1]), [px, py] = groundOf(x + 0.5, y + 0.5);
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2));
+    if (Math.hypot(px - ax - dx * t, py - ay - dy * t) < 0.8) add(`${sp.name} overhead (${st.type}, ${st.year})`);
   }
   const thingList = [...things].map(([s, n]) => (n > 1 ? `${n} × ${s}` : s));
 

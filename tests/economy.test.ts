@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { foundCompany, newGame } from "../src/core/game";
-import { parseMap, type MapMeta } from "../src/core/map";
+import { onEdge, parseMap, type MapMeta } from "../src/core/map";
+import { okSiteNear } from "./hexsq";
 import { competitors, flowPath, gateways, playerWorks, supplyChain } from "../src/core/economy";
 
 const base = new URL("../public/maps/", import.meta.url);
@@ -12,7 +13,7 @@ const map = parseMap(meta, new Uint8Array(gunzipSync(readFileSync(new URL(meta.b
 describe("economy", () => {
   it("puts every gateway on the map border where its river or railroad leaves", () => {
     const gw = gateways(map);
-    for (const g of Object.values(gw)) expect(g.x === 0 || g.y === 0 || g.x === map.width - 1 || g.y === map.height - 1).toBe(true);
+    for (const g of Object.values(gw)) expect(onEdge(map, g.y * map.width + g.x)).toBe(true);
     expect(map.waterNames[String(map.water[gw.ohio.y * map.width + gw.ohio.x])]).toBe("Ohio River");
     expect(map.waterNames[String(map.water[gw.mon.y * map.width + gw.mon.x])]).toBe("Monongahela River");
   });
@@ -20,7 +21,7 @@ describe("economy", () => {
   it("gives a works raw materials in, water, and markets out whose shares add up", { timeout: 60000 }, () => {
     const g = newGame(map, 11);
     const hs = map.landmarks.find((l) => l.name === "Homestead Works site")!;
-    expect(foundCompany(g, "steel", hs.x, hs.y).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSiteNear(g, "steel", hs.x, hs.y)).ok).toBe(true);
     const flows = supplyChain(g, playerWorks(g)!);
     const goods = flows.filter((f) => f.kind === "input").map((f) => f.good);
     expect(goods).toEqual(expect.arrayContaining(["Iron ore", "Coal", "Limestone"]));

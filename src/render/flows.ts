@@ -5,6 +5,7 @@ import { nameNow } from "../core/rivals";
 import { distance } from "../core/units";
 import { type Competitor, type Flow, flowPath, type Relation, type WorksRef } from "../core/economy";
 import type { GameState } from "../core/game";
+import { cellAt } from "../core/hex";
 import { Terrain } from "../core/terrain";
 import { type Camera, heightAt, placeLabelRects, project } from "./iso";
 import { fmt } from "../core/text";
@@ -22,7 +23,8 @@ type Pt = [number, number];
 
 function screen(g: GameState, cam: Camera, x: number, y: number, lift = 3): Pt {
   const m = g.map;
-  const tx = Math.max(0, Math.min(m.width - 1, Math.floor(x))), ty = Math.max(0, Math.min(m.height - 1, Math.floor(y)));
+  const [cx, cy] = cellAt(x, y);
+  const tx = Math.max(0, Math.min(m.width - 1, cx)), ty = Math.max(0, Math.min(m.height - 1, cy));
   const i = ty * m.width + tx;
   const h = m.terrain[i] === Terrain.Water ? m.waterLevel[i] : heightAt(m, x, y);
   const [wx, wy] = project(x, y, h + lift);

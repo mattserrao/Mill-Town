@@ -12,6 +12,7 @@ import { simBand } from "./band";
 import { HILLSIDES, latLonToTile } from "./features";
 import type { GameMap } from "./map";
 import { tileNoise } from "./rng";
+import { stepDist } from "./hex";
 
 export type SeedType = "core" | "mill" | "plat" | "hillside" | "patch" | "company" | "suburb";
 
@@ -173,7 +174,7 @@ export function seedsFor(m: GameMap): PlacedSeed[] {
   for (let i = 0; i < W * m.height; i++) {
     if (m.coal[i] !== 2 || !band[i] || m.terrain[i] === 0 || m.terrain[i] >= 4) continue;
     const x = i % W, y = (i / W) | 0, c = ((y / PATCH_CELL) | 0) * 1000 + ((x / PATCH_CELL) | 0);
-    if (!cells.has(c) && !out.some((o) => Math.hypot(o.x - x, o.y - y) < 25)) cells.set(c, i);
+    if (!cells.has(c) && !out.some((o) => stepDist(o.x - x, o.y - y) < 25)) cells.set(c, i);
   }
   let k = 0;
   for (const i of [...cells.values()].sort((a, b) => tileNoise(7, a % W, (a / W) | 0, 71) - tileNoise(7, b % W, (b / W) | 0, 71))) {

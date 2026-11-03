@@ -9,6 +9,7 @@ import { ANCHORS, anchorAt, G, GROUPS, latinRite, parishName } from "./ancestry"
 import { latLonToTile } from "./features";
 import type { GameMap } from "./map";
 import { Use, type World } from "./town";
+import { stepDist } from "./hex";
 
 export const CELL = 8;
 export const NG = GROUPS.length; // includes 0 (none)
@@ -68,12 +69,12 @@ export function areaAt(m: GameMap, x: number, y: number): Area {
   let near = "", nd = Infinity;
   for (const l of m.landmarks) {
     if (l.kind !== "town" && l.kind !== "hill") continue;
-    const d = Math.hypot(l.x - x, l.y - y);
+    const d = stepDist(l.x - x, l.y - y);
     if (d < nd) { nd = d; near = l.name.replace(/ \(.*\)$/, ""); }
   }
   for (const an of ANCHORS) {
     const [ax, ay] = latLonToTile(m, an.lat, an.lon);
-    const d = Math.hypot(ax - x, ay - y);
+    const d = stepDist(ax - x, ay - y);
     if (d < nd) { nd = d; near = an.name; }
   }
   const km = (nd * m.metersPerTile) / 1000;
@@ -102,9 +103,9 @@ export function areaReport(m: GameMap, w: World, h: History | undefined, area: A
   const homes = new Map<string, number>();
   const places: { label: string; group: number }[] = [];
   let pop = 0, shops = 0, builtSum = 0, builtN = 0, pol = 0, lv = 0, tiles = 0;
-  const R = Math.ceil(area.r);
+  const R = Math.ceil(area.r * 1.6); // a disc of r steps spans up to ~1.6 r in axial rows
   for (let y = area.y - R; y <= area.y + R; y++) for (let x = area.x - R; x <= area.x + R; x++) {
-    if (x < 0 || y < 0 || x >= m.width || y >= m.height || Math.hypot(x - area.x, y - area.y) > area.r) continue;
+    if (x < 0 || y < 0 || x >= m.width || y >= m.height || stepDist(x - area.x, y - area.y) > area.r) continue;
     const i = y * m.width + x, u = w.use[i];
     tiles++; pol += w.pollution[i]; lv += w.landValue[i];
     if (w.pop[i]) { pop += w.pop[i]; groups[w.eth[i]] += w.pop[i]; }
@@ -122,7 +123,7 @@ export function areaReport(m: GameMap, w: World, h: History | undefined, area: A
     const cells: number[] = [];
     for (let cy = 0; cy < h.ch; cy++) for (let cx = 0; cx < h.cw; cx++) {
       const mx = cx * CELL + CELL / 2, my = cy * CELL + CELL / 2;
-      if (Math.hypot(mx - area.x, my - area.y) <= area.r + CELL * 0.5) cells.push(cy * h.cw + cx);
+      if (stepDist(mx - area.x, my - area.y) <= area.r + CELL * 0.5) cells.push(cy * h.cw + cx);
     }
     h.snaps.forEach((s, k) => {
       const gs = new Array(NG).fill(0);

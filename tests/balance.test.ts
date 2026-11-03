@@ -1,6 +1,7 @@
 // Economy balance run (slow): SIM=1 npx vitest run tests/balance.test.ts
 // Plays a steel company to 1985 with a simple owner (commissions every process it can afford, expands when rich)
 // and one that never invests, and writes the yearly accounts to /tmp/balance-<who>.log.
+import { okSite } from "./hexsq";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, it } from "vitest";
@@ -18,7 +19,7 @@ function play(who: "invests" | "idle", seed: number) {
   const out = `/tmp/balance-${who}.log`;
   writeFileSync(out, "");
   const g = newGame(map, seed);
-  foundCompany(g, "steel", 483, 237);
+  foundCompany(g, "steel", ...okSite(g, "steel", 483, 237));
   const c = g.company!;
   while (!g.over) {
     const y = cal(g).year;

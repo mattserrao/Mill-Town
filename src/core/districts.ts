@@ -11,6 +11,7 @@ import { ANCHORS } from "./ancestry";
 import { HILLSIDES, latLonToTile } from "./features";
 import type { GameMap } from "./map";
 import { Terrain } from "./terrain";
+import { stepDist, HEX6 } from "./hex";
 
 export interface Municipality { name: string; x: number; y: number; incorporated: number; annexed?: [number, string] }
 export interface Neighbourhood { name: string; x: number; y: number }
@@ -62,7 +63,7 @@ function grow(m: GameMap, seeds: [number, number][], reach: number): Int16Array 
     for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
       const xx = x + dx, yy = y + dy;
       if (xx < 0 || yy < 0 || xx >= W || yy >= H || m.terrain[yy * W + xx] === Terrain.Water) continue;
-      const d = dx * dx + dy * dy;
+      const d = stepDist(dx, dy);
       if (d < bd) { bd = d; best = yy * W + xx; }
     }
     if (best >= 0 && owner[best] < 0) { owner[best] = k; dist[best] = 0; q[t++] = best; }
@@ -70,7 +71,7 @@ function grow(m: GameMap, seeds: [number, number][], reach: number): Int16Array 
   while (h < t) {
     const i = q[h++], x = i % W, y = (i / W) | 0;
     if (dist[i] >= reach) continue;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (const [dx, dy] of HEX6) {
       if (!dx && !dy) continue;
       const xx = x + dx, yy = y + dy;
       if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
@@ -94,7 +95,7 @@ export function districts(m: GameMap): Districts {
   // neighbourhoods: the named ones (ancestry anchors and hillsides) and the town centres not already named
   const nbs: Neighbourhood[] = [];
   const addNb = (name: string, x: number, y: number) => {
-    if (nbs.some((o) => o.name === name || Math.hypot(o.x - x, o.y - y) < 10)) return;
+    if (nbs.some((o) => o.name === name || stepDist(o.x - x, o.y - y) < 10)) return;
     nbs.push({ name, x, y });
   };
   for (const a of ANCHORS) { const [x, y] = latLonToTile(m, a.lat, a.lon); addNb(a.name, x, y); }

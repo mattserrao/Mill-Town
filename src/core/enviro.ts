@@ -5,6 +5,7 @@
 // Valley inversions (Donora 1948, November 1975) punish a works without a curtailment plan; after the 1977
 // amendments a nonattainment valley needs offsets before any expansion. Research: docs/V018-RESEARCH.md §1.
 
+import { stepDist } from "./hex";
 import { type ActionDef, bump, type Decision, type DecisionOption, pushHeadline } from "./business";
 import { allWorks, cal, type GameState, log, type Works } from "./game";
 import { INDUSTRIES } from "./industries";
@@ -42,7 +43,7 @@ const key = (l: LawDef, w: Works) => `${l.id}:${w.id}`;
 /** is the works inside the old city (city ordinances reach only that far: about 4 miles from the Point) */
 function inCity(g: GameState, w: Works): boolean {
   const [px, py] = latLonToTile(g.map, DIAMOND[0], DIAMOND[1]);
-  return Math.hypot(w.x - px, w.y - py) * g.map.metersPerTile < 6500;
+  return stepDist(w.x - px, w.y - py) * g.map.metersPerTile < 6500;
 }
 
 /** what a law asks of a works that it doesn't have: [missing control techs, needs water] */

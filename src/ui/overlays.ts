@@ -7,6 +7,7 @@ import { type GameState, walkMinutes } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { evaluateSite, popSAT } from "../core/site";
 import { Terrain } from "../core/terrain";
+import { HEX6, stepDist } from "../core/hex";
 import { GROUPS } from "../core/ancestry";
 import type { OverlayFn } from "../render/renderer";
 import { blockGrid, blockOf } from "../core/blocks";
@@ -161,7 +162,7 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
         const v = f[i];
         if (!v) continue;
         const x = i % W, y = (i / W) | 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        for (const [dx, dy] of [[0, 0], ...HEX6]) {
           const xx = x + dx, yy = y + dy;
           if (xx >= 0 && yy >= 0 && xx < W && yy < H && d[yy * W + xx] < v) d[yy * W + xx] = v;
         }
@@ -174,7 +175,7 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
       if (!bid || !bs.length) return { key: `${id}|none`, fn: () => null };
       const reach = fireReach(w.year), fires = (g.civ?.services ?? []).filter((s) => s.kind === "fire" && w.use[s.tile] === 6);
       const near = new Uint8Array(w.use.length);
-      for (const s of fires) { const sx = s.tile % W, sy = (s.tile / W) | 0; for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) { const xx = sx + dx, yy = sy + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue; const d = Math.hypot(dx, dy); if (d <= reach) { const j = yy * W + xx; near[j] = Math.max(near[j], d > reach - 1 ? 2 : 1); } } }
+      for (const s of fires) { const sx = s.tile % W, sy = (s.tile / W) | 0; const R = Math.ceil(reach * 1.2); for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const xx = sx + dx, yy = sy + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue; const d = stepDist(dx, dy); if (d <= reach) { const j = yy * W + xx; near[j] = Math.max(near[j], d > reach - 1 ? 2 : 1); } } }
       return { key: `${id}|${w.version}|${g.turn}`, fn: (i) => {
         if (w.use[i] === 0 && w.sub[i] === 5) return [20, 16, 14, 0.9];
         if (near[i] === 2) return [90, 170, 230, 0.9];
@@ -209,14 +210,14 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
         const x = i % W, y = (i / W) | 0, c = shade[k - 1];
         // ward boundaries thick and black (two tiles), plat edges thin and dark
         let wardEdge = false, edge = false;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [dx, dy] of HEX6) {
           const xx = x + dx, yy = y + dy;
           if (xx < 0 || yy < 0 || xx >= W || yy >= m.height) continue;
           const j = bid[yy * W + xx];
           if (j && j !== k) { if (ward[j - 1] !== ward[k - 1]) wardEdge = true; else edge = true; }
         }
         if (wardEdge && mode === "ward") return [20, 16, 14, 0.95];
-        if (wardEdge || edge) { const f = (x + 1 < W && bid[i + 1] !== k) || (i + W < bid.length && bid[i + W] !== k) ? 0.35 : 1; if (f < 1) return [c[0] * f, c[1] * f, c[2] * f, 0.95]; }
+        if (wardEdge || edge) { const f = [[1, 0], [0, 1], [-1, 1]].some(([dx, dy]) => x + dx >= 0 && x + dx < W && y + dy < m.height && bid[i + dy * W + dx] !== k) ? 0.35 : 1; if (f < 1) return [c[0] * f, c[1] * f, c[2] * f, 0.95]; }
         // annexed into a city: hatched
         if (city[k - 1] && (x + y) % 4 === 0) return [Math.min(255, c[0] * 1.35 + 30), Math.min(255, c[1] * 1.35 + 30), Math.min(255, c[2] * 1.35 + 30), 0.9];
         return [c[0], c[1], c[2], w.pop[i] ? 0.85 : 0.55];
@@ -239,6 +240,7 @@ export function makeOverlay(id: OverlayId, g: GameState, cache: OverlayCache): {
         // every other tile (sites are many tiles wide), filled 2x2
         for (let y = 0; y < m.height; y += 2) for (let x = 0; x < m.width; x += 2) {
           const i = y * m.width + x;
+          if (!m.valid[i]) continue;
           const t = m.terrain[i];
           if (t === Terrain.Water || t === Terrain.Steep || t === Terrain.Cliff) continue;
           const sc = evaluateSite(m, w, g.fields, ind, x, y, sat).score;

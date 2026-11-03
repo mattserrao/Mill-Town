@@ -10,11 +10,12 @@
 import { B, blockGrid } from "./blocks";
 import type { GameMap } from "./map";
 import { latLonToTile } from "./features";
+import { stepDist, HEX6 } from "./hex";
 
 /** share of the map that is simulated (target) */
 export const BAND_SHARE = 0.5;
 /** river distance (tiles) that gives BAND_SHARE with the anchors below — found by bisection (tests/band.test.ts) */
-export const BAND_DIST = 67.8;
+export const BAND_DIST = 67;
 /** the edge fades over this many tiles: growth thins out toward it so the town doesn't stop at a line */
 export const BAND_FADE = 10;
 /** river water codes (map waterNames 13–16: Allegheny, Youghiogheny, Monongahela, Ohio) */
@@ -76,12 +77,12 @@ export function inBand(m: GameMap, x: number, y: number): boolean {
 }
 
 /**
- * Two-pass chamfer distance (1, √2) from every tile where `src` is set. Good to a few percent of true
- * Euclidean distance, which is all a band edge needs.
+ * Two-pass distance (in neighbour steps) from every cell where `src` is set, over the six hex neighbours.
+ * Exact hex distance across open ground, which is all a band edge needs.
  */
 export function chamfer(W: number, H: number, src: (i: number) => boolean): Float32Array {
   const d = new Float32Array(W * H);
-  const INF = 1e9, D2 = Math.SQRT2;
+  const INF = 1e9;
   for (let i = 0; i < d.length; i++) d[i] = src(i) ? 0 : INF;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
@@ -90,8 +91,7 @@ export function chamfer(W: number, H: number, src: (i: number) => boolean): Floa
     if (x > 0) v = Math.min(v, d[i - 1] + 1);
     if (y > 0) {
       v = Math.min(v, d[i - W] + 1);
-      if (x > 0) v = Math.min(v, d[i - W - 1] + D2);
-      if (x < W - 1) v = Math.min(v, d[i - W + 1] + D2);
+      if (x < W - 1) v = Math.min(v, d[i - W + 1] + 1);
     }
     d[i] = v;
   }
@@ -102,8 +102,7 @@ export function chamfer(W: number, H: number, src: (i: number) => boolean): Floa
     if (x < W - 1) v = Math.min(v, d[i + 1] + 1);
     if (y < H - 1) {
       v = Math.min(v, d[i + W] + 1);
-      if (x < W - 1) v = Math.min(v, d[i + W + 1] + D2);
-      if (x > 0) v = Math.min(v, d[i + W - 1] + D2);
+      if (x > 0) v = Math.min(v, d[i + W - 1] + 1);
     }
     d[i] = v;
   }
@@ -124,7 +123,7 @@ function mainRiver(m: GameMap): Uint8Array {
     while (stack.length) {
       const i = stack.pop()!, x = i % W, y = (i / W) | 0;
       size++;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      for (const [dx, dy] of HEX6) {
         const xx = x + dx, yy = y + dy;
         if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
         const j = yy * W + xx;
@@ -147,27 +146,30 @@ export function buildBand(m: GameMap, D: number): SimBand {
   const tpm = 1 / m.metersPerTile;
   for (const [, lat, lon, rM] of BAND_ANCHORS) {
     const [ax, ay] = latLonToTile(m, lat, lon), r = rM * tpm, R = r + 200;
-    for (let y = Math.max(0, Math.floor(ay - R)); y <= Math.min(H - 1, Math.ceil(ay + R)); y++)
-      for (let x = Math.max(0, Math.floor(ax - R)); x <= Math.min(W - 1, Math.ceil(ax + R)); x++) {
-        const i = y * W + x, d = Math.hypot(x - ax, y - ay) - r;
+    const RB = R * 1.6; // a disc of radius R steps spans up to ~1.58 R in axial rows
+    for (let y = Math.max(0, Math.floor(ay - RB)); y <= Math.min(H - 1, Math.ceil(ay + RB)); y++)
+      for (let x = Math.max(0, Math.floor(ax - RB)); x <= Math.min(W - 1, Math.ceil(ax + RB)); x++) {
+        const i = y * W + x, d = stepDist(x - ax, y - ay) - r;
         if (d < dAnchor[i]) dAnchor[i] = d;
       }
   }
   // closing radius: fills the gaps between the anchor discs and the river band so the edge reads as one shape
   const CLOSE = 18;
   const mask = new Uint8Array(n);
+  let nValid = 0;
+  for (let i = 0; i < n; i++) nValid += m.valid[i];
   const build = (D: number) => {
     // dilate (union of the river band and anchors grown by CLOSE), then erode back by CLOSE
     const grown = chamfer(W, H, (i) => dRiver[i] <= D || dAnchor[i] <= 0);
-    const outside = chamfer(W, H, (i) => grown[i] > CLOSE);
+    const outside = chamfer(W, H, (i) => m.valid[i] === 1 && grown[i] > CLOSE);
     let c = 0;
-    for (let i = 0; i < n; i++) { const v = outside[i] > CLOSE || dRiver[i] <= D || dAnchor[i] <= 0 ? 1 : 0; mask[i] = v; c += v; }
-    return c / n;
+    for (let i = 0; i < n; i++) { const v = m.valid[i] && (outside[i] > CLOSE || dRiver[i] <= D || dAnchor[i] <= 0) ? 1 : 0; mask[i] = v; c += v; }
+    return c / nValid;
   };
   const share = build(D);
 
   // edge fade
-  const toOut = chamfer(W, H, (i) => !mask[i]);
+  const toOut = chamfer(W, H, (i) => m.valid[i] === 1 && !mask[i]);
   const weight = new Float32Array(n);
   let tiles = 0;
   for (let i = 0; i < n; i++) if (mask[i]) { tiles++; weight[i] = Math.min(1, toOut[i] / BAND_FADE); }

@@ -6,6 +6,7 @@ import { allLandmarks } from "./eventdata";
 import { cal, type GameState, log, settleMigrants } from "./game";
 import { hospitals, placeLandmark } from "./landmarks";
 import { inBounds } from "./map";
+import { stepDist } from "./hex";
 import { placeNamed } from "./places";
 import { ShopSub, STRUCTURES, Use } from "./town";
 import { teamEvent } from "./sports";
@@ -38,7 +39,7 @@ MAP_HOOKS.migrate = (g, group, people, places) => {
 function leave(g: GameState, cx: number, cy: number, r: number, count: number, group: number): number {
   const { map: m, world: w } = g;
   let left = count;
-  for (let y = cy - r; y <= cy + r && left > 0; y++) for (let x = cx - r; x <= cx + r && left > 0; x++) {
+  for (let y = cy - 2 * r; y <= cy + 2 * r && left > 0; y++) for (let x = cx - r; x <= cx + r && left > 0; x++) {
     if (!inBounds(m, x, y)) continue;
     const i = y * m.width + x;
     if (w.eth[i] !== group || !w.pop[i]) continue;
@@ -55,9 +56,9 @@ MAP_HOOKS.blast = (g, place, radiusM, ruinSeasons) => {
   const { map: m, world: w } = g;
   const r = radiusM / m.metersPerTile;
   const list = g.ruins;
-  for (let y = Math.floor(p.y - r * 2); y <= p.y + r * 2; y++) for (let x = Math.floor(p.x - r * 2); x <= p.x + r * 2; x++) {
+  for (let y = Math.floor(p.y - r * 3); y <= p.y + r * 3; y++) for (let x = Math.floor(p.x - r * 2); x <= p.x + r * 2; x++) {
     if (!inBounds(m, x, y)) continue;
-    const i = y * m.width + x, d = Math.hypot(x - p.x, y - p.y);
+    const i = y * m.width + x, d = stepDist(x - p.x, y - p.y);
     if (d > r * 2) continue;
     const u = w.use[i];
     if (u === Use.Industry || u === Use.Rival || u === Use.Landmark) continue;
@@ -88,8 +89,8 @@ MAP_HOOKS.clearance = (g, place, radiusM, to) => {
   const { map: m, world: w } = g;
   const r = radiusM / m.metersPerTile;
   const moved = new Map<number, number>();
-  for (let y = Math.floor(p.y - r); y <= p.y + r; y++) for (let x = Math.floor(p.x - r); x <= p.x + r; x++) {
-    if (!inBounds(m, x, y) || Math.hypot(x - p.x, y - p.y) > r) continue;
+  for (let y = Math.floor(p.y - r * 1.5); y <= p.y + r * 1.5; y++) for (let x = Math.floor(p.x - r); x <= p.x + r; x++) {
+    if (!inBounds(m, x, y) || stepDist(x - p.x, y - p.y) > r) continue;
     const i = y * m.width + x, u = w.use[i];
     if (!(u >= Use.Cottage && u <= Use.Rowhouses) && u !== Use.Commerce) continue;
     if (w.pop[i]) moved.set(w.eth[i], (moved.get(w.eth[i]) ?? 0) + w.pop[i]);
@@ -109,8 +110,8 @@ MAP_HOOKS.epidemic = (g, share, place) => {
   for (let i = 0; i < w.pop.length; i++) {
     if (w.pop[i] <= 30) continue; // the crowded tiles
     const x = i % m.width, y = (i / m.width) | 0;
-    if (p && Math.hypot(x - p.x, y - p.y) > p.r * 2 + 20) continue;
-    const near = hs.some((h) => Math.abs(h.x - x) < 50 && Math.abs(h.y - y) < 50);
+    if (p && stepDist(x - p.x, y - p.y) > p.r * 2 + 20) continue;
+    const near = hs.some((h) => stepDist(h.x - x, h.y - y) < 50);
     w.pop[i] = Math.round(w.pop[i] * (1 - share * 2 * (near ? 0.5 : 1)));
   }
   w.version++;
@@ -207,11 +208,11 @@ MAP_HOOKS.ura = (g) => {
   const { map: m, world: w } = g;
   const cx = c.x + c.footprint / 2, cy = c.y + c.footprint / 2, R = c.footprint / 2 + 14;
   const cand: [number, number][] = [];
-  for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
+  for (let y = Math.floor(cy - R * 1.5); y <= cy + R * 1.5; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
     if (!inBounds(m, x, y)) continue;
     const i = y * m.width + x, u = w.use[i];
     if (!(u >= Use.Cottage && u <= Use.Rowhouses) || w.owner[i]) continue;
-    cand.push([i, w.landValue[i] + Math.hypot(x - cx, y - cy) * 3]);
+    cand.push([i, w.landValue[i] + stepDist(x - cx, y - cy) * 3]);
   }
   if (!cand.length) return "There is no housing near the works to clear.";
   cand.sort((a, b) => a[1] - b[1]);

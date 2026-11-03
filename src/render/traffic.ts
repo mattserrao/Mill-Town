@@ -23,7 +23,9 @@ import { Terrain } from "../core/terrain";
 import { SEASON_EFFECTS } from "../core/time";
 import { Street, Use } from "../core/town";
 import { barrelFig, type Facing, type Fig, frontOf, glowSprite, type Look, motorEra, obox, ooff, poolLook, placardFig, sh, type VehicleSpec, vehicleFig, walkerFig } from "./figures";
-import { type Camera, BASE_M, heightAt, HH, HW, project, ZPX } from "./iso";
+import { type Camera, heightAt, project } from "./iso";
+import { avec, cellDepth, cellUnder, facingG, gunit, gvec, hyp, sortKey, viewBox } from "./viewcells";
+import { HEX6 } from "../core/hex";
 import { windFor } from "./pollution";
 import { stageOf } from "./renderer";
 import { waterFields } from "./waterfields";
@@ -79,8 +81,12 @@ interface PicketSite { key: string; block: number[]; cx: number; cy: number; ex:
 interface ParkedCut { cars: { x: number; y: number; dx: number; dy: number; car: Car }[]; steam: boolean; puffT: number; loco: number }
 interface Centre { j: number; x: number; y: number; r: number; works: boolean; running: boolean }
 
-const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
-const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
+const DIR4 = HEX6; // streets: the six neighbours
+const DIR8 = HEX6;
+/** a scalar field's gradient from its two axial derivatives → the ground frame (x right, y down, per neighbour step) */
+function grad(dq: number, dr: number): [number, number] { return [(dq - 0.5 * dr) / (Math.sqrt(3) / 2), dr]; }
+/** cosine between two axial vectors (measured on the ground) */
+function dotG(ax: number, ay: number, bx: number, by: number) { const [a1, a2] = gunit(ax, ay), [b1, b2] = gunit(bx, by); return a1 * b1 + a2 * b2; }
 const RIVAL_IDS = new Set(RIVALS.map((r) => r.id));
 const isWorksName = (n: string) => n === "p" || n.startsWith("p:") || RIVAL_IDS.has(n);
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -152,7 +158,7 @@ export class Traffic {
       if (!st) continue;
       if (sp.kind === "rail") this.railSpans.push(sp);
       const prof = spanProfile(this.m, sp, st.type, st.year);
-      const len = Math.hypot(sp.b[0] - sp.a[0], sp.b[1] - sp.a[1]);
+      const len = hyp(sp.b[0] - sp.a[0], sp.b[1] - sp.a[1]);
       for (let k = 0; k <= len * 4; k++) {
         const f = k / (len * 4);
         const x = Math.floor(sp.a[0] + (sp.b[0] - sp.a[0]) * f), y = Math.floor(sp.a[1] + (sp.b[1] - sp.a[1]) * f);
@@ -165,7 +171,7 @@ export class Traffic {
     const extra: [number, number][] = [];
     for (const [i, h] of this.deck) {
       const x = i % this.m.width, y = (i / this.m.width) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const j = (y + dy) * this.m.width + x + dx;
         if (!this.deck.has(j) && this.m.terrain[j] === Terrain.Water) extra.push([j, h]);
       }
@@ -224,16 +230,8 @@ export class Traffic {
 
   /** visible tile range (approx.) */
   private view(cam: Camera, cw: number, ch: number) {
-    const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
-      const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom + (260 - BASE_M) * ZPX;
-      const a = wx / HW, b = wy / HH;
-      return [(a + b) / 2, (b - a) / 2];
-    });
-    const m = this.m;
-    return {
-      x0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 6), x1: Math.min(m.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 12),
-      y0: Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 6), y1: Math.min(m.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 12),
-    };
+    const v = viewBox(cam, cw, ch), m = this.m;
+    return { x0: Math.max(0, v.x0), x1: Math.min(m.width - 1, v.x1), y0: Math.max(0, v.y0), y1: Math.min(m.height - 1, v.y1) };
   }
 
   private cam: Camera = { x: 0, y: 0, zoom: 1 };
@@ -249,7 +247,7 @@ export class Traffic {
   private inView(a: Agent) {
     if (this.tileInView(a.x, a.y)) return true;
     if (a.kind === "train" && a.trail?.length) { const [x, y] = a.trail[Math.min(a.trail.length - 1, a.need ?? 0)]; return this.tileInView(x, y, 120); }
-    if (a.kind === "tow" && a.ang !== undefined) return this.tileInView(Math.floor(a.fx! + Math.cos(a.ang) * 2.5), Math.floor(a.fy! + Math.sin(a.ang) * 2.5), 120);
+    if (a.kind === "tow" && a.ang !== undefined) { const [q, r] = avec(Math.cos(a.ang) * 2.5, Math.sin(a.ang) * 2.5); return this.tileInView(Math.floor(a.fx! + q), Math.floor(a.fy! + r), 120); }
     return false;
   }
 
@@ -381,9 +379,8 @@ export class Traffic {
     if (key === this.shareKey) return this.shareVal;
     let n = 0, s = 0;
     for (let gy = 0; gy < 12; gy++) for (let gx = 0; gx < 16; gx++) {
-      const wx = cam.x + ((gx + 0.5) / 16) * (cw / cam.zoom), wy = cam.y + ((gy + 0.5) / 12) * (ch / cam.zoom) + (260 - BASE_M) * ZPX;
-      const a = wx / HW, b = wy / HH;
-      const x = Math.floor((a + b) / 2), y = Math.floor((b - a) / 2);
+      const wx = cam.x + ((gx + 0.5) / 16) * (cw / cam.zoom), wy = cam.y + ((gy + 0.5) / 12) * (ch / cam.zoom);
+      const [x, y] = cellUnder(wx, wy);
       n++;
       if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
       if (this.streetOk(w, y * m.width + x)) s++;
@@ -454,7 +451,7 @@ export class Traffic {
       const u = w.use[i];
       const score = w.street[i] && w.street[i] !== Street.Steps ? 3 : u === Use.Empty || u === Use.Farm ? 1 : 0;
       if (!score) continue;
-      const d = Math.hypot(tx + 0.5 - gx, ty + 0.5 - gy);
+      const d = hyp(tx + 0.5 - gx, ty + 0.5 - gy);
       if (d > 6) continue;
       spots.push([tx, ty, score * 2 - d]);
     }
@@ -508,7 +505,7 @@ export class Traffic {
         // along the siding drawn from the works to the main line
         const [tx, ty] = w.spur;
         const ex = Math.max(w.x, Math.min(w.x + w.footprint, tx + 0.5)), ey = Math.max(w.y, Math.min(w.y + w.footprint, ty + 0.5));
-        if (Math.hypot(tx + 0.5 - ex, ty + 0.5 - ey) >= 1) path = [[tx + 0.5, ty + 0.5], [ex, ey]];
+        if (hyp(tx + 0.5 - ex, ty + 0.5 - ey) >= 1) path = [[tx + 0.5, ty + 0.5], [ex, ey]];
       }
       if (!path.length) {
         const acc = siteAccess(m, { x: w.x, y: w.y, fp: w.footprint, spur: w.spur }, year).rail;
@@ -521,7 +518,7 @@ export class Traffic {
           for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
             const xx = (t0 % m.width) + dx, yy = ((t0 / m.width) | 0) + dy, j = yy * m.width + xx;
             if (xx < 0 || yy < 0 || xx >= m.width || yy >= m.height || !this.railOpen(g, j) || !land(j)) continue;
-            const d = Math.hypot(xx + 0.5 - (w.x + w.footprint / 2), yy + 0.5 - (w.y + w.footprint / 2));
+            const d = hyp(xx + 0.5 - (w.x + w.footprint / 2), yy + 0.5 - (w.y + w.footprint / 2));
             if (d < bd) { bd = d; t0 = j; }
           }
           if (!land(t0)) continue;
@@ -534,9 +531,10 @@ export class Traffic {
         // beside the main line, on the works side: a siding
         const wx = w.x + w.footprint / 2, wy = w.y + w.footprint / 2;
         const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
-        const l = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / l, ny = (bx - ax) / l;
-        const sgn = ((wx - ax) * nx + (wy - ay) * ny) > 0 ? 1 : -1;
-        path = pts.map(([x, y]) => [x + nx * sgn * 0.3, y + ny * sgn * 0.3]);
+        const [ug, vg] = gunit(bx - ax, by - ay), [gwx, gwy] = gvec(wx - ax, wy - ay);
+        const sgn = (gwx * -vg + gwy * ug) > 0 ? 1 : -1;
+        const [ox, oy] = avec(-vg * sgn * 0.3, ug * sgn * 0.3);
+        path = pts.map(([x, y]) => [x + ox, y + oy]);
       }
       const cars = this.layCars(path, [carOf(year >= 1955 ? "diesel" : "steam", year, this.rng, true), ...make(12)])
         .filter((c) => { const i = Math.floor(c.y) * m.width + Math.floor(c.x); return m.terrain[i] !== Terrain.Water && !this.deck.has(i); });
@@ -549,7 +547,7 @@ export class Traffic {
   private layCars(path: [number, number][], cars: Car[]) {
     const out: ParkedCut["cars"] = [];
     const cum = [0];
-    for (let k = 1; k < path.length; k++) cum.push(cum[k - 1] + Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]));
+    for (let k = 1; k < path.length; k++) cum.push(cum[k - 1] + hyp(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]));
     const total = cum[cum.length - 1];
     const at = (s: number): [number, number] => {
       let k = 1;
@@ -561,8 +559,8 @@ export class Traffic {
     for (const car of cars) {
       if (s + car.len > total - 0.1) break;
       const [fx, fy] = at(s), [bx, by] = at(s + car.len);
-      const l = Math.hypot(fx - bx, fy - by) || 1;
-      out.push({ x: (fx + bx) / 2, y: (fy + by) / 2, dx: (fx - bx) / l, dy: (fy - by) / l, car });
+      const [gdx, gdy] = gunit(fx - bx, fy - by);
+      out.push({ x: (fx + bx) / 2, y: (fy + by) / 2, dx: gdx, dy: gdy, car });
       s += car.len + 0.035;
     }
     return out;
@@ -580,7 +578,7 @@ export class Traffic {
         const xx = x + dx, yy = y + dy, j = yy * m.width + xx;
         if (xx < 0 || yy < 0 || xx >= m.width || yy >= m.height || seen.has(j) || !this.railOpen(g, j)) continue;
         if (landOnly && (m.terrain[j] === Terrain.Water || this.deck.has(j))) continue;
-        const s = (dx * ddx + dy * ddy) / (Math.hypot(dx, dy) * (Math.hypot(ddx, ddy) || 1)) + this.rng.next() * 0.01;
+        const s = dotG(dx, dy, ddx, ddy) + this.rng.next() * 0.01;
         if (s > bs) { bs = s; best = [xx, yy]; }
       }
       if (!best || (k > 0 && bs < 0.3)) break;
@@ -620,7 +618,7 @@ export class Traffic {
   /** slack times: 0 (normal) .. ~0.8 near a closed mill or a works that laid men off */
   private slumpAt(x: number, y: number): number {
     let s = 0;
-    for (const [sx, sy, r, k] of this.slump) { const d = Math.hypot(x - sx, y - sy); if (d < r) s = Math.max(s, k * (1 - (d / r) * 0.6)); }
+    for (const [sx, sy, r, k] of this.slump) { const d = hyp(x - sx, y - sy); if (d < r) s = Math.max(s, k * (1 - (d / r) * 0.6)); }
     return s;
   }
 
@@ -639,8 +637,7 @@ export class Traffic {
     const wx = c.x + px / c.zoom, wy = c.y + py / c.zoom;
     let h = 260, x = 0, y = 0;
     for (let k = 0; k < 3; k++) {
-      const a = wx / HW, b = (wy + (h - BASE_M) * ZPX) / HH;
-      x = Math.floor((a + b) / 2); y = Math.floor((b - a) / 2);
+      [x, y] = cellUnder(wx, wy, h);
       if (x < 0 || y < 0 || x >= m.width || y >= m.height) return [0, 0];
       h = m.elevation[y * m.width + x];
     }
@@ -709,7 +706,7 @@ export class Traffic {
     else a.spec = this.vehicleSpec(kind, y);
     // start facing along a street, not out of a wall
     const opts = DIR4.filter(([dx, dy]) => { const xx = x + dx, y2 = yy + dy; return xx >= 0 && y2 >= 0 && xx < m.width && y2 < m.height && this.streetOk(w, y2 * m.width + xx); });
-    if (opts.length) { const [dx, dy] = rng.pick(opts); a.px = x - dx; a.py = yy - dy; a.nx = x + dx; a.ny = yy + dy; a.t = rng.next(); a.hx = dx; a.hy = dy; }
+    if (opts.length) { const [dx, dy] = rng.pick(opts); a.px = x - dx; a.py = yy - dy; a.nx = x + dx; a.ny = yy + dy; a.t = rng.next(); [a.hx, a.hy] = gunit(dx, dy); }
     this.agents.push(a);
     return true;
   }
@@ -794,7 +791,7 @@ export class Traffic {
     if (a.trail.length > 1) { a.px = a.trail[1][0]; a.py = a.trail[1][1]; }
     // which way is busier? run toward the freight
     a.t = 0;
-    a.hx = a.nx - x; a.hy = a.ny - y;
+    [a.hx, a.hy] = gunit(a.nx - x, a.ny - y);
     this.agents.push(a);
     return true;
   }
@@ -863,7 +860,7 @@ export class Traffic {
     const v = f[blockOf(blockGrid(this.m), a.x, a.y)];
     if (a.role === "in") {
       // through the gate: anywhere on the works' edge (a seeded reach, so they don't all bunch at one spot)
-      if (Math.hypot(a.x + 0.5 - c.x, a.y + 0.5 - c.y) < c.r + 1 + a.seed * 3 || v < 0.8 + a.seed * 1.5) { a.dying = true; return; }
+      if (hyp(a.x + 0.5 - c.x, a.y + 0.5 - c.y) < c.r + 1 + a.seed * 3 || v < 0.8 + a.seed * 1.5) { a.dying = true; return; }
       if (v < (a.best ?? Infinity) - 0.01) { a.best = v; a.stall = 0; } else if (++a.stall! > 40) a.role = "wander";
     } else if (--a.life! <= 0) a.dying = true; // home
   }
@@ -885,7 +882,7 @@ export class Traffic {
         if (!isFinite(v)) continue;
         if (sgn * (best - v) > 0) { best = v; gx = dx; gy = dy; }
       }
-      const l = Math.hypot(gx, gy) || 1; gx /= l; gy /= l;
+      [gx, gy] = gunit(gx, gy);
     }
     for (const [dx, dy] of DIR4) {
       const x = a.x + dx, y = a.y + dy;
@@ -900,7 +897,7 @@ export class Traffic {
       if (f) {
         const v = f[blockOf(bg, x, y)];
         const sgn = a.role === "in" ? 1 : -1;
-        wgt *= Math.exp(2.4 * (dx * gx + dy * gy)) * (sgn * (fc - v) > 0.01 ? 3 : sgn * (fc - v) < -0.01 ? 0.25 : 1);
+        wgt *= Math.exp(2.4 * (gunit(dx, dy)[0] * gx + gunit(dx, dy)[1] * gy)) * (sgn * (fc - v) > 0.01 ? 3 : sgn * (fc - v) < -0.01 ? 0.25 : 1);
       } else wgt *= 0.35 + this.busy(g, x, y); // follow the commuters' routes
       opts.push([x, y, wgt]);
     }
@@ -910,13 +907,13 @@ export class Traffic {
   private chooseTrain(g: GameState, a: Agent): [number, number] | null {
     const m = this.m, fr = g.env.freight, norm = g.env.freightNorm || 1;
     const opts: [number, number, number][] = [];
-    const hx = a.x - a.px, hy = a.y - a.py, hl = Math.hypot(hx, hy) || 1;
+    const hx = a.x - a.px, hy = a.y - a.py;
     for (const [dx, dy] of DIR8) {
       const x = a.x + dx, y = a.y + dy;
       if (x < 0 || y < 0 || x >= m.width || y >= m.height || (x === a.px && y === a.py)) continue;
       const j = y * m.width + x;
       if (!this.railOpen(g, j)) continue;
-      const c = (dx * hx + dy * hy) / (Math.hypot(dx, dy) * hl);
+      const c = (hx || hy) ? dotG(dx, dy, hx, hy) : 1;
       if (c < -0.1) continue; // no reversing through a junction
       // straight on is the main line; a gentle curve is fine; a sharp turn is a siding
       let wgt = c > 0.9 ? 8 : c > 0.6 ? 3 : 0.12;
@@ -946,7 +943,7 @@ export class Traffic {
     let run = 0, cut = tr.length;
     for (let q = 1; q < tr.length; q++) {
       const p0 = this.snap(tr[q - 1][0], tr[q - 1][1]), p1 = this.snap(tr[q][0], tr[q][1]);
-      run += Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      run += hyp(p1[0] - p0[0], p1[1] - p0[1]);
       if (run >= total) { cut = q + 1; break; }
     }
     tr = tr.slice(0, Math.max(3, cut));
@@ -967,9 +964,9 @@ export class Traffic {
     const at = (xx: number, yy: number, c: number) => { if (xx < 0 || yy < 0 || xx >= m.width || yy >= m.height) return c; const v = d[yy * m.width + xx]; return v >= 0 ? v : c; };
     const c = d[y * m.width + x];
     if (c < 0) return null;
-    let gx = 0, gy = 0;
-    for (const r of [1, 3]) { gx += at(x + r, y, c) - at(x - r, y, c); gy += at(x, y + r, c) - at(x, y - r, c); }
-    const l = Math.hypot(gx, gy);
+    let gq = 0, gr = 0;
+    for (const r of [1, 3]) { gq += at(x + r, y, c) - at(x - r, y, c); gr += at(x, y + r, c) - at(x, y - r, c); }
+    const [gx, gy] = grad(gq, gr), l = Math.hypot(gx, gy);
     return l < 0.01 ? null : [gx / l, gy / l];
   }
 
@@ -988,16 +985,16 @@ export class Traffic {
     }
     // hold the middle of the channel: steer away from the nearer bank
     const sv = (xx: number, yy: number) => (xx < 0 || yy < 0 || xx >= m.width || yy >= m.height ? 0 : this.shore[yy * m.width + xx]);
-    let sx = 0, sy = 0;
-    for (const r of [2, 4]) { sx += sv(x + r, y) - sv(x - r, y); sy += sv(x, y + r) - sv(x, y - r); }
-    const sl = Math.hypot(sx, sy);
+    let sq = 0, sr = 0;
+    for (const r of [2, 4]) { sq += sv(x + r, y) - sv(x - r, y); sr += sv(x, y + r) - sv(x, y - r); }
+    const [sx, sy] = grad(sq, sr), sl = Math.hypot(sx, sy);
     const wc = clamp01((8 - this.shore[i]) / 8) * 1.3;
     if (sl > 0) { wx += (sx / sl) * wc; wy += (sy / sl) * wc; }
     // v0.28: keep clear of other boats (they used to sail through one another): steer off, and ease off behind one
     let slow = 1;
     for (const o of this.boats) {
       if (o === a || o.dying) continue;
-      const ox = a.fx! - o.fx!, oy = a.fy! - o.fy!, d = Math.hypot(ox, oy);
+      const [ox, oy] = gvec(a.fx! - o.fx!, a.fy! - o.fy!), d = Math.hypot(ox, oy);
       const reach = (a.kind === "tow" ? 1.4 : 0.9) + (o.kind === "tow" ? 1.4 : 0.9);
       if (d > reach || d < 1e-3) continue;
       const push = (1 - d / reach) * 2.2;
@@ -1006,7 +1003,7 @@ export class Traffic {
     }
     // look ahead for the bank
     const look = a.kind === "tow" ? 2.2 + (a.barges?.length ?? 0) * 0.25 : 1.6;
-    const ax = Math.floor(a.fx! + dx * look), ay = Math.floor(a.fy! + dy * look);
+    const [lq, lr] = avec(dx * look, dy * look), ax = Math.floor(a.fx! + lq), ay = Math.floor(a.fy! + lr);
     const blocked = sv(ax, ay) < 2;
     const wl = Math.hypot(wx, wy) || 1;
     // the desired heading changes slowly (tows hold their course)
@@ -1020,7 +1017,7 @@ export class Traffic {
     a.ang! += Math.max(-rate * dt, Math.min(rate * dt, da));
     dx = Math.cos(a.ang!); dy = Math.sin(a.ang!);
     const v = a.speed * dt * (blocked ? 0.35 : 1) * slow;
-    const nx = a.fx! + dx * v, ny = a.fy! + dy * v;
+    const [mq, mr] = avec(dx * v, dy * v), nx = a.fx! + mq, ny = a.fy! + mr;
     if (sv(Math.floor(nx), Math.floor(ny)) >= 1) { a.fx = nx; a.fy = ny; a.dist += v; a.stuck = 0; }
     // aground for a while (the head of the river, a narrow chute): it ties up and fades rather than spinning about
     else if ((a.stuck! += dt) > 2.5) a.dying = true;
@@ -1031,9 +1028,10 @@ export class Traffic {
     if (a.puffT! <= 0) {
       a.puffT = steam ? 0.2 : 0.35;
       const wl2 = m.waterLevel[a.y * m.width + a.x];
-      if (a.kind === "steamboat") for (const c of [-0.09, 0.09]) this.puff(a.fx! + dx * 0.36 - dy * c, a.fy! + dy * 0.36 + dx * c, wl2, 27, true);
-      else if (steam) for (const c of [-0.05, 0.05]) this.puff(a.fx! - dy * c, a.fy! + dx * c, wl2, 24, true);
-      else for (const c of [-0.06, 0.06]) this.puff(a.fx! - dx * 0.2 - dy * c, a.fy! - dy * 0.2 + dx * c, wl2, 16, false, 0.3);
+      const at = (al: number, c: number): [number, number] => { const [q, r] = avec(dx * al - dy * c, dy * al + dx * c); return [a.fx! + q, a.fy! + r]; };
+      if (a.kind === "steamboat") for (const c of [-0.09, 0.09]) this.puff(...at(0.36, c), wl2, 27, true);
+      else if (steam) for (const c of [-0.05, 0.05]) this.puff(...at(0, c), wl2, 24, true);
+      else for (const c of [-0.06, 0.06]) this.puff(...at(-0.2, c), wl2, 16, false, 0.3);
     }
   }
 
@@ -1054,7 +1052,7 @@ export class Traffic {
         const t = ((x + 0.5 - ax) * dx + (y + 0.5 - ay) * dy) / L2;
         if (t < 0 || t > 1) continue;
         const cx = ax + dx * t, cy = ay + dy * t;
-        if (Math.hypot(cx - x - 0.5, cy - y - 0.5) < 1.0) p = [cx, cy];
+        if (hyp(cx - x - 0.5, cy - y - 0.5) < 1.0) p = [cx, cy];
       }
       if (!p) p = (this.m.terrain[i] !== Terrain.Water && snapToRail(this.m, x + 0.5, y + 0.5, this.deckYear)) || [x + 0.5, y + 0.5];
       this.snapCache.set(i, p);
@@ -1068,7 +1066,7 @@ export class Traffic {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const boats = this.agents.filter((a) => a.kind === "steamboat" || a.kind === "tow");
-    boats.sort((p, q) => p.fx! + p.fy! - (q.fx! + q.fy!));
+    boats.sort((p, q) => sortKey(p.fx!, p.fy!) - sortKey(q.fx!, q.fy!));
     for (const a of boats) {
       ctx.globalAlpha = Math.max(0, Math.min(1, a.alpha));
       this.drawBoat(ctx, cam, a, time);
@@ -1107,7 +1105,7 @@ export class Traffic {
     // trains first (they're longer, under the street traffic); boats are drawn before the bridges (drawBoats)
     for (const p of this.parked) this.drawParked(ctx, p, S, z, lit);
     const trains = this.agents.filter((a) => a.kind === "train");
-    trains.sort((p, q) => p.x + p.y - (q.x + q.y));
+    trains.sort((p, q) => sortKey(p.x, p.y) - sortKey(q.x, q.y));
     for (const a of trains) { ctx.globalAlpha = Math.max(0, Math.min(1, a.alpha)); this.drawTrain(ctx, a, S, z, lit); }
     ctx.globalAlpha = 1;
     if (z >= SMALL_AGENT_ZOOM) {
@@ -1117,7 +1115,7 @@ export class Traffic {
       for (const a of this.agents) {
         if (BIG.has(a.kind)) continue;
         const p = this.place(a);
-        list.push({ d: p[0] + p[1], a, fx: p[0], fy: p[1], tx: p[2], ty: p[3] });
+        list.push({ d: sortKey(p[0], p[1]), a, fx: p[0], fy: p[1], tx: p[2], ty: p[3] });
       }
       for (const pk of this.pickets) {
         if (!this.tileInView(Math.floor(pk.cx), Math.floor(pk.cy), 120)) continue;
@@ -1127,13 +1125,13 @@ export class Traffic {
             const th = time * 0.22 + f.march;
             fx = pk.cx + pk.ex * Math.cos(th) * 1.2 + pk.ox * Math.sin(th) * 0.22;
             fy = pk.cy + pk.ey * Math.cos(th) * 1.2 + pk.oy * Math.sin(th) * 0.22;
-            tx = -pk.ex * Math.sin(th) * 1.2 + pk.ox * Math.cos(th) * 0.22; ty = -pk.ey * Math.sin(th) * 1.2 + pk.oy * Math.cos(th) * 0.22;
+            [tx, ty] = gunit(-pk.ex * Math.sin(th) * 1.2 + pk.ox * Math.cos(th) * 0.22, -pk.ey * Math.sin(th) * 1.2 + pk.oy * Math.cos(th) * 0.22);
           }
-          list.push({ d: fx + fy, fx, fy, tx, ty, pk, fig: f });
+          list.push({ d: sortKey(fx, fy), fx, fy, tx, ty, pk, fig: f });
         }
-        if (lit) list.push({ d: pk.barrel[0] + pk.barrel[1], fx: pk.barrel[0], fy: pk.barrel[1], tx: 0, ty: 0, pk, barrel: true });
+        if (lit) list.push({ d: sortKey(pk.barrel[0], pk.barrel[1]), fx: pk.barrel[0], fy: pk.barrel[1], tx: 0, ty: 0, pk, barrel: true });
       }
-      for (const f of this.gath.figs(time)) list.push({ d: f.fx + f.fy, fx: f.fx, fy: f.fy, tx: f.tx, ty: f.ty, gf: f });
+      for (const f of this.gath.figs(time)) list.push({ d: sortKey(f.fx, f.fy), fx: f.fx, fy: f.fy, tx: f.tx, ty: f.ty, gf: f });
       list.sort((p, q) => p.d - q.d);
       const k = z;
       ctx.imageSmoothingEnabled = false;
@@ -1145,7 +1143,7 @@ export class Traffic {
         if (sx < -60 || sy < -60 || sx > this.cw + 60 || sy > this.ch + 80) continue;
         // behind a building on a nearer tile: hidden (feet and chest both covered). v0.28: eased in and out, and
         // only once the cover has held a moment, so a figure passing a row of trees doesn't blink
-        const cover = !!this.occluded && this.occluded(sx, sy - 2 * z, Math.floor(e.fx) + Math.floor(e.fy)) && this.occluded(sx, sy - 7 * z, Math.floor(e.fx) + Math.floor(e.fy));
+        const cover = !!this.occluded && this.occluded(sx, sy - 2 * z, cellDepth(e.fx, e.fy)) && this.occluded(sx, sy - 7 * z, cellDepth(e.fx, e.fy));
         const ref = e.a ?? e.fig ?? e.gf?.ref;
         const seen = ref ? this.seen(ref, cover) : cover ? 0 : 1;
         if (seen <= 0.02) continue;
@@ -1174,13 +1172,13 @@ export class Traffic {
             continue;
           }
           if (f.spec) {
-            const fc: Facing = Math.abs(f.tx) > Math.abs(f.ty) ? (f.tx > 0 ? 0 : 2) : (f.ty > 0 ? 1 : 3);
+            const fc: Facing = facingG(f.tx, f.ty);
             ctx.fillStyle = "rgba(0,0,0,0.18)";
             ctx.beginPath(); ctx.ellipse(sx, sy + k, 8 * k, 3.5 * k, 0, 0, Math.PI * 2); ctx.fill();
             blit(vehicleFig(f.spec, fc, f.moving ? (((time * 6 + f.seed * 3) | 0) & 1) : 0, lit), sx, sy);
             continue;
           }
-          const front = f.tx + f.ty >= 0;
+          const front = f.ty >= 0;
           const frame = f.moving ? (((time * 2.6 + f.seed * 5) | 0) & 1) : ((time * 0.7 + f.fx * 3) % 5 < 0.4 ? 1 : 2);
           blit(walkerFig(f.look!, front, frame), sx, sy);
           if (f.placard !== undefined) blit(placardFig(f.placard), sx + 2 * k, sy - 6 * k);
@@ -1188,7 +1186,7 @@ export class Traffic {
         }
         if (e.fig) {
           const marching = e.fig.march !== undefined;
-          const front = marching ? e.tx + e.ty > 0 : true;
+          const front = marching ? e.ty > 0 : true;
           const frame = marching ? (((time * 2.6 + e.fig.march!) | 0) & 1) : ((time * 0.7 + e.fx * 3) % 5 < 0.4 ? 1 : 2);
           blit(walkerFig(e.fig.look, front, frame), sx, sy);
           if (e.fig.placard !== undefined) blit(placardFig(e.fig.placard), sx + 2 * k, sy - 6 * k);
@@ -1198,15 +1196,13 @@ export class Traffic {
         if (a.kind === "walker") {
           const moving = !(a.wait && a.wait > 0) && a.speed > 0;
           const frame = moving ? (((a.dist * 5.5 + a.seed * 2) | 0) & 1) : 2;
-          const front = a.hx + a.hy > 0;
+          const front = a.hy > 0;
           blit(walkerFig(a.look!, front, frame), sx, sy - (moving && frame === 1 ? k : 0));
         } else {
-          const tl = Math.hypot(a.hx, a.hy) || 1;
           // the facing switches only once the heading has clearly turned (it flickered between two on diagonals)
-          const ax = Math.abs(a.hx), ay = Math.abs(a.hy);
-          const along: Facing = ax > ay ? (a.hx > 0 ? 0 : 2) : (a.hy > 0 ? 1 : 3);
-          const keep = a.fc !== undefined && (a.fc === 0 ? a.hx > 0 : a.fc === 2 ? a.hx < 0 : a.fc === 1 ? a.hy > 0 : a.hy < 0)
-            && ((a.fc === 0 || a.fc === 2) ? ax * 1.35 > ay : ay * 1.35 > ax);
+          const along: Facing = facingG(a.hx, a.hy);
+          const dd = (fc: Facing) => (fc === 0 ? a.hx + a.hy : fc === 2 ? -a.hx - a.hy : fc === 1 ? a.hy - a.hx : a.hx - a.hy) * Math.SQRT1_2;
+          const keep = a.fc !== undefined && dd(a.fc) > 0.62;
           const f: Facing = keep ? a.fc! : along;
           a.fc = f;
           const sp = a.spec!;
@@ -1217,7 +1213,7 @@ export class Traffic {
           ctx.beginPath(); ctx.ellipse(sx, sy + k, (sp.kind === "streetcar" || (sp.kind === "truck" && sp.era === 3) ? 13 : 8) * k, 3.5 * k, 0, 0, Math.PI * 2); ctx.fill();
           blit(vehicleFig(sp, f, frame, lit), sx, sy);
           if (night > 0.25) {
-            const ux = a.hx / tl, uy = a.hy / tl;
+            const [ux, uy] = avec(a.hx, a.hy);
             const fr = frontOf(sp.kind, sp.era);
             if (sp.kind === "auto" || sp.kind === "truck" || sp.kind === "streetcar") {
               if (this.year >= 1910 || sp.kind === "streetcar") {
@@ -1262,11 +1258,11 @@ export class Traffic {
     const s = Math.min(1, a.t), u = 1 - s;
     let fx = u * u * m0x + 2 * u * s * cx + s * s * m1x, fy = u * u * m0y + 2 * u * s * cy + s * s * m1y;
     let tx = 2 * u * (cx - m0x) + 2 * s * (m1x - cx), ty = 2 * u * (cy - m0y) + 2 * s * (m1y - cy);
-    const tl = Math.hypot(tx, ty);
-    if (tl > 0.05) { tx /= tl; ty /= tl; a.hx = tx; a.hy = ty; } else { tx = a.hx; ty = a.hy; }
+    // headings are kept in the ground frame (unit): facing, lamps and the sidewalk offset are measured there
+    if (hyp(tx, ty) > 0.05) { [tx, ty] = gunit(tx, ty); a.hx = tx; a.hy = ty; } else { tx = a.hx; ty = a.hy; }
     // keep to the right-hand side of the street (people on the sidewalk); streetcars run down the middle
     const side = a.kind === "walker" ? (a.role === "idle" ? 0.24 + a.seed * 0.12 : 0.12 + a.seed * 0.24) : a.kind === "streetcar" || a.kind === "horsecar" ? 0 : 0.13;
-    fx += -ty * side; fy += tx * side;
+    { const [oq, or] = avec(-ty * side, tx * side); fx += oq; fy += or; }
     return [fx, fy, tx, ty];
   }
 
@@ -1292,7 +1288,7 @@ export class Traffic {
     const pts: [number, number][] = [[c0[0] + (n0[0] - c0[0]) * t, c0[1] + (n0[1] - c0[1]) * t]];
     for (const [x, y] of tr) pts.push(this.snap(x, y));
     const cum = [0];
-    for (let q = 1; q < pts.length; q++) cum.push(cum[q - 1] + Math.hypot(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]));
+    for (let q = 1; q < pts.length; q++) cum.push(cum[q - 1] + hyp(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]));
     let seg = 1;
     const at = (s: number): [number, number] => {
       while (seg < cum.length - 1 && cum[seg] < s) seg++;
@@ -1306,11 +1302,11 @@ export class Traffic {
     for (const car of cars) {
       if (s + car.len > total) break;
       const [fx, fy] = at(s), [bx, by] = at(s + car.len);
-      const l = Math.hypot(fx - bx, fy - by) || 1;
-      items.push({ x: (fx + bx) / 2, y: (fy + by) / 2, dx: (fx - bx) / l, dy: (fy - by) / l, car, flip: !!a.rev });
+      const [gdx, gdy] = gunit(fx - bx, fy - by);
+      items.push({ x: (fx + bx) / 2, y: (fy + by) / 2, dx: gdx, dy: gdy, car, flip: !!a.rev });
       s += car.len + 0.035;
     }
-    items.sort((p, q) => p.x + p.y - (q.x + q.y));
+    items.sort((p, q) => sortKey(p.x, p.y) - sortKey(q.x, q.y));
     for (const it of items) {
       const h = this.hAt(it.x, it.y);
       const [sx, sy] = S(it.x, it.y, h);
@@ -1318,7 +1314,7 @@ export class Traffic {
       // a car inside a works' walls, or behind a building, isn't drawn
       const ti = Math.floor(it.y) * this.m.width + Math.floor(it.x);
       if (this.worksTile?.(ti)) continue;
-      const cover = !!this.occluded && this.occluded(sx, sy - 2 * k, Math.floor(it.x) + Math.floor(it.y)) && this.occluded(sx, sy - 8 * k, Math.floor(it.x) + Math.floor(it.y));
+      const cover = !!this.occluded && this.occluded(sx, sy - 2 * k, cellDepth(it.x, it.y)) && this.occluded(sx, sy - 8 * k, cellDepth(it.x, it.y));
       const seen = this.seen(it.car, cover);
       if (seen <= 0.02) continue;
       const a0 = ctx.globalAlpha; ctx.globalAlpha = a0 * seen;
@@ -1328,7 +1324,7 @@ export class Traffic {
         const front = it.car.len / 2;
         if (it.car.type === "steam") {
           a.puffT! -= this.dt / Math.max(1, cars.filter((c) => c.type === "steam").length);
-          if (a.puffT! <= 0) { a.puffT = 0.11 + this.rng.next() * 0.05; this.puff(it.x + dx * (front - 0.05), it.y + dy * (front - 0.05), h, 16, true, 0.6); }
+          if (a.puffT! <= 0) { a.puffT = 0.11 + this.rng.next() * 0.05; this.puff(it.x + avec(dx, dy)[0] * (front - 0.05), it.y + avec(dx, dy)[1] * (front - 0.05), h, 16, true, 0.6); }
         } else if (it.car.type === "diesel" && this.rng.chance(this.dt * 2)) this.puff(it.x, it.y, h, 12, false, 0.2);
         if (lit) {
           const [lx, ly] = ooff(k, dx, dy, front + 0.01, 0, 8.5);
@@ -1343,7 +1339,7 @@ export class Traffic {
   }
 
   private drawParked(ctx: CanvasRenderingContext2D, p: ParkedCut, S: (x: number, y: number, h: number) => [number, number], k: number, lit: boolean) {
-    const sorted = p.cars.slice().sort((a, b) => a.x + a.y - (b.x + b.y));
+    const sorted = p.cars.slice().sort((a, b) => sortKey(a.x, a.y) - sortKey(b.x, b.y));
     for (const c of sorted) {
       const h = this.hAt(c.x, c.y);
       const [sx, sy] = S(c.x, c.y, h);
@@ -1352,7 +1348,7 @@ export class Traffic {
       if (c.car.type === "steam") {
         // the switcher simmers
         p.puffT -= this.dt;
-        if (p.puffT <= 0) { p.puffT = 0.6 + this.rng.next() * 0.5; this.puff(c.x + c.dx * 0.2, c.y + c.dy * 0.2, h, 14, false, 0.22, true); }
+        if (p.puffT <= 0) { p.puffT = 0.6 + this.rng.next() * 0.5; this.puff(c.x + avec(c.dx, c.dy)[0] * 0.2, c.y + avec(c.dx, c.dy)[1] * 0.2, h, 14, false, 0.22, true); }
       }
       if (lit && isLoco(c.car.type)) this.light(sx, sy - 9 * k, 9 * k, 0.6, 0);
     }
@@ -1366,7 +1362,7 @@ export class Traffic {
     const [sx, sy] = this.snap2((wx0 - cam.x) * k, (wy0 - cam.y) * k);
     if (sx < -260 * k || sy < -200 * k || sx > this.cw + 260 * k || sy > this.ch + 200 * k) return;
     // behind a wharf, a warehouse or a bridge pier on the near bank: the hull and the stack both covered
-    const cover = !!this.occluded && this.occluded(sx, sy - 3 * k, Math.floor(fx) + Math.floor(fy)) && this.occluded(sx, sy - 12 * k, Math.floor(fx) + Math.floor(fy));
+    const cover = !!this.occluded && this.occluded(sx, sy - 3 * k, cellDepth(fx, fy)) && this.occluded(sx, sy - 12 * k, cellDepth(fx, fy));
     const seen = this.seen(a, cover);
     if (seen <= 0.02) return;
     ctx.globalAlpha *= seen;
@@ -1490,7 +1486,7 @@ function pixelSprite(key: string, reach: number, k: number, draw: (ctx: CanvasRe
   const hit = pixCache.get(key);
   if (hit) { pixCache.delete(key); pixCache.set(key, hit); return hit; }
   // room for the longest reach along any heading, and for stacks rising above the deck
-  const rx = Math.ceil((reach + 0.3) * 46 * k) + 2, ry = Math.ceil((reach + 0.3) * 24 * k) + 2, up = Math.ceil(30 * k) + 2;
+  const rx = Math.ceil((reach + 0.3) * 50 * k) + 2, ry = Math.ceil((reach + 0.3) * 25 * k) + 2, up = Math.ceil(30 * k) + 2;
   const c = document.createElement("canvas");
   c.width = rx * 2; c.height = ry * 2 + up;
   const x = c.getContext("2d", { willReadFrequently: true })!;

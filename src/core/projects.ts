@@ -6,6 +6,7 @@
 //   Private dock         a landing of your own on the river: no wagon haul and first call on the barges
 //   A new works          from 1890: found a second works, in any industry, with the processes of the day
 
+import { HEX6, stepDist } from "./hex";
 import { platCompanyHousing } from "./sleuth";
 import { permitBlock } from "./enviro";
 import { feet } from "./units";
@@ -102,7 +103,7 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
     if (m.rail[i] || m.bridge[i]) return fail("A railroad or bridge is in the way");
     out.displaced += w.pop[i];
     { const h = m.vert[i]; lo = Math.min(lo, h); hi = Math.max(hi, h); }
-    for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, tx + ax, ty + ay) && m.terrain[(ty + ay) * m.width + tx + ax] === Terrain.Water) water++;
+    for (const [ax, ay] of HEX6) if (inBounds(m, tx + ax, ty + ay) && m.terrain[(ty + ay) * m.width + tx + ax] === Terrain.Water) water++;
   }
   const relief = hi - lo;
   const site = INDUSTRIES[c.industry].site;
@@ -118,7 +119,7 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
   } else if (kind === "housing") {
     if (relief > 20) return fail("Too hilly for a block of houses");
     if (out.displaced > 60) return fail("Too many homes already there");
-    const near = [c, ...c.others].some((wk) => Math.hypot(wk.x + wk.footprint / 2 - (x + size / 2), wk.y + wk.footprint / 2 - (y + size / 2)) <= 40);
+    const near = [c, ...c.others].some((wk) => stepDist(wk.x + wk.footprint / 2 - (x + size / 2), wk.y + wk.footprint / 2 - (y + size / 2)) <= 40);
     if (!near) return fail("Too far from your works (within ¾ mile)");
     out.cost = Math.round(18000 * era(year));
   } else if (kind === "dock") {
@@ -152,17 +153,17 @@ export function suggestProject(g: GameState, kind: ProjectKind, industry?: Indus
     }
   } else if (kind === "housing") {
     for (let y = Math.round(cy) - 36; y <= cy + 36; y += 2) for (let x = Math.round(cx) - 36; x <= cx + 36; x += 2)
-      consider(x, y, (p) => -Math.hypot(x + size / 2 - cx, y + size / 2 - cy) - p.displaced * 0.3);
+      consider(x, y, (p) => -stepDist(x + size / 2 - cx, y + size / 2 - cy) - p.displaced * 0.3);
   } else if (kind === "dock") {
     for (let y = c.y - 14; y <= c.y + c.footprint + 14; y++) for (let x = c.x - 14; x <= c.x + c.footprint + 14; x++)
-      consider(x, y, (p) => -Math.hypot(x + 1.5 - cx, y + 1.5 - cy) - p.displaced * 0.1);
+      consider(x, y, (p) => -stepDist(x + 1.5 - cx, y + 1.5 - cy) - p.displaced * 0.1);
   } else {
     const ind = industry ?? c.industry;
     const m = g.map, ps = popSAT(m, g.world);
     for (let y = 4; y < m.height - size - 4; y += 6) for (let x = 4; x < m.width - size - 4; x += 6) {
       const rep = evaluateSite(m, g.world, g.fields, ind, x, y, ps);
       if (!rep.ok) continue;
-      const s = rep.score - Math.hypot(x - cx, y - cy) * 0.02;
+      const s = rep.score - stepDist(x - cx, y - cy) * 0.02;
       if (s > bs) { const p = checkProject(g, kind, x, y, industry); if (p.ok) { bs = s; best = p; } }
     }
   }
@@ -207,7 +208,7 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
     for (let dy = 0; dy < q.size; dy++) for (let dx = 0; dx < q.size; dx++) {
       const x = q.x + dx, y = q.y + dy, i = y * m.width + x;
       w.use[i] = Use.Wharf; w.owner[i] = 1; w.pop[i] = 0; w.street[i] = 0; w.built[i] = year;
-      for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!water && inBounds(m, x + ax, y + ay) && m.terrain[(y + ay) * m.width + x + ax] === Terrain.Water) water = [x + ax, y + ay];
+      for (const [ax, ay] of HEX6) if (!water && inBounds(m, x + ax, y + ay) && m.terrain[(y + ay) * m.width + x + ax] === Terrain.Water) water = [x + ax, y + ay];
     }
     c.dock = water;
     c.annexes.push({ kind: "dock", x: q.x, y: q.y, fp: q.size, year });
@@ -217,7 +218,7 @@ export function buildProject(g: GameState, p: Proposal): { ok: boolean; text: st
     claimFootprint(g, q.x, q.y, q.size, 1, Use.Industry);
     const nw = newWorks(c, ind, q.x, q.y, q.size, riverSideOf(m, q.x, q.y, q.size), year, [INDUSTRIES[ind].tech[0].id, ...standardTechs(g, ind)]);
     let place = "", pd = Infinity;
-    for (const l of m.landmarks) if (l.kind === "town") { const d = Math.hypot(l.x - q.x, l.y - q.y); if (d < pd) { pd = d; place = l.name.replace(/ \(.*\)$/, ""); } }
+    for (const l of m.landmarks) if (l.kind === "town") { const d = stepDist(l.x - q.x, l.y - q.y); if (d < pd) { pd = d; place = l.name.replace(/ \(.*\)$/, ""); } }
     nw.name = `${place || "New"} ${INDUSTRIES[ind].name} Works`;
     updateWorksAccess(g, nw);
     text = `${c.name} breaks ground on a new ${INDUSTRIES[ind].name.toLowerCase()} works.`;

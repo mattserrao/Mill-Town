@@ -7,7 +7,8 @@
 import { type GameState, PRICE_TREND, type RivalState, rivalOutput } from "./game";
 import { latLonToTile } from "./features";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import type { GameMap } from "./map";
+import { type GameMap, inBounds, neighbours, onEdge, srcToHex } from "./map";
+import { HEX6, cellAt, groundOf, hexDist, stepDist } from "./hex";
 import { RIVALS, type RivalDef } from "./rivals";
 import { rivalTechs } from "./market";
 import { navigable } from "./site";
@@ -70,24 +71,27 @@ const nav = (m: GameMap) => { let n = navCache.get(m); if (!n) { n = navigable(m
 /** Where a river or rail line leaves the map: the middle of a run of border tiles that pass a test,
  *  preferring long runs close to a hint point (a line can touch the border in more than one place). */
 function borderExit(m: GameMap, test: (i: number) => boolean, hint: [number, number]): [number, number] | null {
-  const W = m.width, H = m.height;
-  const ring: [number, number][] = [];
-  for (let x = 0; x < W; x++) ring.push([x, 0]);
-  for (let y = 1; y < H; y++) ring.push([W - 1, y]);
-  for (let x = W - 2; x >= 0; x--) ring.push([x, H - 1]);
-  for (let y = H - 2; y > 0; y--) ring.push([0, y]);
-  const runs: [number, number][][] = [];
-  let run: [number, number][] = [];
-  for (const p of ring) {
-    if (test(p[1] * W + p[0])) run.push(p);
-    else if (run.length) { runs.push(run); run = []; }
+  // map-edge cells (a neighbour is off the map) that pass the test, grouped into connected runs
+  const n = m.width * m.height, W = m.width;
+  const seen = new Uint8Array(n);
+  const runs: number[][] = [];
+  const nb: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (seen[i] || !m.valid[i] || !onEdge(m, i) || !test(i)) continue;
+    const run = [i]; seen[i] = 1;
+    for (let k = 0; k < run.length; k++) for (const j of neighbours(m, run[k], nb)) if (!seen[j] && onEdge(m, j) && test(j)) { seen[j] = 1; run.push(j); }
+    runs.push(run);
   }
-  if (run.length) runs.push(run);
   let best: [number, number] | null = null, bs = -Infinity;
   for (const r of runs) {
-    const mid = r[r.length >> 1];
-    const s = Math.min(r.length, 12) * 20 - Math.hypot(mid[0] - hint[0], mid[1] - hint[1]);
-    if (s > bs) { bs = s; best = mid; }
+    let cx = 0, cy = 0;
+    for (const i of r) { cx += i % W; cy += (i / W) | 0; }
+    cx /= r.length; cy /= r.length;
+    let mid = r[0], md = Infinity;
+    for (const i of r) { const d = stepDist((i % W) - cx, ((i / W) | 0) - cy); if (d < md) { md = d; mid = i; } }
+    const mx = mid % W, my = (mid / W) | 0;
+    const s = Math.min(r.length, 12) * 20 - stepDist(mx - hint[0], my - hint[1]);
+    if (s > bs) { bs = s; best = [mx, my]; }
   }
   return best;
 }
@@ -97,9 +101,11 @@ export function gateways(m: GameMap): Record<GatewayId, Gateway> {
   if (hit) return hit;
   const waterId = (name: string) => Number(Object.entries(m.waterNames).find(([, n]) => n === name)?.[0] ?? -1);
   const railId = (name: string) => Number(Object.entries(m.railLines).find(([, l]) => l.name.startsWith(name))?.[0] ?? -1);
-  const river = (name: string, fb: [number, number]) => { const id = waterId(name); return borderExit(m, (i) => m.water[i] === id, fb) ?? fb; };
-  const rail = (name: string, fb: [number, number]) => { const id = railId(name); return borderExit(m, (i) => m.rail[i] === id, fb) ?? fb; };
-  const W = m.width - 1, H = m.height - 1;
+  // the fallback points are in the square source map's tiles
+  const hx = (p: [number, number]): [number, number] => cellAt(...srcToHex(m, p[0] + 0.5, p[1] + 0.5));
+  const river = (name: string, fb0: [number, number]) => { const fb = hx(fb0); const id = waterId(name); return borderExit(m, (i) => m.water[i] === id, fb) ?? fb; };
+  const rail = (name: string, fb0: [number, number]) => { const fb = hx(fb0); const id = railId(name); return borderExit(m, (i) => m.rail[i] === id, fb) ?? fb; };
+  const W = m.srcW - 1, H = m.srcH - 1;
   const mk = (id: GatewayId, name: string, [x, y]: [number, number]): Gateway => ({ id, name, x, y });
   const g: Record<GatewayId, Gateway> = {
     ohio: mk("ohio", "Down the Ohio", river("Ohio River", [0, 100])),
@@ -109,7 +115,7 @@ export function gateways(m: GameMap): Record<GatewayId, Gateway> {
     prrEast: mk("prrEast", "Pennsylvania Railroad east", rail("Pennsylvania Railroad", [W, 276])),
     ftWayne: mk("ftWayne", "Fort Wayne line west", rail("Ohio & Pennsylvania", [112, 0])),
     pc: mk("pc", "Pittsburgh & Connellsville RR", rail("Pittsburgh & Connellsville", [W, 604])),
-    gasEast: mk("gasEast", "Murrysville gas field", [W, Math.round(m.height * 0.12)]),
+    gasEast: mk("gasEast", "Murrysville gas field", hx([W, Math.round(m.srcH * 0.12)])),
   };
   gatewayCache.set(m, g);
   return g;
@@ -173,7 +179,7 @@ export function supplyChain(g: GameState, w: WorksRef): Flow[] {
   const prr = railOpen(m, "Pennsylvania Railroad", year);
   const ftw = railOpen(m, "Ohio & Pennsylvania", year);
   const pc = railOpen(m, "Pittsburgh & Connellsville", year);
-  const kmTo = (x: number, y: number) => (Math.hypot(x - me.x, y - me.y) * m.metersPerTile) / 1000;
+  const kmTo = (x: number, y: number) => (stepDist(x - me.x, y - me.y) * m.metersPerTile) / 1000;
 
   // ---------------- raw materials
   const inputs: Omit<Flow, "share" | "value" | "id" | "kind">[] = [];
@@ -355,7 +361,7 @@ function nearestRiver(m: GameMap, cx: number, cy: number): [number, number] | nu
   const R = 30;
   for (let y = Math.round(cy) - R; y <= Math.round(cy) + R; y++) for (let x = Math.round(cx) - R; x <= Math.round(cx) + R; x++) {
     if (x < 0 || y < 0 || x >= m.width || y >= m.height || !nv[y * m.width + x]) continue;
-    const d = Math.hypot(x - cx, y - cy);
+    const d = stepDist(x - cx, y - cy);
     if (d < bd) { bd = d; best = [x, y]; }
   }
   return best;
@@ -385,14 +391,14 @@ export function competitors(g: GameState, industry: IndustryId, from?: { x: numb
     const techs = rivalTechs(def.industry, def.id, year, st?.style);
     const at = st ? { x: st.x + st.footprint / 2, y: st.y + st.footprint / 2 } : g.map.landmarks.find((l) => l.name === def.site) ?? { x: 0, y: 0 };
     let near = def.site, nd = Infinity;
-    for (const l of g.map.landmarks) if (l.kind === "town") { const d = Math.hypot(l.x - at.x, l.y - at.y); if (d < nd) { nd = d; near = l.name; } }
+    for (const l of g.map.landmarks) if (l.kind === "town") { const d = stepDist(l.x - at.x, l.y - at.y); if (d < nd) { nd = d; near = l.name; } }
     return {
       def,
       owned: g.rivals.some((r) => r.id === def.id && r.owned),
       relation: relationOf(industry, def.industry, def.id),
       state: st,
       capacity: st && !st.closed ? rivalOutput(g, st) : 0,
-      km: from ? (Math.hypot(at.x - from.x, at.y - from.y) * g.map.metersPerTile) / 1000 : undefined,
+      km: from ? (stepDist(at.x - from.x, at.y - from.y) * g.map.metersPerTile) / 1000 : undefined,
       near,
       product: def.id === "frick" ? "Connellsville coke" : def.id === "mellon" ? "Banking and loans" : productName(def.industry, techs, year),
     };
@@ -437,7 +443,7 @@ export function flowPath(g: GameState, f: Flow): [number, number][] {
   return pts;
 }
 
-/** A* over the tile grid (8-connected). */
+/** A* over the hex cells (6-connected). */
 function findPath(m: GameMap, cost: (i: number) => number, s: [number, number], t: [number, number]): [number, number][] | null {
   const W = m.width, N = W * m.height;
   const start = s[1] * W + s[0], goal = t[1] * W + t[0];
@@ -445,7 +451,7 @@ function findPath(m: GameMap, cost: (i: number) => number, s: [number, number], 
   const dist = new Float32Array(N).fill(Infinity);
   const prev = new Int32Array(N).fill(-1);
   const heap: number[] = [], hk: number[] = [];
-  const h = (i: number) => Math.hypot((i % W) - t[0], ((i / W) | 0) - t[1]);
+  const h = (i: number) => hexDist((i % W) - t[0], ((i / W) | 0) - t[1]);
   const push = (i: number, k: number) => {
     heap.push(i); hk.push(k);
     let n = heap.length - 1;
@@ -479,14 +485,13 @@ function findPath(m: GameMap, cost: (i: number) => number, s: [number, number], 
     if (i === goal) break;
     if (++steps > 400000) return null;
     const x = i % W, y = (i / W) | 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dx && !dy) continue;
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       const c = j === goal ? 1 : cost(j);
       if (!isFinite(c) || closed[j]) continue;
-      const nd = dist[i] + c * (dx && dy ? 1.414 : 1);
+      const nd = dist[i] + c;
       if (nd < dist[j]) { dist[j] = nd; prev[j] = i; push(j, nd + h(j)); }
     }
   }
@@ -496,16 +501,20 @@ function findPath(m: GameMap, cost: (i: number) => number, s: [number, number], 
   return out.reverse();
 }
 
-/** Douglas–Peucker. */
+/** Douglas–Peucker (distances measured on the ground plane, in neighbour steps). */
 function simplify(pts: [number, number][], eps: number): [number, number][] {
   if (pts.length < 3) return pts;
-  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
-  const L = Math.hypot(bx - ax, by - ay) || 1;
-  let k = -1, dmax = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / L;
-    if (d > dmax) { dmax = d; k = i; }
-  }
-  if (dmax <= eps) return [pts[0], pts[pts.length - 1]];
-  return [...simplify(pts.slice(0, k + 1), eps).slice(0, -1), ...simplify(pts.slice(k), eps)];
+  const gp = pts.map(([x, y]) => groundOf(x, y));
+  const rec = (lo: number, hi: number): number[] => {
+    const [ax, ay] = gp[lo], [bx, by] = gp[hi];
+    const L = Math.hypot(bx - ax, by - ay) || 1;
+    let k = -1, dmax = 0;
+    for (let i = lo + 1; i < hi; i++) {
+      const d = Math.abs((bx - ax) * (ay - gp[i][1]) - (ax - gp[i][0]) * (by - ay)) / L;
+      if (d > dmax) { dmax = d; k = i; }
+    }
+    if (k < 0 || dmax <= eps) return [lo, hi];
+    return [...rec(lo, k).slice(0, -1), ...rec(k, hi)];
+  };
+  return rec(0, pts.length - 1).map((i) => pts[i]);
 }

@@ -22,6 +22,7 @@ import { CELL, NG } from "./neighbourhood";
 import { Rng, tileNoise, valueNoise } from "./rng";
 import { habitable, Terrain } from "./terrain";
 import { CivicSub, densityCap, HouseSub, POP_CAP, Street, terrainCap, Use, useForPop, type World } from "./town";
+import { stepDist, HEX6 } from "./hex";
 
 /** uses a house never goes on, by use id */
 const NO_HOUSE = new Uint8Array(64);
@@ -148,7 +149,7 @@ export function growByDesire(m: GameMap, w: World, access: Float32Array, plants:
       if (fresh) {
         w.eth[i] = gI;
         w.built[i] = year;
-        const byWorks = plants.some(([px, py]) => Math.hypot(px - x, py - y) < 12);
+        const byWorks = plants.some(([px, py]) => stepDist(px - x, py - y) < 12);
         w.sub[i] = byWorks && nw > 0.4 ? HouseSub.Shanty : HouseSub.Normal;
         taken[k] = 1;
       }
@@ -284,7 +285,7 @@ function nearAll(m: GameMap, w: World, plants: [number, number][], near: Uint8Ar
 
 /** 0 not a candidate lot, 1 a candidate, 2 a candidate fronting a pike */
 function lotEligible(m: GameMap, w: World, near: Uint8Array, blocked: Uint8Array, hillB: Float32Array, x: number, y: number): number {
-  const W = m.width, H = m.height, i = y * W + x, street = w.street, road = m.road;
+  const W = m.width, i = y * W + x, street = w.street, road = m.road;
   if (!near[i] || w.owner[i] || street[i] || road[i]) return 0;
   const t = m.terrain[i];
   if (NO_HOUSE[w.use[i]]) return 0;
@@ -292,15 +293,14 @@ function lotEligible(m: GameMap, w: World, near: Uint8Array, blocked: Uint8Array
   const p = w.pop[i];
   const cap = Math.min(POP_CAP.rowhouses, terrainCap(t), densityCap(m, w, i));
   if (p >= cap) return 0;
-  // houses front onto streets: a street or road in the eight tiles around
+  // houses front onto streets: a street or road in the seven cells around
   let onStreet = false, pike = false;
-  const left = x > 0, right = x < W - 1, up = y > 0, down = y < H - 1;
-  for (let dy = up ? -1 : 0, de = down ? 1 : 0; dy <= de && !onStreet; dy++) {
-    const r = i + dy * W;
-    for (let dx = left ? -1 : 0, dxe = right ? 1 : 0; dx <= dxe; dx++) {
-      const j = r + dx, sj = street[j];
-      if (road[j] || sj) { onStreet = true; pike = sj === Street.Pike; break; }
-    }
+  if (road[i] || street[i]) { onStreet = true; pike = street[i] === Street.Pike; }
+  for (let k = 0; k < 6 && !onStreet; k++) {
+    const nx = x + HEX6[k][0], ny = y + HEX6[k][1];
+    if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+    const j = ny * W + nx, sj = street[j];
+    if (road[j] || sj) { onStreet = true; pike = sj === Street.Pike; }
   }
   if (!onStreet && !p) return 0;
   if (!p && (blocked[i] || besideWorks(m, w, x, y))) return 0; // ravines and gardens; a works keeps a yard and a fence between it and the houses
@@ -345,9 +345,10 @@ function hillBonus(m: GameMap, year: number): Float32Array {
     if (year < h.year) continue;
     const [hx, hy] = latLonToTile(m, h.lat, h.lon);
     const r = (h.radiusM / m.metersPerTile) * 1.4, ramp = year <= h.peak ? 1 : Math.max(0.2, 1 - (year - h.peak) / 30);
-    for (let y = Math.max(0, Math.floor(hy - r)); y <= Math.min(m.height - 1, Math.ceil(hy + r)); y++)
-      for (let x = Math.max(0, Math.floor(hx - r)); x <= Math.min(m.width - 1, Math.ceil(hx + r)); x++) {
-        const d = Math.hypot(hx - x, hy - y);
+    const rb = r * 1.6; // a disc of r steps reaches ~1.6 r along an axial row
+    for (let y = Math.max(0, Math.floor(hy - rb)); y <= Math.min(m.height - 1, Math.ceil(hy + rb)); y++)
+      for (let x = Math.max(0, Math.floor(hx - rb)); x <= Math.min(m.width - 1, Math.ceil(hx + rb)); x++) {
+        const d = stepDist(hx - x, hy - y);
         if (d < r) { const i = y * m.width + x; f[i] = Math.max(f[i], ramp * (1 - (d / r) * 0.5)); }
       }
   }
@@ -357,7 +358,7 @@ function hillBonus(m: GameMap, year: number): Float32Array {
 
 /** is a tile next to a works (yours or a rival's)? Houses aren't built against the mill walls. */
 export function besideWorks(m: GameMap, w: World, x: number, y: number): boolean {
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+  for (const [dx, dy] of HEX6) {
     if ((!dx && !dy) || !inBounds(m, x + dx, y + dy)) continue;
     const u = w.use[(y + dy) * m.width + x + dx];
     if (u === Use.Industry || u === Use.Rival) return true;

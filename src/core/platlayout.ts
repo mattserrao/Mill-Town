@@ -25,6 +25,7 @@ import { tileNoise } from "./rng";
 import { SEED_TYPES, type SeedType } from "./seeds";
 import { Terrain } from "./terrain";
 import { CivicSub, HouseSub, ShopSub, Street, Use, type World } from "./town";
+import { stepDist, HEX6, groundOf } from "./hex";
 
 /** what the layout needs to know about a plat (a Block in sleuth.ts) */
 export interface PlatRef {
@@ -62,15 +63,15 @@ export function local(p: PlatRef, x: number, y: number): [number, number] {
   const dx = x - p.x, dy = y - p.y;
   switch (p.angle) {
     case 1: return [dx, dy];
-    case 2: return [dx + dy, dx - dy];
-    case 3: return [dx - dy, dx + dy];
+    case 2: return [dx + dy, dx];   // rows along the third hex axis (1, -1), crossed by dy-lines
+    case 3: return [dx + dy, dy];
     default: return [dy, dx];
   }
 }
 
-/** the street grid's spacing for a plat (diagonal grids are spaced wider, as their lines run closer) */
+/** the street grid's spacing for a plat (kept per angle in case an angle ever needs wider lines) */
 function spacing(p: PlatRef) {
-  const s = SPACING[p.type], k = p.angle >= 2 ? 1.4 : 1;
+  const s = SPACING[p.type], k = 1; // all three hex axes are lattice lines: no wider spacing for the third
   return { rows: Math.round(s.rows * k), cross: Math.round(s.cross * k), alleys: s.alleys };
 }
 
@@ -82,10 +83,11 @@ function spacing(p: PlatRef) {
 export function platAngle(m: GameMap, x: number, y: number): number {
   let n = 0, sx = 0, sy = 0;
   const pts: [number, number][] = [];
-  for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) {
+  for (let dy = -12; dy <= 12; dy++) for (let dx = -12; dx <= 12; dx++) {
     const xx = x + dx, yy = y + dy;
-    if (!inBounds(m, xx, yy) || !m.road[yy * m.width + xx]) continue;
-    pts.push([dx, dy]); sx += dx; sy += dy; n++;
+    if (!inBounds(m, xx, yy) || !m.road[yy * m.width + xx] || stepDist(dx, dy) > 10) continue;
+    const [gx, gy] = groundOf(dx, dy); // measure on the ground plane, not in axial indices
+    pts.push([gx, gy]); sx += gx; sy += gy; n++;
   }
   if (n < 6) return 0;
   const mx = sx / n, my = sy / n;
@@ -93,29 +95,36 @@ export function platAngle(m: GameMap, x: number, y: number): number {
   for (const [a, b] of pts) { cxx += (a - mx) ** 2; cyy += (b - my) ** 2; cxy += (a - mx) * (b - my); }
   const aniso = Math.sqrt((cxx - cyy) ** 2 + 4 * cxy * cxy) / (cxx + cyy || 1);
   if (aniso > 0.25) {
-    // principal direction (degrees, 0 = east), snapped to 45°: east–west roads → rows east–west (0), and so on
-    const th = (0.5 * Math.atan2(2 * cxy, cxx - cyy) * 180) / Math.PI;
-    const k = mod(Math.round(th / 45), 4);
-    return k === 0 ? 0 : k === 2 ? 1 : k === 1 ? 2 : 3;
+    // principal direction on the ground (degrees, y down), snapped to the three hex axes: 30° (along dx) → 0,
+    // 90° (along dy) → 1, 150° (along (1, -1)) → 2
+    const th = mod((0.5 * Math.atan2(2 * cxy, cxx - cyy) * 180) / Math.PI, 180);
+    const near = (a: number) => Math.min(Math.abs(th - a), 180 - Math.abs(th - a));
+    const d0 = near(30), d1 = near(90), d2 = Math.min(near(150), near(-30));
+    return d0 <= d1 && d0 <= d2 ? 0 : d1 <= d2 ? 1 : 2;
   }
-  let ew = 0, ns = 0;
-  for (const [a, b] of pts) {
-    if (inBounds(m, x + a + 1, y + b) && m.road[(y + b) * m.width + x + a + 1]) ew++;
-    if (inBounds(m, x + a, y + b + 1) && m.road[(y + b + 1) * m.width + x + a]) ns++;
+  let ew = 0, ns = 0, di = 0;
+  const hasRoad = (a: number, b: number) => inBounds(m, a, b) && m.road[b * m.width + a] > 0;
+  for (const [gx, gy] of pts) {
+    // back from ground to the axial offset: dx = gx*√3/1.5, dy = gy - dx/2
+    const a = Math.round((gx * Math.sqrt(3)) / 1.5), b = Math.round(gy - (gx * Math.sqrt(3)) / 3);
+    if (hasRoad(x + a + 1, y + b)) ew++;
+    if (hasRoad(x + a, y + b + 1)) ns++;
+    if (hasRoad(x + a + 1, y + b - 1)) di++;
   }
-  return ns > ew ? 1 : 0;
+  return di > ew && di > ns ? 2 : ns > ew ? 1 : 0;
 }
 
 /** which way the main street runs: toward the nearest works for mill towns and company rows, else along the rows */
 export function mainAxis(p: PlatRef, works: [number, number][]): number {
   if ((p.type !== "mill" && p.type !== "company") || !works.length) return 0;
   let best = works[0], bd = Infinity;
-  for (const wk of works) { const d = Math.hypot(wk[0] - p.x, wk[1] - p.y); if (d < bd) { bd = d; best = wk; } }
+  for (const wk of works) { const d = stepDist(wk[0] - p.x, wk[1] - p.y); if (d < bd) { bd = d; best = wk; } }
   const dx = best[0] - p.x, dy = best[1] - p.y;
-  // direction of the rows and of the cross streets for each angle
-  const rowDir: [number, number] = p.angle === 1 ? [0, 1] : p.angle === 2 ? [1, -1] : p.angle === 3 ? [1, 1] : [1, 0];
-  const crossDir: [number, number] = [-rowDir[1], rowDir[0]];
-  const along = Math.abs(dx * rowDir[0] + dy * rowDir[1]) / Math.hypot(...rowDir), across = Math.abs(dx * crossDir[0] + dy * crossDir[1]) / Math.hypot(...crossDir);
+  // direction of the rows and of the cross streets for each angle (axial offsets; measured on the ground plane)
+  const rowDir: [number, number] = p.angle === 1 ? [0, 1] : p.angle >= 2 ? [1, -1] : [1, 0];
+  const crossDir: [number, number] = p.angle === 1 ? [1, 0] : p.angle === 2 ? [0, 1] : p.angle === 3 ? [1, 0] : [0, 1];
+  const [tx, ty] = groundOf(dx, dy), [rx, ry] = groundOf(...rowDir), [cx, cy] = groundOf(...crossDir);
+  const along = Math.abs(tx * rx + ty * ry) / Math.hypot(rx, ry), across = Math.abs(tx * cx + ty * cy) / Math.hypot(cx, cy);
   return along >= across ? 0 : 1;
 }
 
@@ -158,7 +167,7 @@ function contourStreet(m: GameMap, p: PlatRef, x: number, y: number): boolean {
   const i = y * m.width + x;
   if (m.slope[i] > 20) return false; // too steep: the public steps go there
   const k = Math.floor(m.elevation[i] / 9);
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  for (const [dx, dy] of HEX6) {
     const xx = x + dx, yy = y + dy;
     if (inBounds(m, xx, yy) && Math.floor(m.elevation[yy * m.width + xx] / 9) < k) return true;
   }
@@ -169,7 +178,7 @@ function contourStreet(m: GameMap, p: PlatRef, x: number, y: number): boolean {
 /** where this plat meets another laid on a different angle, a street runs along the join (laid by the younger plat) */
 export function seamStreet(g: GameState, p: PlatRef, x: number, y: number, plats: PlatRef[]): boolean {
   const m = g.map, id = g.world.blockId!;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  for (const [dx, dy] of HEX6) {
     const xx = x + dx, yy = y + dy;
     if (!inBounds(m, xx, yy)) continue;
     const o = id[yy * m.width + xx];

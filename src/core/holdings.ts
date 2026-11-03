@@ -10,6 +10,7 @@
 //                follow the valley's history (the panics, the Crash, the war, the collapse); dividends each season.
 //                Buying and selling shares costs no action.
 
+import { HEX6, hexDist, stepDist } from "./hex";
 import { recordMove } from "./owners";
 import { bump } from "./business";
 import { relationOf } from "./economy";
@@ -127,18 +128,17 @@ function siteFor(g: GameState, d: BizDef): [number, number] {
   const isWater = (x: number, y: number) => inBounds(m, x, y) && m.terrain[y * W + x] === Terrain.Water;
   const railOpen = (x: number, y: number) => inBounds(m, x, y) && m.rail[y * W + x] > 0 && (m.railLines[String(m.rail[y * W + x])]?.year ?? 9999) <= w.year;
   const pike = (x: number, y: number) => inBounds(m, x, y) && w.street[y * W + x] === Street.Pike;
-  const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  const near = (x: number, y: number, f: (x: number, y: number) => boolean) => N4.some(([dx, dy]) => f(x + dx, y + dy));
+  const near = (x: number, y: number, f: (x: number, y: number) => boolean) => HEX6.some(([dx, dy]) => f(x + dx, y + dy));
   let best: [number, number] | null = null, bd = Infinity;
-  for (let r = minR; r < 140 && best === null; r += 3) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+  for (let r = minR; r < 140 && best === null; r += 3) for (let y = cy - Math.ceil(r * 1.5); y <= cy + Math.ceil(r * 1.5); y++) for (let x = cx - r; x <= cx + r; x++) {
     if (!inBounds(m, x, y)) continue;
-    const dist = Math.hypot(x - cx, y - cy);
+    const dist = stepDist(x - cx, y - cy);
     if (dist < minR || dist > r + 3) continue;
     const i = y * W + x;
     if (m.terrain[i] === Terrain.Water || w.owner[i] || w.street[i] || m.rail[i]) continue;
     const u = w.use[i];
     if (u !== 0 && u !== 1 && u !== 2) continue; // open land, woods or fields only
-    if (others.some((o) => Math.abs(o.x - x) + Math.abs(o.y - y) < 4)) continue;
+    if (others.some((o) => hexDist(o.x - x, o.y - y) < 4)) continue;
     let ok = false;
     if (d.site === "coal") ok = m.coal[i] === 2;
     else if (d.site === "river") ok = near(x, y, isWater);
@@ -151,7 +151,7 @@ function siteFor(g: GameState, d: BizDef): [number, number] {
   if (best) return best;
   // nothing suitable nearby: the nearest open tile beyond the works' edge
   for (let r = minR; r < 200; r++) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
-    if (!inBounds(m, x, y) || Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue;
+    if (!inBounds(m, x, y) || hexDist(x - cx, y - cy) !== r) continue;
     const i = y * W + x;
     if (m.terrain[i] !== Terrain.Water && !w.owner[i] && !w.street[i] && !m.rail[i] && !others.some((o) => o.x === x && o.y === y)) return [x, y];
   }

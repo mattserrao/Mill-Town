@@ -13,6 +13,7 @@ import { MinHeap, modeCost, Street, Use, type World } from "./town";
 import type { GameMap } from "./map";
 import type { Rng } from "./rng";
 import { Terrain } from "./terrain";
+import { HEX6 } from "./hex";
 
 export interface Center { x: number; y: number; jobs: number; name: string }
 
@@ -86,14 +87,13 @@ export function travelField(m: GameMap, cost: Float32Array, cx: number, cy: numb
     const b = heap.popMin(), d = heap.topKey;
     if (d > dist[b] || d > MAX_MIN) continue;
     const x = b % bw, y = (b / bw) | 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dx && !dy) continue;
+    for (const [dx, dy] of HEX6) { // the 4×4 blocks are rhombi too: their six neighbours are all one block-step away
       const nx = x + dx, ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
       const nb = ny * bw + nx;
       const c = cost[nb];
       if (!isFinite(c)) continue;
-      const nd = d + ((cost[b] + c) / 2) * (dx && dy ? 1.414 : 1);
+      const nd = d + ((cost[b] + c) / 2) ;
       if (nd < dist[nb]) { dist[nb] = nd; heap.push(nb, nd); }
     }
   }
@@ -170,7 +170,7 @@ export function runTrips(m: GameMap, w: World, cm: Commute, traffic: Float32Arra
       traffic[b] += weight;
       const bx = b % bw, by = (b / bw) | 0;
       let nb = b, nv = f[b];
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      for (const [dx, dy] of HEX6) {
         const xx = bx + dx, yy = by + dy;
         if (xx < 0 || yy < 0 || xx >= bw || yy >= g.bh) continue;
         const c = yy * bw + xx;

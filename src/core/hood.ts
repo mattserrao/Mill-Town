@@ -14,9 +14,12 @@ import { inBounds } from "./map";
 import { priceLevel } from "./time";
 import { CivicSub, HouseSub, Use } from "./town";
 import { Terrain } from "./terrain";
+import { stepDist } from "./hex";
 
 /** the neighbourhood: tiles within this radius of a works' centre (about a third of a mile) */
 export const HOOD_R = 20;
+/** a disc of HOOD_R steps spans up to ~1.6x that in axial rows */
+const HOOD_RB = Math.ceil(HOOD_R * 1.6);
 
 export interface Invest {
   id: string; name: string; from: number; until?: number;
@@ -41,7 +44,7 @@ export const INVESTS: Invest[] = [
   { id: "baths", name: "Bath house, library and gym", from: 1888, cost: 40000, amenity: 25, unrest: 0.02, building: "library",
     blurb: "The Carnegie model (Braddock 1888, Homestead 1898): baths, books, a gym and a music hall. Reputation +6, morale +3 — less if men died at your gates (it's read as penance).",
     run: (g, w) => {
-      const blood = (g.memorials ?? []).some((m) => Math.hypot(m.x - w.x, m.y - w.y) < HOOD_R * 2);
+      const blood = (g.memorials ?? []).some((m) => stepDist(m.x - w.x, m.y - w.y) < HOOD_R * 2);
       bump(g, "reputation", blood ? 2 : 6); g.morale = Math.min(100, g.morale + 3);
       return blood ? "The papers call it penance for the men killed at your gates." : undefined;
     } },
@@ -82,8 +85,8 @@ const done = (w: Works, id: string) => !!w.hood?.[id];
 function upgradeHouses(g: GameState, w: Works, share: number) {
   const m = g.map, W = g.world, [cx, cy] = centre(w);
   let n = 0;
-  for (let y = cy - HOOD_R; y <= cy + HOOD_R; y++) for (let x = cx - HOOD_R; x <= cx + HOOD_R; x++) {
-    if (!inBounds(m, x, y) || Math.hypot(x - cx, y - cy) > HOOD_R) continue;
+  for (let y = cy - HOOD_RB; y <= cy + HOOD_RB; y++) for (let x = cx - HOOD_RB; x <= cx + HOOD_RB; x++) {
+    if (!inBounds(m, x, y) || stepDist(x - cx, y - cy) > HOOD_R) continue;
     const i = y * m.width + x;
     if (W.use[i] < Use.Cottage || W.use[i] > Use.Rowhouses) continue;
     if ((W.sub[i] === HouseSub.Shanty || W.sub[i] === HouseSub.Boarding) && ((x * 31 + y * 17) % 100) / 100 < share) { W.sub[i] = HouseSub.Normal; W.built[i] = cal(g).year; n++; }
@@ -97,9 +100,9 @@ const centre = (w: Works): [number, number] => [w.x + (w.footprint >> 1), w.y + 
 function smallPark(g: GameState, w: Works, n: number): boolean {
   const m = g.map, W = g.world, [cx, cy] = centre(w);
   const cands: [number, number][] = [];
-  for (let y = cy - HOOD_R; y <= cy + HOOD_R; y++) for (let x = cx - HOOD_R; x <= cx + HOOD_R; x++) {
+  for (let y = cy - HOOD_RB; y <= cy + HOOD_RB; y++) for (let x = cx - HOOD_RB; x <= cx + HOOD_RB; x++) {
     if (!inBounds(m, x, y)) continue;
-    const d = Math.hypot(x - cx, y - cy);
+    const d = stepDist(x - cx, y - cy);
     if (d < w.footprint / 2 + 3 || d > HOOD_R) continue;
     const i = y * m.width + x, u = W.use[i];
     if (m.terrain[i] === Terrain.Water || m.terrain[i] === Terrain.Cliff || W.street[i] || W.owner[i]) continue;
@@ -108,7 +111,7 @@ function smallPark(g: GameState, w: Works, n: number): boolean {
   }
   if (!cands.length) return false;
   // the emptiest lot nearest the works, then its neighbours
-  cands.sort((a, b) => (W.pop[a[1] * m.width + a[0]] - W.pop[b[1] * m.width + b[0]]) * 0.2 + Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+  cands.sort((a, b) => (W.pop[a[1] * m.width + a[0]] - W.pop[b[1] * m.width + b[0]]) * 0.2 + stepDist(a[0] - cx, a[1] - cy) - stepDist(b[0] - cx, b[1] - cy));
   const [sx, sy] = cands[0];
   let k = 0;
   for (const [x, y] of cands.filter(([x, y]) => Math.abs(x - sx) <= 2 && Math.abs(y - sy) <= 2).slice(0, n)) {
@@ -138,15 +141,15 @@ export function hoodReport(g: GameState, w: Works): HoodReport {
   let pop = 0, hp = 0, homes = 0, land = 0, lots = 0, amen = 0, coh = 0, parks = 0, bad = 0;
   // v0.27: the night schools in the halls (English and citizenship for the newcomers, 1905–30)
   const night = W.year >= 1905 && W.year <= 1930;
-  for (let y = cy - HOOD_R; y <= cy + HOOD_R; y++) for (let x = cx - HOOD_R; x <= cx + HOOD_R; x++) {
-    if (!inBounds(m, x, y) || Math.hypot(x - cx, y - cy) > HOOD_R) continue;
+  for (let y = cy - HOOD_RB; y <= cy + HOOD_RB; y++) for (let x = cx - HOOD_RB; x <= cx + HOOD_RB; x++) {
+    if (!inBounds(m, x, y) || stepDist(x - cx, y - cy) > HOOD_R) continue;
     const i = y * m.width + x, u = W.use[i];
     if (W.pop[i]) { pop += W.pop[i]; hp += g.env.health[blockOf(bg, x, y)] * W.pop[i]; }
     if (u >= Use.Cottage && u <= Use.Rowhouses) { homes++; land += W.landValue[i]; lots++; if (W.sub[i] === HouseSub.Shanty || W.sub[i] === HouseSub.Boarding) bad++; }
     if (u === Use.Park) parks++;
     if (u === Use.Civic) { const cs = W.sub[i]; if (cs === CivicSub.Library || cs === CivicSub.School) amen += 4; else if (cs === CivicSub.Firehouse || cs === CivicSub.BoroughHall) amen += 2; else if (cs === CivicSub.Police) coh -= 1; else coh += cs === CivicSub.Hall || cs === CivicSub.UnionHall ? (cs === CivicSub.Hall && night ? 4 : 3) : 2; }
   }
-  for (const l of g.landmarks) if (l.state === "open" && Math.hypot(l.x - cx, l.y - cy) <= HOOD_R && l.kind !== "factory" && l.kind !== "plant") amen += 8;
+  for (const l of g.landmarks) if (l.state === "open" && stepDist(l.x - cx, l.y - cy) <= HOOD_R && l.kind !== "factory" && l.kind !== "plant") amen += 8;
   let valley = 0, vn = 0;
   for (let i = 0; i < W.use.length; i += 7) if (W.use[i] >= Use.Cottage && W.use[i] <= Use.Rowhouses) { valley += W.landValue[i]; vn++; }
   const inv = (k: "housing" | "amenity" | "cohesion") => INVESTS.reduce((s, v) => s + (done(w, v.id) ? v[k] ?? 0 : 0), 0);

@@ -1,3 +1,4 @@
+import { okSite, sq } from "./hexsq";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
@@ -20,9 +21,10 @@ const near = (x: number, y: number, r: number, f: (i: number) => boolean) => {
 
 describe("map", () => {
   it("decodes all layers at full size", () => {
-    expect(map.width).toBe(720);
-    expect(map.metersPerTile).toBe(30);
-    expect(map.vert.length).toBe(721 * 721);
+    expect(map.srcW).toBe(720);
+    expect(map.metersPerTile).toBeCloseTo(32.2, 0);
+    expect(map.vert.length).toBe(map.width * map.height);
+    expect(map.valid.reduce((a, b) => a + b, 0)).toBeGreaterThan(480000); // about the 518,400 tiles of the source map
     expect(map.maxHeight - map.minHeight).toBeGreaterThan(120);
   });
 
@@ -117,7 +119,7 @@ describe("town + game loop", () => {
 describe("hillsides", () => {
   it("fills the slopes as the region grows, with public steps, and inclines shorten the climb", () => {
     const g = newGame(map, 1851);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     g.company!.cash = 1e9; // solvent without investing
     for (let t = 0; t < 4 * 50; t++) advanceTurn(g);
     let steepLots = 0, steps = 0;
@@ -137,7 +139,7 @@ describe("hillsides", () => {
     let improved = 0;
     for (let i = 0; i < n; i++) if (g.world.pop[i] && walkMinutes(g, i) < Math.min(before[i], 90) - 5) improved++;
     expect(improved).toBeGreaterThan(5);
-    expect(isFinite(walkMinutes(g, 237 * map.width + 483))).toBe(true);
+    expect(isFinite(walkMinutes(g, (([x, y]) => y * map.width + x)(sq(map, 483, 237))))).toBe(true);
   }, 60000);
 });
 
@@ -198,7 +200,7 @@ describe("time", () => {
 describe("valley systems", () => {
   it("rivals and homes smoke the air, freight moves, institutions follow communities", () => {
     const g = newGame(map, 1851);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     g.company!.cash = 1e9; // stay solvent without investing
     while (calendar(g.turn).year < 1905 && !g.over) advanceTurn(g);
     const w = g.world, W = map.width;
@@ -235,7 +237,7 @@ describe("running the business", () => {
   it("has an action budget, strike-only actions, policies that move the meters, and recruits who arrive", async () => {
     const { takeAction, setPolicy, ACTIONS_PER_SEASON } = await import("../src/core/business");
     const g = newGame(map, 21);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     const c = g.company!;
     c.cash = 1e7;
     const rng = new Rng(5);
@@ -265,7 +267,7 @@ describe("running the business", () => {
 
   it("puts Homestead 1892 to a steel owner as a decision, and history decides if you don't", () => {
     const g = newGame(map, 22);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     g.company!.techs = ["puddling", "hot_blast", "coke_furnace", "bessemer"];
     g.company!.cash = 1e9;
     while (!(calendar(g.turn).year === 1892 && calendar(g.turn).season === "Summer") && !g.over) advanceTurn(g);
@@ -283,7 +285,7 @@ describe("works, technology and rivals", () => {
     const { commission, techStanding } = await import("../src/core/market");
     const { suggestProject, buildProject } = await import("../src/core/projects");
     const g = newGame(map, 31);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     const c = g.company!;
     c.cash = 1e7;
     expect(commission(g, c, "hot_blast").ok).toBe(false); // not invented until 1855
@@ -308,7 +310,7 @@ describe("works, technology and rivals", () => {
   it("lets you hurt a rival, buy one, and run it as a second works", async () => {
     const { takeAction } = await import("../src/core/business");
     const g = newGame(map, 32);
-    expect(foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     const c = g.company!;
     c.cash = 5e7;
     while (calendar(g.turn).year < 1880) advanceTurn(g);
@@ -330,7 +332,7 @@ describe("works, technology and rivals", () => {
 
   it("sends a company that stays overdrawn into receivership", () => {
     const g = newGame(map, 33);
-    expect(foundCompany(g, "glass", 300, 300).ok || foundCompany(g, "steel", 483, 237).ok).toBe(true);
+    expect(foundCompany(g, "glass", ...okSite(g, "glass", 300, 300)).ok || foundCompany(g, "steel", ...okSite(g, "steel", 483, 237)).ok).toBe(true);
     g.company!.cash = -1e9;
     for (let t = 0; t < 10 && !g.over; t++) advanceTurn(g);
     expect(g.company!.bankrupt).toBe(true);

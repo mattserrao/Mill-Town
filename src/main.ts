@@ -4,10 +4,12 @@ import { distance, feet } from "./core/units";
 import { setDefaultGrowth } from "./core/game";
 import { advanceTurn, allWorks, buildIncline, buildSteps, cal, foundCompany, foundingCapital, fundLibrary, newGame, totalPopulation, type GameState } from "./core/game";
 import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
-import { loadMap, type GameMap } from "./core/map";
+import { hexToSrc, loadMap, type GameMap, srcToHex } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
-import { type Camera, pickTile, placeLabelRects, project, ZOOMS } from "./render/iso";
+import { type Camera, pickTile, placeLabelRects, project, unproject, ZOOMS } from "./render/iso";
+import { cellAt } from "./core/hex";
+import { hyp } from "./render/viewcells";
 import { Renderer } from "./render/renderer";
 import { Traffic } from "./render/traffic";
 import { drawHaze, drawSpills } from "./render/pollution";
@@ -110,7 +112,10 @@ async function start() {
 /** the view a new town opens on: the Point */
 function homeView() {
   const p = map.landmarks.find((l) => l.name.startsWith("The Point"))!;
-  centerOn(p.x + 25, p.y + 15, 0.5);
+  // 25 tiles east and 15 south of the Point on the source map (30 m tiles), in cell coordinates
+  const [tx, ty] = hexToSrc(map, p.x + 0.5, p.y + 0.5);
+  const [fx, fy] = srcToHex(map, tx + 25, ty + 15);
+  centerOn(fx - 0.5, fy - 0.5, 0.5);
 }
 
 /** clear everything that belongs to the town on screen: placing, open views, panel state, cached flows, traffic */
@@ -269,7 +274,8 @@ function inFormControl(e: KeyboardEvent): boolean {
 
 // ---------------------------------------------------------------- camera
 function centerOn(tx: number, ty: number, zoom = ZOOMS[zi]) {
-  const [sx, sy] = project(tx, ty, map.elevation[ty * map.width + tx]);
+  const ci = Math.max(0, Math.min(map.height - 1, Math.floor(ty))) * map.width + Math.max(0, Math.min(map.width - 1, Math.floor(tx)));
+  const [sx, sy] = project(tx, ty, map.elevation[ci]);
   const k = ZOOMS.indexOf(zoom);
   if (k >= 0) zi = k;
   cam.zoom = ZOOMS[zi] * dpr;
@@ -438,36 +444,44 @@ function pixelLayer(draw: (c2: CanvasRenderingContext2D, cm: Camera) => void) {
 }
 
 // ---------------------------------------------------------------- minimap
-/** the map at one pixel a tile, redrawn when the town changes; shown smoothed at the minimap's size */
+/** the map seen from above, north up (the square source map), each pixel looked up in the hex cell under it */
 const miniBase = document.createElement("canvas");
 const MINI_PX = 384;
+const MINI_SS = 2; // supersampled, then smoothed down
 let miniVersion = "";
 function drawMinimapBase() {
-  const W = map.width, H = map.height;
   const mv = `${game.seed}:${game.world.version}`;
   if (mv === miniVersion && miniReady) return;
   miniVersion = mv;
-  if (miniBase.width !== W) { miniBase.width = W; miniBase.height = H; }
+  const N = MINI_PX * MINI_SS;
+  if (miniBase.width !== N) { miniBase.width = N; miniBase.height = N; }
   if (mini.width !== MINI_PX) { mini.width = MINI_PX; mini.height = MINI_PX; }
   const bctx = miniBase.getContext("2d")!;
-  const img = bctx.createImageData(W, H);
+  const img = bctx.createImageData(N, N);
   const lo = map.minHeight, hi = map.maxHeight;
   const useCol: Record<number, [number, number, number]> = {
     1: [52, 92, 44], 2: [160, 150, 80], 3: [170, 150, 120], 4: [190, 150, 110], 5: [170, 80, 60], 6: [230, 220, 200],
     7: [230, 160, 60], 8: [200, 200, 200], 9: [150, 150, 150], 10: [220, 220, 255], 11: [140, 120, 100],
   };
-  for (let i = 0; i < W * H; i++) {
+  const { width: W, height: H } = map;
+  for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+    const [fx, fy] = srcToHex(map, ((px + 0.5) / N) * map.srcW, ((py + 0.5) / N) * map.srcH);
+    const [cx, cy] = cellAt(fx, fy);
+    const o = (py * N + px) * 4;
+    const i = cy * W + cx;
+    if (cx < 0 || cy < 0 || cx >= W || cy >= H || !map.valid[i]) { img.data[o + 3] = 0; continue; }
     let c: [number, number, number];
     if (map.terrain[i] === 0) c = [43, 93, 155];
     else if (game.world.street[i]) c = [120, 100, 70];
     else if (useCol[game.world.use[i]]) c = useCol[game.world.use[i]];
     else { const t = (map.elevation[i] - lo) / (hi - lo); c = [90 + t * 80, 130 + t * 50, 60 + t * 40]; }
-    img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
+    img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
   }
   bctx.putImageData(img, 0, 0);
   // the smoothed copy at the minimap's size, made once here (a high-quality downscale every frame is dear)
   if (miniSmall.width !== MINI_PX) { miniSmall.width = MINI_PX; miniSmall.height = MINI_PX; }
   const sctx = miniSmall.getContext("2d")!;
+  sctx.clearRect(0, 0, MINI_PX, MINI_PX);
   sctx.imageSmoothingEnabled = true;
   sctx.imageSmoothingQuality = "high";
   sctx.drawImage(miniBase, 0, 0, MINI_PX, MINI_PX);
@@ -478,14 +492,13 @@ let miniReady = false;
 
 function drawMinimapView() {
   if (!miniReady) return;
-  // smoothed down from a tile a pixel (nearest-neighbour at 192 px turned streets and rivers to speckle)
+  mctx.clearRect(0, 0, MINI_PX, MINI_PX);
   mctx.drawImage(miniSmall, 0, 0);
-  const sc = MINI_PX / map.width;
   const pts = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([px, py]) => {
-    // invert the projection on a plane at a typical ground height (~260 m)
-    const wx = cam.x + px / cam.zoom, wy = cam.y + py / cam.zoom;
-    const a = wx / 32, b = (wy + (260 - 200) * 1.15) / 16;
-    return [((a + b) / 2) * sc, ((b - a) / 2) * sc];
+    // invert the projection on a plane at a typical ground height (~260 m), then back to the square source map
+    const [fx, fy] = unproject(cam.x + px / cam.zoom, cam.y + py / cam.zoom, 260);
+    const [tx, ty] = hexToSrc(map, fx, fy);
+    return [(tx / map.srcW) * MINI_PX, (ty / map.srcH) * MINI_PX];
   });
   mctx.strokeStyle = "#fff";
   mctx.lineWidth = 2;
@@ -1084,8 +1097,8 @@ function setupUI() {
 
   mini.addEventListener("click", (e) => {
     const r = mini.getBoundingClientRect();
-    const tx = Math.floor((e.clientX - r.left) / r.width * map.width);
-    const ty = Math.floor((e.clientY - r.top) / r.height * map.height);
+    const [fx, fy] = srcToHex(map, (e.clientX - r.left) / r.width * map.srcW, (e.clientY - r.top) / r.height * map.srcH);
+    const [tx, ty] = cellAt(fx, fy);
     centerOn(Math.max(0, Math.min(map.width - 1, tx)), Math.max(0, Math.min(map.height - 1, ty)));
   });
   $("query").addEventListener("click", (e) => { if ((e.target as HTMLElement).classList.contains("q-close")) $("query").hidden = true; });
@@ -1135,11 +1148,9 @@ function setupUI() {
 
 /** Name of the place at the centre of the view. */
 function placeName(): string {
-  const wx = cam.x + canvas.width / 2 / cam.zoom, wy = cam.y + canvas.height / 2 / cam.zoom + (260 - 200) * 1.15;
-  const a = wx / 32, b = wy / 16;
-  const cx = (a + b) / 2, cy = (b - a) / 2;
+  const [cx, cy] = unproject(cam.x + canvas.width / 2 / cam.zoom, cam.y + canvas.height / 2 / cam.zoom, 260);
   let best = "", bd = 40;
-  const consider = (name: string, x: number, y: number) => { const d = Math.hypot(x - cx, y - cy); if (d < bd) { bd = d; best = name; } };
+  const consider = (name: string, x: number, y: number) => { const d = hyp(x - cx, y - cy); if (d < bd) { bd = d; best = name; } };
   for (const an of ANCHORS) { const [x, y] = latLonToTile(map, an.lat, an.lon); consider(an.name, x, y); }
   for (const h of HILLSIDES) { const [x, y] = latLonToTile(map, h.lat, h.lon); consider(h.name, x, y); }
   for (const l of map.landmarks) if (l.kind === "town") consider(l.name.replace(/ \(.*\)$/, ""), l.x, l.y);
@@ -1224,7 +1235,7 @@ function startRoad(p: RoadPlan) {
   proposal = null;
   roadPreview = p;
   const mid = p.path[Math.floor(p.path.length / 2)];
-  const span = Math.max(...p.path.map((i) => Math.hypot((i % map.width) - (mid % map.width), ((i / map.width) | 0) - ((mid / map.width) | 0))));
+  const span = Math.max(...p.path.map((i) => hyp((i % map.width) - (mid % map.width), ((i / map.width) | 0) - ((mid / map.width) | 0))));
   centerOn(mid % map.width, (mid / map.width) | 0, span > 60 ? 0.25 : span > 30 ? 0.5 : 0.75);
   placeBar();
   requestRender();
@@ -1470,7 +1481,7 @@ function showBestSite() {
     if (r.ok && r.cost <= foundingCapital(industry, cal(game).year)) cands.push({ x, y, score: r.score });
   }
   cands.sort((a, b) => b.score - a.score);
-  const pick = cands.find((c) => siteTried.every((t) => Math.hypot(t.x - c.x, t.y - c.y) > 30));
+  const pick = cands.find((c) => siteTried.every((t) => hyp(t.x - c.x, t.y - c.y) > 30));
   if (!pick) { siteTried = []; return; }
   siteTried.push(pick);
   selected = { x: pick.x, y: pick.y };

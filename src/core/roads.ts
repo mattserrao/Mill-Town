@@ -14,6 +14,7 @@ import { activeBridge, MinHeap, modeCost, Street, Use, zoneCensus } from "./town
 import { Terrain, TRAVEL_COST } from "./terrain";
 import { priceLevel } from "./time";
 import { buildCommuteNow } from "./game";
+import { stepDist, HEX6 } from "./hex";
 
 export const ROAD_PER_TILE = 120;     // 1850 dollars per 30 m of new pike (grading, macadam)
 export const BRIDGE_PER_TILE = 2600;  // per 30 m of span
@@ -57,7 +58,7 @@ export function roadTargets(g: GameState): RoadTarget[] {
     for (let k = d.zoneStart[z]; k < d.zoneStart[z + 1]; k++) {
       const i = d.zoneTiles[k];
       if (!w.pop[i] && !w.street[i]) continue;
-      const dd = Math.hypot((i % m.width) - cx, ((i / m.width) | 0) - cy);
+      const dd = stepDist((i % m.width) - cx, ((i / m.width) | 0) - cy);
       if (dd < bd) { bd = dd; best = i; }
     }
     if (best >= 0) out.push({ zone: z, name: zn.name, x: best % m.width, y: (best / m.width) | 0, pop: Math.round(c.tot) });
@@ -78,25 +79,24 @@ export function planRoad(g: GameState, t: RoadTarget, newBridge = false): RoadPl
     if (!inBounds(m, x, y)) continue;
     const i = y * W + x;
     if (m.terrain[i] === Terrain.Water || BLOCKED.has(w.use[i]) && !w.street[i]) continue;
-    const dd = Math.hypot(x - t.x, y - t.y);
+    const dd = stepDist(x - t.x, y - t.y);
     if (dd < sd) { sd = dd; start = i; }
   }
   if (start < 0) return fail("No way out of the works");
   const goal = t.y * W + t.x;
   const n = W * m.height;
   const gc = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
-  const H = (i: number) => 0.2 * Math.hypot((i % W) - t.x, ((i / W) | 0) - t.y);
+  const H = (i: number) => 0.2 * stepDist((i % W) - t.x, ((i / W) | 0) - t.y);
   const heap = new MinHeap();
   gc[start] = 0; heap.push(start, H(start));
-  const DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
-  let found = false;
+    let found = false;
   while (heap.size) {
     const i = heap.popMin();
     if (i === goal) { found = true; break; }
     if (heap.topKey - H(i) > gc[i] + 1e-9) continue;
     const x = i % W, y = (i / W) | 0;
-    for (let k = 0; k < 4; k++) {
-      const nx = x + DX[k], ny = y + DY[k];
+    for (const [ddx, ddy] of HEX6) {
+      const nx = x + ddx, ny = y + ddy;
       if (!inBounds(m, nx, ny)) continue;
       const j = ny * W + nx;
       const s = w.street[j];
@@ -157,7 +157,7 @@ export function roadPlans(g: GameState): RoadPlan[] {
   // the places that would gain most from a quicker trip, nearest first among equals; route the best few
   const cands = roadTargets(g).filter((t) => !pending.has(t.zone)).map((t) => {
     const now = Math.min(90, walkMinutes(g, t.y * g.map.width + t.x));
-    const crow = Math.hypot(t.x - c.x, t.y - c.y) * 1.3;
+    const crow = stepDist(t.x - c.x, t.y - c.y) * 1.3;
     const best = (crow / 4) * modeCost(g.world.year, true, true);
     return { t, upside: t.pop * Math.max(0, commuteWeight(best) - commuteWeight(now)) };
   }).filter((x) => x.upside > 50).sort((a, b) => b.upside - a.upside).slice(0, 6);
@@ -176,7 +176,7 @@ export function roadPlans(g: GameState): RoadPlan[] {
 
 /** does the straight line between two tiles cross open water? */
 function crossesRiver(g: GameState, x0: number, y0: number, x1: number, y1: number): boolean {
-  const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
+  const n = Math.ceil(stepDist(x1 - x0, y1 - y0));
   let run = 0;
   for (let k = 0; k <= n; k++) {
     const x = Math.round(x0 + ((x1 - x0) * k) / n), y = Math.round(y0 + ((y1 - y0) * k) / n);

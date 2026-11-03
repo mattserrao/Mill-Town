@@ -16,6 +16,13 @@ export interface Sprite {
 
 export type Pt = [number, number];
 
+/**
+ * The sprite frame is still the 2:1 isometric diamond the art was drawn in, but a "tile" (u, v in 0..1) is now scaled
+ * to sit inside a hexagonal cell: its diamond is 64·K = 54 px wide and 27 px deep, a hex is 56 × 24.
+ */
+export const SPRITE_K = 0.84;
+const SX = 32 * SPRITE_K, SY = 16 * SPRITE_K;
+
 export class Painter {
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
@@ -23,15 +30,15 @@ export class Painter {
   readonly gy: number;
   constructor(readonly tiles = 1, height = 160) {
     this.canvas = document.createElement("canvas");
-    this.canvas.width = 64 * tiles + 16;
+    this.canvas.width = Math.ceil(64 * SPRITE_K * tiles) + 16;
     this.canvas.height = height;
     this.ctx = this.canvas.getContext("2d")!;
-    this.cx = 32 * tiles + 8;
+    this.cx = Math.ceil(32 * SPRITE_K * tiles) + 8;
     this.gy = height - 40; // y of tile (u=0,v=0) corner relative to anchor tile
   }
   /** ground point; for multi-tile sprites u, v run from -(tiles-1) to 1 */
   P(u: number, v: number, z = 0): Pt {
-    return [this.cx + (u - v) * 32, this.gy + (u + v) * 16 - z];
+    return [this.cx + (u - v) * SX, this.gy + (u + v) * SY - z];
   }
   poly(pts: Pt[], fill: string) {
     const c = this.ctx;
@@ -602,7 +609,7 @@ function lawn(p: Painter, u0: number, v0: number, u1: number, v1: number, seed =
     const n = tileNoise(seed, x, y, 2);
     if (n < 0.12 || n > 0.88) {
       // only inside the quad: invert the projection
-      const a = (x - p.cx) / 32, b = (y - p.gy) / 16;
+      const a = (x - p.cx) / SX, b = (y - p.gy) / SY;
       const u = (a + b) / 2, v = (b - a) / 2;
       if (u > u0 && u < u1 && v > v0 && v < v1) p.px(x, y, n < 0.12 ? GRASS[0] : GRASS[3]);
     }

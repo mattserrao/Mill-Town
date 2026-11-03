@@ -1,13 +1,14 @@
-// Smooth-terrain isometric renderer.
-// The map is cut into 16x16-tile chunks. Each chunk is software-rasterized once per zoom level:
-// every tile is two lit, textured triangles over its four real corner heights (no steps between
-// tiles), followed by its sprites, all painted back-to-front into one pixel buffer.
+// Smooth-terrain hex renderer (flat-top hexagons squashed 2:1, see core/hex.ts).
+// The map is cut into 16x16-cell chunks (rhombi in the axial lattice). Each chunk is software-rasterized once per
+// zoom level: every cell is six lit, textured triangles fanned from its centre to its six real corner heights (no
+// steps between cells), followed by its sprites, all painted back-to-front into one pixel buffer.
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
-import { lineIndex, segDist, type Seg } from "../core/lines";
+import { lineIndex, type Seg } from "../core/lines";
 import { rivalRunning, techsForYear, type GameState, type Works } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
-import { type GameMap, Special } from "../core/map";
+import { type GameMap, Special, cornerH, inBounds } from "../core/map";
+import { CW, HEX6, HEX_CORNERS, HEX_S, HEX_STEP, RH, cellAt, depthOf, groundOf, hexDist, stepDist } from "../core/hex";
 import { RIVALS } from "../core/rivals";
 import { Terrain } from "../core/terrain";
 import { CivicSub, HouseSub, STRUCTURES, Street, Use } from "../core/town";
@@ -16,7 +17,7 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Camera, BASE_M, heightAt, placeLabelRects, project, tileCorners, unproject, ZOOMS, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -91,14 +92,37 @@ const PAL = {
 };
 const WATER = [0x33668e, 0x366b94, 0x306188, 0x386e96];
 
-// 8 neighbour directions (dx, dy)
-const N8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+/** ground-plane (step units) direction of each of the six neighbours: unit vectors */
+const DIR6: [number, number][] = HEX6.map(([dx, dy]) => groundOf(dx, dy));
+/** the cells of one chunk in painting order: back (small screen y) to front, as [lx, ly] */
+const CHUNK_ORDER: [number, number][] = (() => {
+  const l: [number, number][] = [];
+  for (let ly = 0; ly < 16; ly++) for (let lx = 0; lx < 16; lx++) l.push([lx, ly]);
+  return l.sort((a, b) => depthOf(a[0], a[1]) - depthOf(b[0], b[1]) || a[0] - b[0]);
+})();
+/** axial offset of a ground-plane vector (step units): the inverse of groundOf */
+function fromGround(gx: number, gy: number): [number, number] {
+  const dq = (gx * Math.sqrt(3)) / 1.5;
+  return [dq, gy - dq / 2];
+}
+/** closest approach of a point to a segment in the true (ground) metric: [distance in steps, distance along, nearest fx, fy] */
+function segDistHex(sg: Seg, px: number, py: number): [number, number, number, number] {
+  const [ax, ay] = groundOf(sg.ax, sg.ay), [bx, by] = groundOf(sg.bx, sg.by), [qx, qy] = groundOf(px, py);
+  const dx = bx - ax, dy = by - ay;
+  const L2 = dx * dx + dy * dy || 1e-9;
+  const t = Math.max(0, Math.min(1, ((qx - ax) * dx + (qy - ay) * dy) / L2));
+  const cx = ax + dx * t, cy = ay + dy * t;
+  return [Math.hypot(qx - cx, qy - cy), sg.s0 + t * Math.sqrt(L2), cx, cy];
+}
 
 export class Renderer {
   private base: Map<string, Sprite>;
   private scaled = new Map<string, SpriteBuf>();
   private chunks = new Map<string, Chunk>();
   private chunkHeights: Float32Array; // min,max per chunk
+  private chunkLive: Uint8Array;
+  private chunkEdge: Uint8Array;
+  private bounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private ncx: number;
   private ncy: number;
   private bridgeAxis = new Map<number, "a" | "b">();
@@ -127,13 +151,25 @@ export class Renderer {
     this.ncx = Math.ceil(map.width / CS);
     this.ncy = Math.ceil(map.height / CS);
     this.chunkHeights = new Float32Array(this.ncx * this.ncy * 2);
+    // which chunks hold any mapped cell, and which touch the edge of the map (they get a skirt)
+    this.chunkLive = new Uint8Array(this.ncx * this.ncy);
+    this.chunkEdge = new Uint8Array(this.ncx * this.ncy);
+    for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
+      const i = y * map.width + x;
+      if (!map.valid[i]) continue;
+      const c = ((y / CS) | 0) * this.ncx + ((x / CS) | 0);
+      this.chunkLive[c] = 1;
+      if (!this.chunkEdge[c]) for (let k = 0; k < 6; k++) { if (!inBounds(map, x + HEX6[k][0], y + HEX6[k][1])) { this.chunkEdge[c] = 1; break; } }
+    }
     this.updateHeights();
-    // bridge orientation from the extent of each bridge's tiles
+    // bridge orientation from the extent of each bridge's cells, measured along the two sprite axes (the old tile
+    // x and y axes: down-right and down-left on the screen)
     const ext = new Map<number, number[]>();
     for (let i = 0; i < map.bridge.length; i++) {
       const b = map.bridge[i];
       if (!b) continue;
-      const x = i % map.width, y = (i / map.width) | 0;
+      const [gx, gy] = groundOf(i % map.width, (i / map.width) | 0);
+      const x = gx + gy, y = gy - gx;
       const e = ext.get(b) ?? [x, x, y, y];
       e[0] = Math.min(e[0], x); e[1] = Math.max(e[1], x); e[2] = Math.min(e[2], y); e[3] = Math.max(e[3], y);
       ext.set(b, e);
@@ -143,14 +179,17 @@ export class Renderer {
 
   /** call after terrain heights change (grading) */
   updateHeights() {
-    const m = this.map, V = m.width + 1;
+    const m = this.map, W = m.width;
+    this.bounds = null;
     for (let cy = 0; cy < this.ncy; cy++) for (let cx = 0; cx < this.ncx; cx++) {
       let lo = Infinity, hi = -Infinity;
-      for (let y = cy * CS; y <= Math.min(m.height, cy * CS + CS); y++) for (let x = cx * CS; x <= Math.min(m.width, cx * CS + CS); x++) {
-        const h = m.vert[y * V + x];
+      for (let y = Math.max(0, cy * CS - 1); y <= Math.min(m.height - 1, cy * CS + CS); y++) for (let x = Math.max(0, cx * CS - 1); x <= Math.min(W - 1, cx * CS + CS); x++) {
+        if (!m.valid[y * W + x]) continue;
+        const h = m.vert[y * W + x];
         if (h < lo) lo = h;
         if (h > hi) hi = h;
       }
+      if (lo > hi) { lo = m.minHeight; hi = m.minHeight; }
       const k = (cy * this.ncx + cx) * 2;
       this.chunkHeights[k] = lo;
       this.chunkHeights[k + 1] = hi;
@@ -159,12 +198,16 @@ export class Renderer {
 
   worldBounds() {
     const m = this.map;
-    return {
-      left: -m.height * HW - 100,
-      right: m.width * HW + 100,
-      top: -(m.maxHeight - BASE_M) * ZPX - PAD_TOP,
-      bottom: (m.width + m.height) * HH + 200,
-    };
+    if (!this.bounds) {
+      let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+      for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
+        if (!m.valid[y * m.width + x]) continue;
+        const [sx, sy] = project(x + 0.5, y + 0.5, BASE_M);
+        if (sx < l) l = sx; if (sx > r) r = sx; if (sy < t) t = sy; if (sy > b) b = sy;
+      }
+      this.bounds = { left: l - HEX_S - 100, right: r + HEX_S + 100, top: t - (m.maxHeight - BASE_M) * ZPX - PAD_TOP, bottom: b + RH + 200 };
+    }
+    return this.bounds;
   }
 
   private sprite(key: string, s: number): SpriteBuf | null {
@@ -309,14 +352,15 @@ export class Renderer {
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
     for (let cy = 0; cy < this.ncy; cy++) for (let cx = 0; cx < this.ncx; cx++) {
+      if (!this.chunkLive[cy * this.ncx + cx]) continue;
       const x0 = cx * CS, y0 = cy * CS;
-      const left = (x0 - (y0 + CS)) * HW - PAD_X, right = (x0 + CS - y0) * HW + PAD_X;
+      const left = CW * x0 - HEX_S - PAD_X, right = CW * (x0 + CS - 1) + HEX_S + PAD_X;
       if (right < vx0 || left > vx1) continue;
       const hk = (cy * this.ncx + cx) * 2;
-      const top = (x0 + y0) * HH - (this.chunkHeights[hk + 1] - BASE_M) * ZPX - PAD_TOP;
-      const bottom = (x0 + y0 + 2 * CS) * HH - (this.chunkHeights[hk] - BASE_M) * ZPX + 400;
+      const top = RH * (y0 + x0 / 2) - RH - (this.chunkHeights[hk + 1] - BASE_M) * ZPX - PAD_TOP;
+      const bottom = RH * (y0 + CS + (x0 + CS) / 2) + RH - (this.chunkHeights[hk] - BASE_M) * ZPX + 400;
       if (bottom < vy0 || top > vy1) continue;
-      const ccx = (x0 - y0) * HW, ccy = (x0 + y0 + CS) * HH;
+      const ccx = (left + right) / 2, ccy = RH * (y0 + CS / 2 + (x0 + CS / 2) / 2);
       vis.push({ cx, cy, d: Math.hypot(ccx - midx, ccy - midy) });
     }
 
@@ -349,7 +393,8 @@ export class Renderer {
     this.budgetPx = Math.max(BUDGET_MIN_PX, Math.min(BUDGET_MAX_PX, visPx * 3), visPx * 1.3);
     this.evict(s);
 
-    vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy) || a.cx - b.cx);
+    // chunks back to front: by the screen row of the chunk's centre
+    vis.sort((a, b) => (a.cy + a.cx / 2) - (b.cy + b.cx / 2) || a.cx - b.cx);
     // Upscaled zooms are nearest-neighbour (the flag is reset whenever the canvas is resized, and by
     // any save/restore elsewhere, so set it right before the blits). The camera offset is snapped to a
     // whole device pixel once, and each chunk's own offset separately, so neighbouring chunks keep a
@@ -436,6 +481,7 @@ export class Renderer {
     const x1 = Math.min(W - 1, cx * CS + CS), y1 = Math.min(m.height - 1, cy * CS + CS);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * W + x;
+      if (!m.valid[i]) continue;
       const p = w.pollution[i];
       mix(w.use[i] | (w.sub[i] << 5) | (w.street[i] << 10) | ((w.pop[i] > 0 ? 1 : 0) << 14) | (w.structure[i] << 15) | (w.eth[i] << 24));
       if (((x | y) & 7) === 0) mix(w.kit[(y >> 3) * Math.ceil(W / 8) + (x >> 3)] + 7919);
@@ -472,22 +518,22 @@ export class Renderer {
 
   // ------------------------------------------------------------ chunk rasterization
   private renderChunk(g: GameState, cx: number, cy: number, s: number, view: ViewOptions, version: string): Chunk {
-    const m = this.map, w = g.world, W = m.width, H = m.height, V = W + 1;
+    const m = this.map, w = g.world, W = m.width, H = m.height;
     const x0 = cx * CS, y0 = cy * CS, x1 = Math.min(W, x0 + CS), y1 = Math.min(H, y0 + CS);
     const hk = (cy * this.ncx + cx) * 2;
     const lo = this.chunkHeights[hk], hi = this.chunkHeights[hk + 1];
-    const edge = x1 === W || y1 === H;
+    const edge = this.chunkEdge[cy * this.ncx + cx] === 1;
     const skirtBottom = m.minHeight - 14;
-    const ox = Math.floor(((x0 - y1) * HW - PAD_X) * s);
-    const oy = Math.floor(((x0 + y0) * HH - (hi - BASE_M) * ZPX - PAD_TOP) * s);
-    const ex = Math.ceil(((x1 - y0) * HW + PAD_X) * s);
-    const ey = Math.ceil(((x1 + y1) * HH - ((edge ? skirtBottom : lo) - BASE_M) * ZPX + 12) * s);
+    const ox = Math.floor((CW * x0 - HEX_S - PAD_X) * s);
+    const oy = Math.floor((RH * (y0 + x0 / 2) - RH - (hi - BASE_M) * ZPX - PAD_TOP) * s);
+    const ex = Math.ceil((CW * (x1 - 1) + HEX_S + PAD_X) * s);
+    const ey = Math.ceil((RH * (y1 - 1 + (x1 - 1) / 2) + RH - ((edge ? skirtBottom : lo) - BASE_M) * ZPX + 12) * s);
     const cw = Math.max(1, ex - ox), ch = Math.max(1, ey - oy);
     const buf = new Uint32Array(cw * ch);
     const depth = new Uint16Array(cw * ch);
     let objDepth = 1;
     const year = w.year;
-    const pxu = 1 / (HW * s * 1.2); // ~ uv units per pixel
+    const pxu = 1 / (HEX_STEP * s); // ~ step units per pixel
 
     const P = (fx: number, fy: number, h: number): [number, number] => {
       const [sx, sy] = project(fx, fy, h);
@@ -530,10 +576,7 @@ export class Renderer {
     const blit = (key: string, fx: number, fy: number, hOff = 0) => {
       const sb = this.sprite(key, s);
       if (!sb) return;
-      const tx = Math.min(W - 1, Math.floor(fx)), ty = Math.min(H - 1, Math.floor(fy));
-      const u = fx - tx, v = fy - ty;
-      const a = m.vert[ty * V + tx], b = m.vert[ty * V + tx + 1], c = m.vert[(ty + 1) * V + tx], d = m.vert[(ty + 1) * V + tx + 1];
-      const h = (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v + hOff;
+      const h = heightAt(m, fx, fy) + hOff;
       const [sx, sy] = P(fx, fy, h);
       const dx = Math.round(sx - sb.ax), dy = Math.round(sy - sb.ay);
       for (let yy = 0; yy < sb.h; yy++) {
@@ -557,61 +600,76 @@ export class Renderer {
       }
     };
 
-    // light: from screen-left and above (faces toward -x and +y are lit)
-    const L = [-0.6, 0.6, 1.0];
+    // light: from the screen's left and above. Normals are in ground-plane axes (right, down the screen, up).
+    const L = [-0.85, 0, 1.0];
     const LN = Math.hypot(L[0], L[1], L[2]);
     const lightOf = (nx: number, ny: number, nz: number) => {
       const d = (nx * L[0] + ny * L[1] + nz * L[2]) / (Math.hypot(nx, ny, nz) * LN);
       return 0.42 + 0.78 * Math.max(0, d);
     };
     const MPT = m.metersPerTile;
+    // the unit-step ground offsets of the centre and the six corners (corner k at HEX_CORNERS[k])
+    const CG = HEX_CORNERS.map(([dx, dy]) => groundOf(dx, dy));
+    const triLight = (k: number, h0: number, ha: number, hb: number) => {
+      // triangle (centre, corner k, corner k+1): normal of the plane through the three points, in metres
+      const ax = CG[k][0] * MPT, ay = CG[k][1] * MPT, bx = CG[(k + 1) % 6][0] * MPT, by = CG[(k + 1) % 6][1] * MPT;
+      const az = ha - h0, bz = hb - h0;
+      let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      return lightOf(nx, ny, nz);
+    };
 
-    const tilesD = (x1 - x0) + (y1 - y0) - 1;
-    for (let d = 0; d < tilesD; d++) {
-      for (let tx = Math.max(x0, x0 + d - (y1 - y0 - 1)); tx <= Math.min(x1 - 1, x0 + d); tx++) {
-        const ty = y0 + d - (tx - x0);
-        const i = ty * W + tx;
-        const hT = m.vert[ty * V + tx], hR = m.vert[ty * V + tx + 1], hL = m.vert[(ty + 1) * V + tx], hB = m.vert[(ty + 1) * V + tx + 1];
-        const [Tx, Ty] = P(tx, ty, hT), [Rx, Ry] = P(tx + 1, ty, hR), [Lx, Ly] = P(tx, ty + 1, hL), [Bx, By] = P(tx + 1, ty + 1, hB);
-        const tex = this.groundShader(g, tx, ty, i, pxu, view.grid, railActive);
-        let tint = 0, tintA = 0;
-        const pol = w.pollution[i];
-        if (pol > 0.02 && m.terrain[i] !== Terrain.Water) { tint = 0x2e2824; tintA = Math.min(0.55, pol * 0.35); }
-        if (view.overlay) {
-          const o = view.overlay(i);
-          // wash the ground out to a neutral grey so the data colours stand apart from grass and brick
-          if (o) { tint = rgb(o[0], o[1], o[2]); tintA = o[3]; }
-          else if (m.terrain[i] === Terrain.Water) { tint = 0x40566e; tintA = 0.45; }
-          else { tint = 0x8c8a86; tintA = 0.62; }
-        }
-        const isWater = m.terrain[i] === Terrain.Water;
-        const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT), -MPT * (hL - hT), MPT * MPT);
-        const l2 = isWater ? 1 : lightOf(MPT * (hL - hB), MPT * (hR - hB), MPT * MPT);
-        tri(Tx, Ty, Rx, Ry, Lx, Ly, 0, 0, hT, 1, 0, hR, 0, 1, hL, l1, tex, tint, tintA);
-        tri(Lx, Ly, Rx, Ry, Bx, By, 0, 1, hL, 1, 0, hR, 1, 1, hB, l2, tex, tint, tintA);
+    for (const [lx, ly] of CHUNK_ORDER) {
+      const tx = x0 + lx, ty = y0 + ly;
+      if (tx >= x1 || ty >= y1) continue;
+      const i = ty * W + tx;
+      if (!m.valid[i]) continue;
+      const hC = m.vert[i];
+      const hc: number[] = [];
+      for (let k = 0; k < 6; k++) hc.push(cornerH(m, tx, ty, k));
+      const cc = P(tx + 0.5, ty + 0.5, hC);
+      const cs = HEX_CORNERS.map(([dx, dy], k) => P(tx + 0.5 + dx, ty + 0.5 + dy, hc[k]));
+      const tex = this.groundShader(g, tx, ty, i, pxu, view.grid, railActive);
+      let tint = 0, tintA = 0;
+      const pol = w.pollution[i];
+      if (pol > 0.02 && m.terrain[i] !== Terrain.Water) { tint = 0x2e2824; tintA = Math.min(0.55, pol * 0.35); }
+      if (view.overlay) {
+        const o = view.overlay(i);
+        // wash the ground out to a neutral grey so the data colours stand apart from grass and brick
+        if (o) { tint = rgb(o[0], o[1], o[2]); tintA = o[3]; }
+        else if (m.terrain[i] === Terrain.Water) { tint = 0x40566e; tintA = 0.45; }
+        else { tint = 0x8c8a86; tintA = 0.62; }
+      }
+      const isWater = m.terrain[i] === Terrain.Water;
+      for (let k = 0; k < 6; k++) {
+        const k2 = (k + 1) % 6;
+        const l = isWater ? 1 : triLight(k, hC, hc[k], hc[k2]);
+        tri(cc[0], cc[1], cs[k][0], cs[k][1], cs[k2][0], cs[k2][1],
+          0.5, 0.5, hC, 0.5 + HEX_CORNERS[k][0], 0.5 + HEX_CORNERS[k][1], hc[k], 0.5 + HEX_CORNERS[k2][0], 0.5 + HEX_CORNERS[k2][1], hc[k2], l, tex, tint, tintA);
+      }
 
-        // map-edge skirt (diorama base)
-        if (ty === H - 1 || tx === W - 1) {
-          const sk = (ax: number, ay: number, bx: number, by: number, ha: number, hb: number, lit: number) => {
-            const [a2x, a2y] = [ax, ay + (ha - skirtBottom) * ZPX * s], [b2x, b2y] = [bx, by + (hb - skirtBottom) * ZPX * s];
-            const st = (_u: number, _v: number, hh: number, gx: number, gy: number) => {
-              if (isWater && hh > ha - 4) return 0x24486a;
-              const band = Math.floor(hh / 3) & 3;
-              return [0x8a6a48, 0x7a5c3e, 0x94744e, 0x6e523a][band] + (hash(gx, gy, 9) < 0.1 ? 0x080808 : 0);
-            };
-            tri(ax, ay, bx, by, b2x, b2y, 0, 0, ha, 1, 0, hb, 1, 1, skirtBottom, lit, st, 0, 0);
-            tri(ax, ay, b2x, b2y, a2x, a2y, 0, 0, ha, 1, 1, skirtBottom, 0, 1, skirtBottom, lit, st, 0, 0);
-          };
-          if (ty === H - 1) sk(Lx, Ly, Bx, By, hL, hB, 0.95);
-          if (tx === W - 1) sk(Bx, By, Rx, Ry, hB, hR, 0.68);
-        }
+      // map-edge skirt (diorama base): the three viewer-facing sides, wherever the neighbour is off the map.
+      // Side k joins corners k-1 and k.
+      for (const k of [4, 5, 0]) {
+        if (inBounds(m, tx + HEX6[k][0], ty + HEX6[k][1])) continue;
+        const ia = (k + 5) % 6, ib = k;
+        const lit = k === 4 ? 0.95 : k === 5 ? 0.82 : 0.68;
+        const [ax, ay] = cs[ia], [bx, by] = cs[ib], ha = hc[ia], hb = hc[ib];
+        const [a2x, a2y] = [ax, ay + (ha - skirtBottom) * ZPX * s], [b2x, b2y] = [bx, by + (hb - skirtBottom) * ZPX * s];
+        const st = (_u: number, _v: number, hh: number, gx: number, gy: number) => {
+          if (isWater && hh > ha - 4) return 0x24486a;
+          const band = Math.floor(hh / 3) & 3;
+          return [0x8a6a48, 0x7a5c3e, 0x94744e, 0x6e523a][band] + (hash(gx, gy, 9) < 0.1 ? 0x080808 : 0);
+        };
+        tri(ax, ay, bx, by, b2x, b2y, 0, 0, ha, 1, 0, hb, 1, 1, skirtBottom, lit, st, 0, 0);
+        tri(ax, ay, b2x, b2y, a2x, a2y, 0, 0, ha, 1, 1, skirtBottom, 0, 1, skirtBottom, lit, st, 0, 0);
+      }
 
-        // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
-        for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) {
-          // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
-          objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
-          blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
-        }
+      // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
+      for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) {
+        // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
+        objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + depthOf(tx, ty);
+        blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
       }
     }
 
@@ -627,104 +685,50 @@ export class Renderer {
     const m = this.map, w = g.world, W = m.width, H = m.height;
     const t = m.terrain[i];
     const use = w.use[i];
-    const at = (dx: number, dy: number) => {
+    // the six neighbours (cell indices, -1 off the map) and distances in the true ground metric: (u, v) is the
+    // cell-local axial position with the centre at (0.5, 0.5); lengths are in neighbour steps (apothem 0.5)
+    const NB = HEX6.map(([dx, dy]) => {
       const nx = x + dx, ny = y + dy;
-      return nx >= 0 && ny >= 0 && nx < W && ny < H ? ny * W + nx : -1;
-    };
-    // neighbour masks for linear features
+      return nx >= 0 && ny >= 0 && nx < W && ny < H && m.valid[ny * W + nx] ? ny * W + nx : -1;
+    });
     const mask = (f: (j: number) => boolean) => {
       let mk = 0;
-      N8.forEach(([dx, dy], k) => { const j = at(dx, dy); if (j >= 0 && f(j)) mk |= 1 << k; });
-      // drop diagonals already implied by orthogonal neighbours
-      for (let k = 4; k < 8; k++) {
-        const [dx, dy] = N8[k];
-        const ox = N8.findIndex(([a, b]) => a === dx && b === 0), oy = N8.findIndex(([a, b]) => a === 0 && b === dy);
-        if (mk & (1 << ox) || mk & (1 << oy)) mk &= ~(1 << k);
-      }
+      for (let k = 0; k < 6; k++) if (NB[k] >= 0 && f(NB[k])) mk |= 1 << k;
       return mk;
     };
+    const rawMask = mask;
+    /** distance to, and distance along from the centre of, the lines joining the centre to the edge midpoints in `mk` */
     const lineDist = (mk: number, u: number, v: number) => {
-      // a plain 90° turn is drawn as a chamfer from edge-midpoint to edge-midpoint, so tile-by-tile
-      // staircases (creeks, rails, streets running on the diagonal) read as straight 45° lines
-      const L = lCorner(mk, true);
-      if (L) {
-        const [a, b] = orient(L, u, v);
-        // segment (1, .5) → (.5, 1) in oriented coords
-        let tt = ((a - 1) * -0.5 + (b - 0.5) * 0.5) / 0.5;
-        tt = Math.max(0, Math.min(1, tt));
-        return [Math.hypot(a - (1 - 0.5 * tt), b - (0.5 + 0.5 * tt)), tt * Math.SQRT1_2];
-      }
-      let best = Math.hypot(u - 0.5, v - 0.5);
+      const [px, py] = groundOf(u - 0.5, v - 0.5);
+      let best = Math.hypot(px, py);
       let along = 0;
-      for (let k = 0; k < 8; k++) {
+      for (let k = 0; k < 6; k++) {
         if (!(mk & (1 << k))) continue;
-        const [dx, dy] = N8[k];
-        const ex = dx * 0.5, ey = dy * 0.5;
-        const len2 = ex * ex + ey * ey;
-        let tt = ((u - 0.5) * ex + (v - 0.5) * ey) / len2;
-        tt = Math.max(0, Math.min(1, tt));
-        const d = Math.hypot(u - 0.5 - ex * tt, v - 0.5 - ey * tt);
-        if (d < best) { best = d; along = tt * Math.sqrt(len2); }
+        const ex = DIR6[k][0] * 0.5, ey = DIR6[k][1] * 0.5;
+        const tt = Math.max(0, Math.min(1, (px * ex + py * ey) / 0.25));
+        const d = Math.hypot(px - ex * tt, py - ey * tt);
+        if (d < best) { best = d; along = tt * 0.5; }
       }
       return [best, along];
     };
-
-    /**
-     * If the only orthogonal neighbours in `mk` are two perpendicular ones (an L), return their directions
-     * (sx: +1 east / -1 west, sy: +1 south / -1 north). `strict`: no other neighbours at all (lines);
-     * otherwise (shorelines) the two opposite sides must be clear.
-     */
-    function lCorner(mk: number, strict: boolean): [number, number] | null {
-      const orth = mk & 15;
-      if (strict && mk !== orth) return null;
-      const sx = orth & 1 ? 1 : orth & 2 ? -1 : 0, sy = orth & 4 ? 1 : orth & 8 ? -1 : 0;
-      if (!sx || !sy || (orth & 3) === 3 || (orth & 12) === 12) return null;
-      return [sx, sy];
-    }
-    const orient = ([sx, sy]: [number, number], u: number, v: number) => [sx > 0 ? u : 1 - u, sy > 0 ? v : 1 - v];
-
-    /** distance (uv) from (u,v) to the nearest edge/corner shared with a neighbour in `mk` (no diagonal suppression) */
-    const rawMask = (f: (j: number) => boolean) => {
-      let mk = 0;
-      N8.forEach(([dx, dy], k) => { const j = at(dx, dy); if (j >= 0 && f(j)) mk |= 1 << k; });
-      return mk;
-    };
+    /** distance (steps) from (u, v) to the nearest cell edge shared with a neighbour in `mk` */
     const edgeDist = (mk: number, u: number, v: number) => {
+      const [px, py] = groundOf(u - 0.5, v - 0.5);
       let d = 9;
-      if (mk & 1) d = Math.min(d, 1 - u);
-      if (mk & 2) d = Math.min(d, u);
-      if (mk & 4) d = Math.min(d, 1 - v);
-      if (mk & 8) d = Math.min(d, v);
-      if (mk & 16) d = Math.min(d, Math.hypot(1 - u, 1 - v));
-      if (mk & 32) d = Math.min(d, Math.hypot(1 - u, v));
-      if (mk & 64) d = Math.min(d, Math.hypot(u, 1 - v));
-      if (mk & 128) d = Math.min(d, Math.hypot(u, v));
+      for (let k = 0; k < 6; k++) if (mk & (1 << k)) d = Math.min(d, 0.5 - (px * DIR6[k][0] + py * DIR6[k][1]));
       return d;
     };
     const water = t === Terrain.Water;
 
     if (water) {
       const landMask = rawMask((j) => m.terrain[j] !== Terrain.Water);
-      const shoreL = lCorner(landMask, false);
-      // a notch between two wharf tiles is filled with quay paving, so the quay runs on the 45° line too
-      const quay = shoreL && [at(shoreL[0], 0), at(0, shoreL[1])].every((j) => j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf));
       const polluted = Math.min(8, Math.floor(w.pollution[i] * 6)) * 0.05; // stepped, so chunk signatures stay stable
       return (u: number, v: number, _h: number, gx: number, gy: number) => {
         let c = pick(WATER, hash(gx >> 2, gy >> 1, 3));
         const r = hash(gx >> 2, gy, 4);
         if (r > 0.97 && (gx & 3) < 3) c = 0x6f9cc0; // ripple
         if (landMask) {
-          let dl = edgeDist(landMask, u, v);
-          if (shoreL) {
-            // a water tile poking out between two land sides: cut its corner into a 45° bank
-            const [a, b] = orient(shoreL, u, v);
-            const dc = (1.5 - a - b) * Math.SQRT1_2;
-            if (dc < 0) {
-              if (quay) return dc > -0.04 ? 0x4a463e : (gx % 3 === 0 || gy % 2 === 0) ? 0x5c5850 : hash(Math.floor(gx / 3) + ((Math.floor(gy / 2) & 1) ? 1 : 0), gy >> 1, 18) < 0.5 ? 0x8e8a80 : 0x7a766e;
-              return dc > -0.06 ? pick(PAL.wet, hash(gx, gy, 25)) : pick(PAL.sand, hash(gx, gy, 26));
-            }
-            dl = Math.min(dl, dc);
-          }
+          const dl = edgeDist(landMask, u, v);
           if (dl < 0.05 && hash(gx, gy, 5) < 0.35) c = 0x9cc0d4;
           else if (dl < 0.14) c = 0x3f7598;
         }
@@ -805,11 +809,9 @@ export class Renderer {
         // bare bluff: soft, broken strata (not hard contour bands), with a ragged, chamfered edge into the
         // woods or fields next to it so a chain of rock tiles doesn't read as a staircase
         const soft = rawMask((j) => w.use[j] !== Use.Rock && m.terrain[j] !== Terrain.Water);
-        const corner = lCorner(soft, false);
         base = (u, v, h, gx, gy) => {
           if (soft) {
-            let d = edgeDist(soft, u, v);
-            if (corner) { const [a, b] = orient(corner, u, v); d = Math.min(d, (1.5 - a - b) * Math.SQRT1_2); }
+            const d = edgeDist(soft, u, v);
             const reach = 0.18 + hash(gx >> 2, gy >> 2, 47) * 0.22;
             if (d < reach && hash(gx >> 1, gy >> 1, 48) < 1 - d / reach) return pick(PAL.woods, hash(gx >> 1, gy >> 1, 6));
           }
@@ -843,7 +845,7 @@ export class Renderer {
     const incline = use === Use.Incline ? mask((j) => w.use[j] === Use.Incline) : -1;
     const stairs = w.street[i] === Street.Steps || (w.street[i] > 0 && m.slope[i] >= 24);
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
-    const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
+    const dense = use === Use.Rowhouses || w.street[i] && NB.some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
     const alley = w.street[i] === Street.Alley;
     const streetW = w.street[i] === Street.Pike ? 0.17 : alley ? 0.07 : dense ? 0.26 : 0.14;
     // creeks and rails come from the source vectors where the map has them (smooth on any angle);
@@ -854,7 +856,7 @@ export class Renderer {
     const railSegs = segs.filter((sg) => sg.kind === "rail" && (m.railLines[String(sg.line)]?.year ?? 9999) <= w.year);
     const nearest = (list: Seg[], u: number, v: number): [number, number] => {
       let bd = 9, ba = 0;
-      for (const sg of list) { const [d, a] = segDist(sg, x + u, y + v); if (d < bd) { bd = d; ba = a; } }
+      for (const sg of list) { const [d, a] = segDistHex(sg, x + u, y + v); if (d < bd) { bd = d; ba = a; } }
       return [bd, ba];
     };
     const rail = vec ? (railSegs.length ? 0 : -1) : railActive(i) ? mask((j) => railActive(j)) : -1;
@@ -862,26 +864,16 @@ export class Renderer {
     const waterMask = rawMask((j) => m.terrain[j] === Terrain.Water);
     const wharf = m.special[i] === Special.Wharf;
     const paved = wharf || use === Use.Wharf;
-    const waterL = paved || (!w.street[i] && !w.owner[i]) ? lCorner(waterMask, false) : null;
-
+    
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
-      // a paved wharf takes the 45° line along the water too (no sawtooth of square tiles), with a stone edge
-      if (waterMask && paved && waterL) {
-        const [a, b] = orient(waterL, u, v);
-        const dc = (1.5 - a - b) * Math.SQRT1_2;
-        if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
-        if (dc < 0.04) return 0x4a463e;
+      // a paved wharf is stone right to the water, with a dark edge
+      if (waterMask && paved) {
+        const dw = edgeDist(waterMask, u, v);
+        if (dw < 0.04) return dw < 0.0 ? 0x3f7598 : 0x4a463e;
       }
       if (waterMask && !paved) {
-        let dw = edgeDist(waterMask, u, v);
-        if (waterL) {
-          // a point of land between two water sides: the river takes the corner (45° bank)
-          const [a, b] = orient(waterL, u, v);
-          const dc = (1.5 - a - b) * Math.SQRT1_2;
-          if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
-          dw = Math.min(dw, dc);
-        }
+        const dw = edgeDist(waterMask, u, v);
         if (dw < 0.08) c = pick(PAL.wet, hash(gx, gy, 25));
         else if (dw < 0.24 + hash(gx >> 2, gy >> 2, 27) * 0.08) c = pick(PAL.sand, hash(gx, gy, 26));
       }
@@ -893,7 +885,7 @@ export class Renderer {
         else if (dc < cw + 0.04) c = 0x5e6a44;
       }
       if (incline >= 0) {
-        const [di] = lineDist(incline || 0xff, u, v);
+        const [di] = lineDist(incline || 63, u, v);
         if (di < 0.22) c = hash(gx, gy, 46) < 0.5 ? 0x6a5e48 : 0x5e5440; // cleared right-of-way
       }
       if (w.street[i] && stairs) {
@@ -926,7 +918,7 @@ export class Renderer {
           if (Math.abs(dr - 0.045) < pxu * 0.9) c = 0xa8a8b0; // rails
         }
       }
-      if (grid && (u < pxu || v < pxu)) c = rgb(((c >> 16) & 255) * 0.82, ((c >> 8) & 255) * 0.82, (c & 255) * 0.82);
+      if (grid && edgeDist(63, u, v) < pxu * 1.6) c = rgb(((c >> 16) & 255) * 0.7, ((c >> 8) & 255) * 0.7, (c & 255) * 0.7);
       return c;
     };
   }
@@ -941,19 +933,25 @@ export class Renderer {
 
   // ------------------------------------------------------------ sprites per tile
   private houseSpecFor(g: GameState, x: number, y: number, i: number, kind: HouseKind, sub: number, closed = false) {
-    const m = this.map, w = g.world, W = m.width, V = W + 1;
-    const st = (dx: number, dy: number) => {
-      const nx = x + dx, ny = y + dy;
+    const m = this.map, w = g.world, W = m.width;
+    // which neighbours carry a street; the sprites have two axes (a: along the old tile x, down-right on screen,
+    // b: along the old tile y, down-left), so the six hex sides fold onto them: ↙ ↓ → a front +, ↘ → b front +,
+    // ↗ ↑ → a front -, ↖ → b front -
+    const st = (k: number) => {
+      const nx = x + HEX6[k][0], ny = y + HEX6[k][1];
       return nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx] > 0;
     };
     let o: "a" | "b" = "a", front: "+" | "-" = "+";
-    if (st(0, 1)) { o = "a"; front = "+"; }
-    else if (st(1, 0)) { o = "b"; front = "+"; }
-    else if (st(0, -1)) { o = "a"; front = "-"; }
-    else if (st(-1, 0)) { o = "b"; front = "-"; }
+    if (st(4)) { o = "a"; front = "+"; }
+    else if (st(0)) { o = "b"; front = "+"; }
+    else if (st(1)) { o = "a"; front = "-"; }
+    else if (st(3)) { o = "b"; front = "-"; }
+    else if (st(5)) { o = "a"; front = "+"; }
+    else if (st(2)) { o = "a"; front = "-"; }
     else { o = hash(x, y, 50) < 0.5 ? "a" : "b"; front = "+"; }
-    const corner = (st(0, 1) || st(0, -1)) && (st(1, 0) || st(-1, 0)) ? 1 : 0;
-    const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
+    const corner = (st(4) || st(5) || st(1) || st(2)) && (st(0) || st(3)) ? 1 : 0;
+    // the diamond sprite's four ground corners from the hex: east, west, and the pairs on the north and south sides
+    const hT = (cornerH(m, x, y, 1) + cornerH(m, x, y, 2)) / 2, hR = cornerH(m, x, y, 0), hL = cornerH(m, x, y, 3), hB = (cornerH(m, x, y, 4) + cornerH(m, x, y, 5)) / 2;
     const hc = (hT + hR + hL + hB) / 4;
     // the corners quantized to 3 px at full size, 6 px when the sprite is drawn at a quarter size or less (where a
     // 3 px step is under a pixel, and the finer keys only multiplied the sprites a hilly view had to build)
@@ -970,7 +968,7 @@ export class Renderer {
     const bid = w.blockId?.[i], blk = bid ? g.sleuth?.blocks[bid - 1] : undefined;
     let vv = -1;
     if (blk) {
-      const r = Math.sqrt(blk.land / Math.PI), d = Math.hypot(x - blk.x, y - blk.y);
+      const r = Math.sqrt(blk.land / Math.PI), d = stepDist(x - blk.x, y - blk.y);
       if (housing && blk.land > 30 && d < 0.3 * r) { style = Math.max(0, style - 1); soot = Math.min(3, soot + 1); }
       if (kind === "company") vv = Math.floor(hash(blk.id, 7, 51) * 6);
     }
@@ -988,7 +986,7 @@ export class Renderer {
 
   private denseStreet(g: GameState, x: number, y: number) {
     const m = this.map, w = g.world, W = m.width;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dx, dy] of HEX6) {
       const nx = x + dx, ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
       const u2 = w.use[ny * W + nx];
@@ -1040,7 +1038,7 @@ export class Renderer {
         if (sub === HouseSub.Shanty) { out.push({ key: this.houseSpecFor(g, x, y, i, "shanty", sub), u: 0.5, v: 0.5 }); break; }
         if (sub === HouseSub.Company) { out.push({ key: this.houseSpecFor(g, x, y, i, "company", sub), u: 0.5, v: 0.5 }); break; }
         let nearStreet = false;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx]) nearStreet = true; }
+        for (const [dx, dy] of [[0, 0], ...HEX6]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.street[ny * W + nx]) nearStreet = true; }
         if (!nearStreet && w.pop[i] >= 4) out.push({ key: `farm:${Math.floor(n(11) * 2)}`, u: 0.5, v: 0.5 });
         else out.push({ key: this.houseSpecFor(g, x, y, i, "cottage", sub), u: 0.5, v: 0.5 });
         break;
@@ -1083,7 +1081,7 @@ export class Renderer {
       case Use.Incline: {
         // stations at either end, a car part-way up
         let nb = 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if ((dx || dy) && nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.use[ny * W + nx] === Use.Incline && w.sub[ny * W + nx] === sub) nb++; }
+        for (const [dx, dy] of HEX6) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && w.use[ny * W + nx] === Use.Incline && w.sub[ny * W + nx] === sub) nb++; }
         if (nb <= 1) out.push({ key: "incline:station", u: 0.5, v: 0.5 });
         break;
       }
@@ -1116,10 +1114,11 @@ export class Renderer {
         // barges moored at plant docks; steamboats at the wharves; coal barges on the Mon
         let dock = false, nearWharf = false, dockInd = "";
         for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+          if (hexDist(dx, dy) > 2) continue;
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
           const j = ny * W + nx;
-          const pl = Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? this.plants.get(j) : undefined;
+          const pl = hexDist(dx, dy) <= 1 ? this.plants.get(j) : undefined;
           if (pl?.t.ground === "dock" && pl.c.status !== "idle") { dock = true; dockInd = pl.c.ind; } // a closed works' dock is empty
           if (m.special[j] === Special.Wharf) nearWharf = true;
         }
@@ -1151,9 +1150,9 @@ export class Renderer {
     const m = this.map, z = cam.zoom, year = g.world.year;
     const cw = ctx.canvas.width, ch = ctx.canvas.height;
     const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
-    const elevAt = (x: number, y: number) => m.elevation[Math.max(0, Math.min(m.height - 1, Math.floor(y))) * m.width + Math.max(0, Math.min(m.width - 1, Math.floor(x)))];
+    const elevAt = (x: number, y: number) => heightAt(m, x, y);
     const live = [...m.spans, ...(g.spans ?? [])].map((sp) => ({ sp, st: stageOf(sp, year) })).filter((o) => o.st)
-      .sort((p, q) => (p.sp.a[0] + p.sp.a[1] + p.sp.b[0] + p.sp.b[1]) - (q.sp.a[0] + q.sp.a[1] + q.sp.b[0] + q.sp.b[1]));
+      .sort((p, q) => (2 * (p.sp.a[1] + p.sp.b[1]) + p.sp.a[0] + p.sp.b[0]) - (2 * (q.sp.a[1] + q.sp.b[1]) + q.sp.a[0] + q.sp.b[0]));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.lineJoin = "round";
@@ -1162,15 +1161,17 @@ export class Renderer {
       const [ax, ay] = sp.a, [bx, by] = sp.b;
       const A = S(ax, ay, 260), B = S(bx, by, 260);
       if (Math.max(A[0], B[0]) < -200 || Math.min(A[0], B[0]) > cw + 200 || Math.max(A[1], B[1]) < -300 || Math.min(A[1], B[1]) > ch + 300) continue;
-      const len = Math.hypot(bx - ax, by - ay);
-      const ux = (bx - ax) / len, uy = (by - ay) / len;
+      // lengths in neighbour steps, the deck's width taken at right angles in the true (ground) metric
+      const [gdx, gdy] = groundOf(bx - ax, by - ay);
+      const len = Math.hypot(gdx, gdy) || 1e-9;
       const rail = sp.kind === "rail";
       const halfW = (rail ? 0.16 : type === "arch" && built >= 1940 ? 0.32 : 0.22);
-      // which side faces the viewer (larger x + y)
-      let px = -uy * halfW, py = ux * halfW;
-      if (px + py < 0) { px = -px; py = -py; }
+      // which side faces the viewer (lower on the screen)
+      let [px, py] = fromGround((-gdy / len) * halfW, (gdx / len) * halfW);
+      if (py + px / 2 < 0) { px = -px; py = -py; }
       const gA = elevAt(ax, ay), gB = elevAt(bx, by);
-      const wl = m.waterLevel[Math.floor((ay + by) / 2) * m.width + Math.floor((ax + bx) / 2)] || Math.min(gA, gB) - 8;
+      const [mc, mr] = cellAt((ax + bx) / 2, (ay + by) / 2);
+      const wl = (inBounds(m, mc, mr) ? m.waterLevel[mr * m.width + mc] : 0) || Math.min(gA, gB) - 8;
       const clear = rail ? 17 : type === "covered" ? 9 : built >= 1920 ? 22 : 14;
       const lift = Math.max(0, wl + clear - Math.min(gA, gB));
       const N = Math.max(8, Math.round(len * 4));
@@ -1312,12 +1313,13 @@ export class Renderer {
     const c = g.company;
     if (!c?.spur) return;
     const m = this.map, z = cam.zoom;
-    const S = (x: number, y: number): [number, number] => { const xi = Math.max(0, Math.min(m.width - 1, Math.floor(x))), yi = Math.max(0, Math.min(m.height - 1, Math.floor(y))); const [wx, wy] = project(x, y, m.elevation[yi * m.width + xi] + 0.4); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    const S = (x: number, y: number): [number, number] => { const [wx, wy] = project(x, y, heightAt(m, x, y) + 0.4); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
     const [tx, ty] = c.spur;
     const ex = Math.max(c.x, Math.min(c.x + c.footprint, tx + 0.5)), ey = Math.max(c.y, Math.min(c.y + c.footprint, ty + 0.5));
-    const len = Math.hypot(tx + 0.5 - ex, ty + 0.5 - ey);
+    const [sgx, sgy] = groundOf(tx + 0.5 - ex, ty + 0.5 - ey);
+    const len = Math.hypot(sgx, sgy);
     const n = Math.max(2, Math.ceil(len * 4));
-    const ux = (tx + 0.5 - ex) / (len || 1), uy = (ty + 0.5 - ey) / (len || 1), vx = -uy * 0.09, vy = ux * 0.09;
+    const [vx, vy] = fromGround((-sgy / (len || 1)) * 0.09, (sgx / (len || 1)) * 0.09);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.lineCap = "round";
     const line = (off: number, col: string, wpx: number) => {
@@ -1344,11 +1346,11 @@ export class Renderer {
       const h0 = m.elevation[y0 * m.width + x0] + 2, h1 = m.elevation[y1 * m.width + x1] + 2;
       const A = S(x0 + 0.5, y0 + 0.5, h0), B = S(x1 + 0.5, y1 + 0.5, h1);
       if (Math.max(A[0], B[0]) < -50 || Math.min(A[0], B[0]) > ctx.canvas.width + 50 || Math.max(A[1], B[1]) < -50 || Math.min(A[1], B[1]) > ctx.canvas.height + 50) continue;
-      const N = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) * 3));
+      const N = Math.max(2, Math.round(stepDist(x1 - x0, y1 - y0) * 3));
       const deck = (k: number): [number, number, number, number, number] => {
         const f = k / N;
         const fx = x0 + 0.5 + (x1 - x0) * f, fy = y0 + 0.5 + (y1 - y0) * f;
-        const ground = m.elevation[Math.min(m.height - 1, Math.floor(fy)) * m.width + Math.min(m.width - 1, Math.floor(fx))];
+        const ground = heightAt(m, fx, fy);
         const h = Math.max(h0 + (h1 - h0) * f, ground + 1); // a straight grade on trestles over low ground, never buried in the hill
         return [fx, fy, h, ground, f];
       };
@@ -1427,17 +1429,14 @@ export class Renderer {
   private drawLights(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, night: number) {
     const m = this.map, w = g.world, z = cam.zoom;
     const cw = ctx.canvas.width, ch = ctx.canvas.height;
-    const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
-      const wx = cam.x + px / z, wy = cam.y + py / z + (260 - BASE_M) * ZPX;
-      const a = wx / HW, b = wy / HH;
-      return [(a + b) / 2, (b - a) / 2];
-    });
+    const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => unproject(cam.x + px / z, cam.y + py / z, 260));
     const x0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 4), x1 = Math.min(m.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 8);
     const y0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 4), y1 = Math.min(m.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 8);
     ctx.globalCompositeOperation = "lighter";
     const a = Math.min(1, night * 1.3);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * m.width + x;
+      if (!m.valid[i]) continue;
       const u = w.use[i];
       const lampTile = w.street[i] && w.street[i] !== Street.Bridge && (x * 3 + y) % 4 === 0 && this.denseStreet(g, x, y);
       if (!(u >= Use.Cottage && u <= Use.Civic || u === Use.Commerce) && !lampTile) continue;
@@ -1469,6 +1468,7 @@ export class Renderer {
     const m = this.map;
     const toScreen = ([x, y]: [number, number]): [number, number] => [(x - cam.x) * cam.zoom, (y - cam.y) * cam.zoom];
     const outline = (x: number, y: number, stroke: string, fill?: string) => {
+      if (x < 0 || y < 0 || x >= m.width || y >= m.height) return;
       const pts = tileCorners(m, x, y).map(toScreen);
       ctx.beginPath();
       pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
@@ -1479,17 +1479,23 @@ export class Renderer {
       ctx.stroke();
     };
     if (mk.footprint) {
+      // the fp × fp rhombus of cells: every hexagon filled in one path (so the wash is even), and only the sides
+      // that face outside the footprint stroked
       const f = mk.footprint;
-      const corners: [number, number][] = [[f.x, f.y], [f.x + f.size, f.y], [f.x + f.size, f.y + f.size], [f.x, f.y + f.size]];
-      const pts = corners.map(([x, y]) => {
-        const cx = Math.min(m.width, Math.max(0, x)), cy = Math.min(m.height, Math.max(0, y));
-        return toScreen(project(x, y, m.vert[cy * (m.width + 1) + cx]));
-      });
+      const inside = (x: number, y: number) => x >= f.x && y >= f.y && x < f.x + f.size && y < f.y + f.size;
       ctx.beginPath();
-      pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-      ctx.closePath();
+      const edges: [[number, number], [number, number]][] = [];
+      for (let y = f.y; y < f.y + f.size; y++) for (let x = f.x; x < f.x + f.size; x++) {
+        if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
+        const pts = tileCorners(m, x, y).map(toScreen);
+        pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+        ctx.closePath();
+        for (let k = 0; k < 6; k++) if (!inside(x + HEX6[k][0], y + HEX6[k][1])) edges.push([pts[(k + 5) % 6], pts[k]]);
+      }
       ctx.fillStyle = f.ok ? "rgba(90,220,120,0.30)" : "rgba(230,70,60,0.30)";
       ctx.fill();
+      ctx.beginPath();
+      for (const [a, b] of edges) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
       ctx.strokeStyle = f.ok ? "#7ef0a0" : "#ff7a6a";
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -1539,8 +1545,8 @@ export class Renderer {
     const order = items.filter((it) => cam.zoom >= it.min).sort((a, b) => a.min - b.min);
     ctx.textBaseline = "alphabetic";
     for (const it of order) {
-      const tx = Math.floor(it.x), ty = Math.floor(it.y);
-      const [wx, wy] = project(it.x, it.y, m.elevation[ty * m.width + tx] ?? BASE_M);
+      const [tx, ty] = cellAt(it.x, it.y);
+      const [wx, wy] = project(it.x, it.y, inBounds(m, tx, ty) ? m.elevation[ty * m.width + tx] : BASE_M);
       const px = Math.round((wx - cam.x) * cam.zoom), py = Math.round((wy - cam.y) * cam.zoom) - 14;
       if (px < 0 || py < 0 || px > W || py > H) continue;
       const big = it.min === 0;
@@ -1574,13 +1580,15 @@ function holdingKey(g: GameState, i: number): string | null {
   return null;
 }
 
+/** which sprite axis a river runs along at a cell: a = down-right on the screen, b = down-left (or straight down) */
 function riverAxis(m: GameMap, x: number, y: number): "a" | "b" {
-  let ax = 0, ay = 0;
+  let a0 = 0, a1 = 0, a2 = 0;
   for (let k = -4; k <= 4; k++) {
-    if (x + k >= 0 && x + k < m.width && m.terrain[y * m.width + x + k] === Terrain.Water) ax++;
-    if (y + k >= 0 && y + k < m.height && m.terrain[(y + k) * m.width + x] === Terrain.Water) ay++;
+    if (inBounds(m, x + k, y) && m.terrain[y * m.width + x + k] === Terrain.Water) a0++;       // ↘ ↖
+    if (inBounds(m, x + k, y - k) && m.terrain[(y - k) * m.width + x + k] === Terrain.Water) a1++; // ↗ ↙
+    if (inBounds(m, x, y + k) && m.terrain[(y + k) * m.width + x] === Terrain.Water) a2++;     // ↓ ↑
   }
-  return ax >= ay ? "a" : "b";
+  return a0 >= a1 && a0 >= a2 ? "a" : "b";
 }
 
 export function stageOf(sp: { stages: { year: number; type: import("../core/map").BridgeType }[] }, year: number) {

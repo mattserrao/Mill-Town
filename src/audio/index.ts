@@ -5,7 +5,8 @@ import type { GameState } from "../core/game";
 import type { GameMap } from "../core/map";
 import { Terrain } from "../core/terrain";
 import { Use } from "../core/town";
-import { type Camera, BASE_M, HH, HW, ZPX } from "../render/iso";
+import type { Camera } from "../render/iso";
+import { cellUnder } from "../render/viewcells";
 import { cityStyle, communityStyle, MusicPlayer, type Room, roomOf, STYLES, type Style } from "./music";
 import { hasSamples, loadInstrument, samplesReady } from "./sampler";
 import type { Inst } from "./synth";
@@ -60,9 +61,8 @@ export function summarizeView(g: GameState, m: GameMap, cam: Camera, cw: number,
   let n = 0, water = 0, ind = 0, town = 0, country = 0, churches = 0;
   const pop = new Float64Array(GROUPS.length);
   for (let sy = 0; sy < 16; sy++) for (let sx = 0; sx < 16; sx++) {
-    const wx = cam.x + ((sx + 0.5) / 16) * (cw / cam.zoom), wy = cam.y + ((sy + 0.5) / 16) * (ch / cam.zoom) + (260 - BASE_M) * ZPX;
-    const a = wx / HW, b = wy / HH;
-    const x = Math.floor((a + b) / 2), y = Math.floor((b - a) / 2);
+    const wx = cam.x + ((sx + 0.5) / 16) * (cw / cam.zoom), wy = cam.y + ((sy + 0.5) / 16) * (ch / cam.zoom);
+    const [x, y] = cellUnder(wx, wy);
     if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
       const i = Math.min(m.height - 1, y + dy) * m.width + Math.min(m.width - 1, x + dx);

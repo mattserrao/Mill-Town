@@ -3,6 +3,8 @@
 import { simBand } from "./band";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
+import { HEX6 } from "./hex";
+import { segDist } from "./lines";
 import { type GameMap, distanceField, inBounds, sat, satSum, tilesFor } from "./map";
 import { BUILD_COST_MULT, Coal, Terrain } from "./terrain";
 import type { World } from "./town";
@@ -21,15 +23,15 @@ export function navigable(m: GameMap): Uint8Array {
   const q = new Int32Array(n);
   let id = 0;
   for (let s = 0; s < n; s++) {
-    if (comp[s] >= 0 || m.terrain[s] !== Terrain.Water) continue;
+    if (comp[s] >= 0 || !m.valid[s] || m.terrain[s] !== Terrain.Water) continue;
     let head = 0, tail = 0;
     q[tail++] = s; comp[s] = id;
     while (head < tail) {
       const i = q[head++];
       const x = i % m.width, y = (i / m.width) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of HEX6) {
         const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= m.width || ny >= m.height) continue;
+        if (!inBounds(m, nx, ny)) continue;
         const j = ny * m.width + nx;
         if (comp[j] < 0 && m.terrain[j] === Terrain.Water) { comp[j] = id; q[tail++] = j; }
       }
@@ -101,13 +103,10 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
   if (ok && ind.site.riverWithinM && riverM > ind.site.riverWithinM) { ok = false; reasons.add(`No river frontage (${distance(riverM)} away)`); }
   // a bridge's abutment and approach aren't for sale (a works at seed 1234 had the Allegheny Valley bridge rising out of its yard)
   if (ok) for (const sp of m.spans) {
-    // the span's line within three tiles of the footprint, at either end or along it
-    const [ax, ay] = sp.a, [bx, by] = sp.b;
-    const cx = x + fp / 2, cy = y + fp / 2, half = fp / 2 + 3;
-    const vx = bx - ax, vy = by - ay, len2 = vx * vx + vy * vy || 1;
-    const t = Math.max(0, Math.min(1, ((cx - ax) * vx + (cy - ay) * vy) / len2));
-    const px = ax + vx * t, py = ay + vy * t;
-    if (Math.abs(px - cx) <= half && Math.abs(py - cy) <= half) { ok = false; reasons.add(`${sp.name} lands here`); break; }
+    // the span's line within three steps of the footprint, at either end or along it
+    const cx = x + fp / 2, cy = y + fp / 2;
+    const [d] = segDist({ kind: "rail", line: 0, ax: sp.a[0], ay: sp.a[1], bx: sp.b[0], by: sp.b[1], s0: 0 }, cx, cy);
+    if (d <= fp * 0.6 + 3) { ok = false; reasons.add(`${sp.name} lands here`); break; }
   }
 
   const R = tilesFor(m, ind.site.laborRadiusM);

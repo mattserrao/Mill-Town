@@ -46,7 +46,7 @@ describe("simulated band", () => {
   it("won't site a works in the countryside", () => {
     const g = newGame(map, 7);
     let x = 0, y = 0;
-    outer: for (y = 10; y < map.height - 30; y += 5) for (x = 10; x < map.width - 30; x += 5) if (!b.mask[y * map.width + x]) break outer;
+    outer: for (y = 10; y < map.height - 30; y += 5) for (x = 10; x < map.width - 30; x += 5) if (!b.mask[y * map.width + x] && map.valid[y * map.width + x] && map.valid[(y + 20) * map.width + x + 20] && map.valid[y * map.width + x + 20] && map.valid[(y + 20) * map.width + x]) break outer; // off the band, on the map, with room for a footprint
     expect(evaluateSite(map, g.world, g.fields, "steel", x, y).reasons).toContain("Too far from the river towns");
   });
 });

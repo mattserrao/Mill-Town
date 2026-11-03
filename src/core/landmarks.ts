@@ -10,6 +10,7 @@ import { inBounds } from "./map";
 import { latLonToTile } from "./features";
 import { type Place, placeNamed } from "./places";
 import { Terrain } from "./terrain";
+import { stepDist } from "./hex";
 
 export type LandmarkKind = Exclude<StructureKind, "" | "blockhouse" | "courthouse" | "arsenal" | "penitentiary" | "ruin1" | "ruin2" | "ruin3" | "ruin4">;
 
@@ -53,7 +54,7 @@ export function placeLandmark(g: GameState, def: LandmarkDef, state: "open" | "c
   const R = def.at || def.tile ? 10 : Math.max(8, Math.ceil(p.r) + 10);
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     const x: number = p.x + dx, y: number = p.y + dy;
-    let ok = true, cost = Math.hypot(dx, dy);
+    let ok = true, cost = stepDist(dx, dy);
     for (let j = 0; j < size && ok; j++) for (let k = 0; k < size; k++) {
       const xx: number = x + k, yy: number = y + j;
       if (!inBounds(m, xx, yy)) { ok = false; break; }
