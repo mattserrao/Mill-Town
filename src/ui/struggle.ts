@@ -163,7 +163,7 @@ export function successionCard(g: GameState, el: HTMLElement, done: () => void) 
     <h5>The estate</h5>
     <div class="sc-opt"><label><input type="checkbox" data-found ${pick.foundation ? "checked" : ""}/> Endow the ${esc(f.surname)} Foundation (a fifth of the fortune: ${money(foundationGift(g))})</label>
     <p>${estateRate(y) ? `Estate tax ${Math.round(estateRate(y) * 50)}% (with good lawyers) on the cash and holdings: ${money(tax)}.${gift ? " The foundation halves it." : ""}` : "No estate tax yet (the federal tax comes in 1916)."} The heir inherits the family's name — and its ledger.</p></div>
-    <div class="actions"><button class="primary" data-go>Hand over to ${esc(f.heirs[pick.heir]?.first ?? "the heir")}</button></div>
+    <div class="actions"><button class="primary" data-go>Hand over to ${f.heirs[pick.heir] ? esc(fullName(g, f.heirs[pick.heir])) : "the heir"}</button></div>
   </div>`;
   el.hidden = false;
   const redo = () => successionCard(g, el, done);
@@ -178,13 +178,6 @@ export function successionCard(g: GameState, el: HTMLElement, done: () => void) 
     el.hidden = true;
     done();
   });
-}
-
-/** the top-bar chip: the head of the family */
-export function familyChip(g: GameState): string {
-  const h = head(g);
-  if (!h) return "";
-  return `<small>${esc(g.family!.surname)} · ${["I", "II", "III", "IV"][g.family!.heads.length - 1] ?? g.family!.heads.length}</small><b>${esc(h.first)}, ${age(g, h)}</b>`;
 }
 
 /** struggle items for the Watch list */

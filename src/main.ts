@@ -16,7 +16,7 @@ import { HILLSIDES, latLonToTile } from "./core/features";
 import { queryCard } from "./ui/query";
 import { businessPanel, decisionCard, resetBusinessUi } from "./ui/business";
 import { resetWorksUi, worksPanel, worksStatus } from "./ui/works";
-import { trendsView } from "./ui/trends";
+import { resetTrends, trendsView } from "./ui/trends";
 import { resetTownUi, townPanel } from "./ui/town";
 import { holdingsPanel, resetHoldingsUi, sellDialog } from "./ui/holdings";
 import { bizDef } from "./core/holdings";
@@ -49,7 +49,6 @@ import { actRow, chip, costButton } from "./ui/fx";
 import { buyStake, stakeBlocked, stakePrice } from "./core/holdings";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const money = (n: number) => (n < 0 ? "-$" : "$") + fmt(Math.abs(n));
 
 const canvas = $<HTMLCanvasElement>("view");
 const ctx = canvas.getContext("2d")!;
@@ -70,7 +69,6 @@ let selected: { x: number; y: number } | null = null;
 let industry: IndustryId = "steel";
 let placing = true;
 let playTimer = 0;
-let seedEdited = false;
 let newsAt = 0;
 let soundWanted = (() => { try { return localStorage.getItem("mt.sound") !== "off"; } catch { return true; } })();
 let siteTried: { x: number; y: number }[] = [];
@@ -122,7 +120,7 @@ function resetUiState() {
     proposal = null; roadPreview = null; placeBar();
     $("query").hidden = true;
     toggleTrends(false); toggleStruggle(false); openPaper(false);
-    resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
+    resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi(); resetTrends();
   }
   focusId = null; chainCache = null; hoverSite = null; nameEdited = false;
   traffic.reset();
@@ -133,8 +131,6 @@ function showGame(g: GameState) {
   game = g;
   { const sel = $<HTMLSelectElement>("industry"); sel.innerHTML = ""; if (!industriesIn(cal(g).year).includes(industry)) industry = "steel"; industryOptions(); }
   paperIdx = -1; paperSeen = 0;
-  ($<HTMLInputElement>("seed")).value = String(g.seed);
-  seedEdited = false;
   ($<HTMLInputElement>("companyName")).value = suggestName(industry, g.seed);
   ($<HTMLInputElement>("founderFirst")).value = FOUNDER_NAMES[g.seed % FOUNDER_NAMES.length];
   ($<HTMLInputElement>("founderLast")).value = SURNAMES[(g.seed * 7) % SURNAMES.length];
@@ -594,7 +590,7 @@ function renderHeadline() {
   if (!issue) { el.hidden = true; return; }
   const fresh = issue.turn === game.turn;
   const it = issue.items[0];
-  el.hidden = !$("paper").hidden;
+  el.hidden = !$("paper").hidden || !$("final").hidden; // not over the paper or the end-of-game paper
   el.classList.toggle("fresh", fresh);
   el.innerHTML = `<span class="hl-kick">${fresh ? esc(it.category) : `${cal({ ...game, turn: issue.turn }).season} ${cal({ ...game, turn: issue.turn }).year}`}</span><span class="hl-head">${esc(it.name)}</span><span class="hl-more">${issue.items.length > 1 ? `+${issue.items.length - 1} more · ` : ""}Read ▸</span>`;
 }
@@ -612,7 +608,7 @@ function renderPaper() {
   const c = cal({ ...game, turn: issue.turn });
   const paper = PAPERS[c.year < 1880 ? 0 : c.year < 1920 ? 1 : c.year < 1927 ? 2 : 3];
   el.innerHTML = `<div class="mast"><span>${paper}</span><span>${c.season} ${c.year}</span></div>` +
-    issue.items.map((e) => `<div class="kicker">${e.category}</div><h3>${esc(e.name)}</h3><p>${esc(e.description)}</p>`).join("");
+    issue.items.map((e) => `<div class="kicker">${esc(e.category)}</div><h3>${esc(e.name)}</h3><p>${esc(e.description)}</p>`).join("");
   el.scrollTop = 0;
 }
 
@@ -675,18 +671,20 @@ function siteReport() {
   $("foundSection").hidden = !show;
   if (!show) return;
   const site = $("site");
-  if (!selected) { site.hidden = true; $("siteHint").hidden = false; ($<HTMLButtonElement>("found")).disabled = true; return; }
+  if (!selected) { site.hidden = true; $("siteHint").hidden = false; ($<HTMLButtonElement>("found")).disabled = true; $("found").title = "Click the map to pick a site"; return; }
   const rep = evaluateSite(map, game.world, game.fields, industry, selected.x, selected.y);
   site.hidden = false; $("siteHint").hidden = true;
   site.innerHTML = [
     row("Score", `${rep.score} / 100`, rep.ok ? "good" : "bad"),
-    row("Cost", money(rep.cost), rep.cost > foundingCapital(industry, cal(game).year) ? "bad" : ""),
+    row("Cost", short(rep.cost), rep.cost > foundingCapital(industry, cal(game).year) ? "bad" : ""),
     row("Men nearby", fmt(rep.labor)),
     row("River", rep.riverM > 60000 ? "—" : distance(rep.riverM)),
     rep.ok ? "" : `<div class="full bad">${rep.reasons.join(" · ")}</div>`,
   ].join("");
   site.title = rep.reasons.join(" · ");
-  ($<HTMLButtonElement>("found")).disabled = !rep.ok || rep.cost > foundingCapital(industry, cal(game).year);
+  const fb = $<HTMLButtonElement>("found"), cap = foundingCapital(industry, cal(game).year);
+  fb.disabled = !rep.ok || rep.cost > cap;
+  fb.title = !rep.ok ? rep.reasons.join(" · ") : rep.cost > cap ? `Costs ${short(rep.cost)}; your capital is ${short(cap)}` : "";
 }
 
 /** what the works is now, from its newest process ("Bessemer steel", not 1850's "iron furnace" in 1985) */
@@ -725,7 +723,7 @@ function overviewPanel() {
     <div class="ov-name"><b title="${esc(businessNow(c))}">${esc(c.name)}</b><span class="${c.status === "running" && !c.bankrupt ? "up" : "down"}">● ${status}</span></div>
     ${firstSeasons()}
     <div class="legacy" title="What the family will be remembered for: its fortune, the valley it leaves, and history's verdict on how it treated the men and the public. The score at the end of the game, compared with the real dynasties.">
-      <small>Legacy</small><b>${lg.total}</b><span>${esc(lg.title)}</span>
+      <small>Legacy</small><b>${lg.total}</b><span title="${esc(lg.title)}">${esc(lg.title)}</span>
       <i title="Fortune ${lg.fortune}">★ ${lg.fortune}</i><i title="The valley ${lg.valley}">⌂ ${lg.valley}</i><i title="History's verdict ${lg.verdict}">⚖ ${lg.verdict}</i>
     </div>
     <div class="cards">
@@ -995,7 +993,7 @@ function setupUI() {
   $("next").addEventListener("click", (e) => { if (e.shiftKey) nextYear(); else nextSeason(); });
   $("paperBtn").addEventListener("click", () => openPaper($("paper").hidden === true));
   $("struggleBtn").addEventListener("click", () => toggleStruggle());
-  window.addEventListener("keydown", (e) => { if (!inFormControl(e) && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "s" && $("menu").hidden) toggleStruggle(); });
+  window.addEventListener("keydown", (e) => { if (!inFormControl(e) && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "l" && $("menu").hidden && $("final").hidden) toggleStruggle(); }); // L: labour & politics (S pans the map)
   $("paperNav").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-p]");
     if (!b) return;
@@ -1008,14 +1006,6 @@ function setupUI() {
     const k = (speed || lastSpeed) % 4 + 1;
     if (speed > 0) setSpeed(k); else { lastSpeed = k; speedUI(); }
   });
-  $("regen").addEventListener("click", () => {
-    // a typed seed replays that town; otherwise every press is a fresh one
-    const v = ($<HTMLInputElement>("seed")).value.trim();
-    newTown(seedEdited && v && !isNaN(Number(v)) ? Number(v) : Math.floor(Math.random() * 1e6));
-    $("gameDrop").hidden = true;
-    showNews();
-  });
-  $("seed").addEventListener("input", () => { seedEdited = true; });
   $("companyName").addEventListener("input", () => { nameEdited = true; });
   $("rightTabs").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-tab]");
@@ -1105,6 +1095,8 @@ function setupUI() {
   window.addEventListener("keydown", (e) => {
     if (inFormControl(e)) return;
     if (!$("menu").hidden && e.key !== "Escape") return; // the menu is up: no game keys
+    // the end-of-game paper: Esc looks around (hides it); nothing else acts behind it
+    if (!$("final").hidden && $("menu").hidden) { if (e.key === "Escape") { $("final").hidden = true; renderHeadline(); } return; }
     const step = 160 * dpr / cam.zoom; // CSS pixels a keypress moves
     const k = e.key.toLowerCase();
     if (k === "arrowleft" || k === "a") cam.x -= step;
@@ -1310,8 +1302,8 @@ function placeBar() {
   if (!proposal) { el.hidden = true; return; }
   const p = proposal;
   const name = PROJECTS[p.kind].name + (p.kind === "found" && p.industry ? `: ${INDUSTRIES[p.industry].name}` : "");
-  el.innerHTML = `<span><b>${name}</b> — ${p.ok ? `${money(p.cost)}${p.displaced ? ` · ${fmt(p.displaced)} people moved out` : ""}` : `<span class="why">${esc(p.reason ?? "Can't build here")}</span>`}<br><span class="hint">Click the map to move it.</span></span>
-    <button id="placeOk" class="primary" ${p.ok && game.company && game.company.cash >= p.cost ? "" : "disabled"}>Build here</button><button id="placeCancel">Cancel</button>`;
+  el.innerHTML = `<span><b>${name}</b> — ${p.ok ? `${short(p.cost)}${p.displaced ? ` · ${fmt(p.displaced)} people moved out` : ""}` : `<span class="why">${esc(p.reason ?? "Can't build here")}</span>`}<br><span class="hint">Click the map to move it.</span></span>
+    <button id="placeOk" class="primary" ${p.ok && game.company && game.company.cash >= p.cost ? "" : `disabled title="${esc(!p.ok ? p.reason ?? "Can't build here" : `Needs ${short(p.cost)}`)}"`}>Build here</button><button id="placeCancel">Cancel</button>`;
   el.hidden = false;
   $("placeOk").addEventListener("click", () => {
     const r = buildProject(game, p);
@@ -1343,7 +1335,7 @@ function nextSeason() {
   // a historical moment is waiting for your answer
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
-  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
+  resetBusinessUi(false); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
   advanceTurn(game);
   afterTurn();
@@ -1355,7 +1347,7 @@ function nextYear() {
   if (game.pendingDecision) { decisionCard(game, $("decision"), () => afterChange()); return; }
   if (game.family?.succession) { successionCard(game, $("succession"), () => afterChange()); return; }
   if (yearRunning) return;
-  resetBusinessUi(); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
+  resetBusinessUi(false); resetWorksUi(); resetTownUi(); resetHoldingsUi(); resetStruggleUi();
   if (proposal || roadPreview) stopPlacing();
   // one season a frame, so the map and the headlines move between them instead of the page freezing for a second
   yearRunning = true;
@@ -1427,7 +1419,8 @@ function toggleTrends(force?: boolean) {
   const el = $("trends");
   const open = force ?? el.hidden;
   if (!open) { el.hidden = true; $("trendsBtn").classList.remove("on"); return; }
-  trendsView(game, el, setTab);
+  if (!$("struggle").hidden) toggleStruggle(false); // one big panel at a time
+  trendsView(game, el, setTab, () => toggleTrends(false));
   $("trendsBtn").classList.add("on");
 }
 
@@ -1501,10 +1494,10 @@ function showFinal() {
       ["Seasons in operation", fmt(c.seasonsOperating)],
       ["Lifetime output", fmt(c.produced)],
       ["Most workers", `${fmt(st.peakEmployees)} (${st.peakEmployeesYear})`],
-      ["Cash, peak", `${money(st.peakCash)} (${st.peakCashYear})`],
-      [`Cash, ${cal(g).year}`, money(c.cash)],
+      ["Cash, peak", `${short(st.peakCash)} (${st.peakCashYear})`],
+      [`Cash, ${cal(g).year}`, short(c.cash)],
       ["Strikes", fmt(st.strikes)],
-      ["Reputation · labour · influence", `${Math.round(c.biz.meters.reputation)} · ${Math.round(c.biz.meters.labour)} · ${Math.round(c.biz.meters.influence)}`],
+      ["Reputation · labour · influence", [c.biz.meters.reputation, c.biz.meters.labour, c.biz.meters.influence].map((v) => String(Math.round(v)).replace("-", "−")).join(" · ")],
     );
     if (c.others.length) rows.splice(1, 0, ["Works owned", allWorks(c).map((w) => w.name).join(", ")]);
     verdict = c.bankrupt ? `${c.name} went into receivership in ${cal(g).year}. The bank sold the works to whoever would have them.` : c.cash > 0
@@ -1529,7 +1522,8 @@ function showFinal() {
     <div class="actions"><button id="finalLook">Look around</button><button id="finalNew" class="primary">New town</button></div>
   </div>`;
   $("final").hidden = false;
-  $("finalLook").addEventListener("click", () => { $("final").hidden = true; });
+  $("headline").hidden = true;
+  $("finalLook").addEventListener("click", () => { $("final").hidden = true; renderHeadline(); });
   $("finalNew").addEventListener("click", () => { newTown(Math.floor(Math.random() * 1e6)); showNews(); });
 }
 

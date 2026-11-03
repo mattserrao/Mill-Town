@@ -16,7 +16,7 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZOOMS, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -360,7 +360,19 @@ export class Renderer {
     for (const c of vis) {
       const key = `${s}:${c.cx},${c.cy}`;
       const chn = this.chunks.get(key);
-      if (!chn) continue;
+      if (!chn) {
+        // v0.28: not drawn at this zoom yet (just zoomed or jumped): show the same chunk from another zoom,
+        // scaled, rather than the bare background, until it's ready
+        let alt: Chunk | undefined, as = 0;
+        for (const z2 of ZOOMS) { const s2 = Math.min(1, z2); if (s2 === s || s2 === as) continue; const c2 = this.chunks.get(`${s2}:${c.cx},${c.cy}`); if (c2 && (!alt || Math.abs(Math.log(s2 / s)) < Math.abs(Math.log(as / s)))) { alt = c2; as = s2; } }
+        if (alt) {
+          const f = cam.zoom / as;
+          ctx.imageSmoothingEnabled = f < 1;
+          ctx.drawImage(alt.canvas, Math.round(alt.ox * f) - camX, Math.round(alt.oy * f) - camY, Math.round(alt.canvas.width * f), Math.round(alt.canvas.height * f));
+          ctx.imageSmoothingEnabled = false;
+        }
+        continue;
+      }
       this.chunks.delete(key);
       this.chunks.set(key, chn); // LRU touch
       const dx = Math.round(chn.ox * k) - camX, dy = Math.round(chn.oy * k) - camY;

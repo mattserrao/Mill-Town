@@ -126,6 +126,15 @@ function arrive(g: GameState, o: LaterStart): boolean {
   const paths: Path[] = o.faction === "politician" ? ["politics"] : ["business", "industry", "coop", "financier"];
   s.paths = paths;
   s.note = `${s.note} You join the family as its next head${o.faction === "politician" ? ", bound for public life" : ""}.`;
+  // v0.28: a later start opens on a working works. A strike the AI owner left running (the 1919 steel strike in the
+  // 1920 start) has ended by the time you take over: the men are back, the works is running.
+  const c = g.company;
+  let struck = false;
+  if (c) {
+    for (const u of Object.values(g.unions ?? {})) if (u?.siege) { u.siege = undefined; struck = true; }
+    for (const w of allWorks(c)) if (w.status === "strike" || w.strikeTurns > 0) { w.status = "running"; w.strikeTurns = 0; struck = true; }
+  }
+  if (struck) s.note = `${s.note} The strike is over and the men are back at work.`;
   delete g.flags.laterStart;
   return true;
 }

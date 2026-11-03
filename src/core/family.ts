@@ -93,7 +93,11 @@ export const pickName = (rng: Rng, sex: "m" | "f", born: number) => { const list
 export const familyOf = (g: GameState) => g.family;
 export const head = (g: GameState): Head | undefined => g.family?.heads[g.family.heads.length - 1];
 export const hasTrait = (g: GameState, t: TraitId) => !!head(g)?.traits.includes(t);
-export const fullName = (g: GameState, p: Person) => `${p.first} ${g.family?.surname ?? ""}`.trim();
+/** "Thomas Calder"; a son named for an earlier head of the family is "Thomas Calder Jr." (or III, IV…) */
+export const fullName = (g: GameState, p: Person) => {
+  const named = (g.family?.heads ?? []).filter((h) => h.first === p.first && h.born < p.born).length;
+  return `${p.first} ${g.family?.surname ?? ""}`.trim() + (named === 1 ? " Jr." : named > 1 ? ` ${["III", "IV", "V"][named - 2] ?? named + 1}` : "");
+};
 export const age = (g: GameState, p: Person) => cal(g).year - p.born;
 export const managed = (g: GameState) => !!g.family?.managed;
 

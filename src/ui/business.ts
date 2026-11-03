@@ -68,7 +68,7 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
       const list = keys.map((k) => POLICY_UI.find((p) => p.key === k)!).filter(shown);
       return list.length ? head(title, title === "The men" ? "a change costs 1 action" : "") + `<div class="bz-pol">${list.map(polRow).join("")}</div>` : "";
     }).join("")}
-    ${dirty ? `<div class="pol-apply"><button class="primary" data-apply="1" ${b.actionsLeft ? "" : "disabled"}>Apply changes (1 action)</button><button data-reset="1">Undo</button></div>` : ""}
+    ${dirty ? `<div class="pol-apply"><button class="primary" data-apply="1" ${b.actionsLeft ? "" : 'disabled title="No actions left this season: apply next season (your changes are kept)"'}>Apply changes (1 action)</button><button data-reset="1">Undo</button></div>` : ""}
     ${section("Labour", "Labour")}
     ${section("Public", "The public")}
     <p class="hint">Politics is in the Struggle (S); moves against a rival are on its row in Rivals.</p>`;
@@ -93,8 +93,9 @@ export function businessPanel(g: GameState, el: HTMLElement, changed: () => void
   wireActions(el, g, (t) => { status = t; changed(); });
 }
 
-/** clear staged policy edits and status when a new season starts or a new game begins */
-export function resetBusinessUi() { staged = {}; status = ""; }
+/** clear the status when a new season starts; a new game (`all`) clears the staged policy edits too.
+ *  v0.28: edits not yet applied carry over the turn (they vanished mid-edit while Play ran) */
+export function resetBusinessUi(all = true) { if (all) staged = {}; status = ""; }
 
 export function decisionCard(g: GameState, el: HTMLElement, done: () => void) {
   const d = g.pendingDecision;
