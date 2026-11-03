@@ -7,8 +7,21 @@ export const TW = 64;
 export const TH = 32;
 export const HW = TW / 2;
 export const HH = TH / 2;
-/** screen pixels per metre of height at zoom 1 (mild exaggeration, SimCity-style) */
-export const ZPX = 1.15;
+/** screen pixels per metre of height at zoom 1, before hill relief (mild exaggeration, SimCity-style) */
+export const ZPX_BASE = 1.15;
+/**
+ * Hill relief: how much the valley's real heights are stretched on screen (1× = the old look). Pittsburgh's
+ * hills read as the city's signature, so they're drawn taller than life. A live binding: every importer sees
+ * a change at once; the renderer has to rebuild its chunks after one (see setRelief's callers).
+ */
+export let RELIEF = 2.5;
+/** screen pixels per metre of height at zoom 1 */
+export let ZPX = ZPX_BASE * RELIEF;
+export const RELIEFS = [1, 1.5, 2, 2.5, 3];
+export function setRelief(k: number) {
+  RELIEF = Math.max(1, Math.min(3, k));
+  ZPX = ZPX_BASE * RELIEF;
+}
 export const BASE_M = 200;
 
 export function project(x: number, y: number, h: number): [number, number] {

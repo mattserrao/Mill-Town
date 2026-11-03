@@ -5,6 +5,7 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { lineIndex, segDist, type Seg } from "../core/lines";
+import { shoreDist, shoreField, wetAt } from "../core/shore";
 import { rivalRunning, techsForYear, type GameState, type Works } from "../core/game";
 import { INDUSTRIES, type IndustryId } from "../core/industries";
 import { type GameMap, Special } from "../core/map";
@@ -16,7 +17,9 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Portal, portals } from "../core/tunnels";
+import { buildPortal, portalKey } from "./portals";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -90,6 +93,51 @@ const PAL = {
   ],
 };
 const WATER = [0x33668e, 0x366b94, 0x306188, 0x386e96];
+/**
+ * A bridge's paint in a given year. Pittsburgh's downtown bridges went Aztec Gold (the city's black and gold) from
+ * 1975: the Three Sisters that year, then the West End, Fort Pitt and Fort Duquesne bridges in the 1978–81 repaint.
+ * Before that the Sisters wore a silver superstructure over green deck girders; other steel was grey or black.
+ */
+const GOLD_FROM: Record<string, number> = {
+  "Sixth Street Bridge": 1975, "Seventh Street Bridge": 1975, "Ninth Street Bridge": 1975, "South Tenth Street Bridge": 1975,
+  "West End Bridge": 1978, "Fort Pitt Bridge": 1979, "Fort Duquesne Bridge": 1981,
+};
+const SISTERS = new Set(["Sixth Street Bridge", "Seventh Street Bridge", "Ninth Street Bridge"]);
+export function bridgePaint(name: string, rail: boolean, built: number, year: number): { steel: string; girder: string } {
+  if (rail) return { steel: built < 1890 ? "#3e3e46" : "#4e525c", girder: "#4a4440" };
+  const gold = GOLD_FROM[name];
+  if (gold !== undefined && year >= gold) return { steel: "#c8a23a", girder: "#a8842a" };
+  if (SISTERS.has(name) && built >= 1920) return { steel: "#a4a8ac", girder: "#4e6a48" };
+  return { steel: built >= 1890 ? "#5a6470" : "#3e3e46", girder: "#4a4440" };
+}
+
+/** -1 not yet built, 0 open, 1 open with lamps, 2 closed and boarded up */
+function portalState(p: Portal, year: number): number {
+  if (year < p.t.opened) return -1;
+  if (p.t.closed !== undefined && year > p.t.closed) return 2;
+  return p.t.kind === "road" || year >= 1920 ? 1 : 0;
+}
+
+/** draw natural river banks along the smooth shoreline (core/shore) rather than the tile edges */
+export let SMOOTH_SHORE = true;
+/** a ground shader's flag on a colour: draw it at full light whatever the slope (river water on a bank tile) */
+const UNLIT = 0x1000000;
+export function setSmoothShore(on: boolean) { SMOOTH_SHORE = on; }
+
+/** open water `d` tiles out from the shoreline: deep blue with ripples, a shallow band and a broken line of foam at the edge */
+function waterPx(d: number, gx: number, gy: number): number {
+  if (d < 0.045 && hash(gx, gy, 5) < 0.4) return 0x9cc0d4;
+  if (d < 0.13 + hash(gx >> 2, gy >> 2, 28) * 0.04) return 0x3f7598;
+  const r = hash(gx >> 2, gy, 4);
+  if (r > 0.97 && (gx & 3) < 3) return 0x6f9cc0;
+  return pick(WATER, hash(gx >> 2, gy >> 1, 3));
+}
+/** the bank `-d` tiles in from the shoreline: wet mud at the waterline, then a ragged strip of sand or gravel, then `ground` */
+function bankPx(d: number, gx: number, gy: number, ground = -1): number {
+  if (d > -0.07) return pick(PAL.wet, hash(gx, gy, 25));
+  if (d > -0.2 - hash(gx >> 2, gy >> 2, 27) * 0.1 || ground < 0) return pick(PAL.sand, hash(gx, gy, 26));
+  return ground;
+}
 
 // 8 neighbour directions (dx, dy)
 const N8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -169,11 +217,11 @@ export class Renderer {
 
   private sprite(key: string, s: number): SpriteBuf | null {
     // houses and plants are generated per variant: kept in a byte-budgeted LRU
-    if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|"))) {
+    if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|") || key.startsWith("T|"))) {
       let e = this.gen.get(key);
       if (e) { this.gen.delete(key); this.gen.set(key, e); }
       else {
-        const sp = cropSprite(key.startsWith("H|") ? buildHouse(key) : buildPlant(key));
+        const sp = cropSprite(key.startsWith("H|") ? buildHouse(key) : key.startsWith("T|") ? buildPortal(key) : buildPlant(key));
         this.built++;
         e = { sp, bufs: new Map(), bytes: sp.canvas.width * sp.canvas.height * 4 };
         this.gen.set(key, e);
@@ -304,7 +352,7 @@ export class Renderer {
     const s = Math.min(1, cam.zoom);
     this.setScale(s);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const tail = `|${view.overlayKey}|${view.grid}`;
+    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -418,6 +466,44 @@ export class Renderer {
 
   private sigs = new Map<number, { stamp: string; sig: string }>();
 
+  // ------------------------------------------------------------ tunnels
+  private tunnelIdx: { portal: Map<number, Portal>; approach: Map<number, Portal>; near: Map<number, Portal> } | null = null;
+  /** portal tiles and the tiles of their cuttings, by tile index */
+  private tunnelTiles() {
+    if (this.tunnelIdx) return this.tunnelIdx;
+    const portal = new Map<number, Portal>(), approach = new Map<number, Portal>(), near = new Map<number, Portal>();
+    for (const p of portals(this.map)) {
+      portal.set(p.y * this.map.width + p.x, p);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near.set((p.y + dy) * this.map.width + p.x + dx, p);
+      for (const j of p.approach) if (!approach.has(j)) approach.set(j, p);
+    }
+    return (this.tunnelIdx = { portal, approach, near });
+  }
+  /** which tunnels touching a chunk are open/closed this year (so a chunk re-renders when one opens or closes) */
+  private tunnelSig(cx: number, cy: number, year: number): string {
+    let s = "";
+    const x0 = cx * CS - 1, y0 = cy * CS - 1, x1 = cx * CS + CS, y1 = cy * CS + CS;
+    for (const p of portals(this.map)) {
+      if (p.x < x0 - 6 || p.x > x1 + 6 || p.y < y0 - 6 || p.y > y1 + 6) continue;
+      s += portalState(p, year) + 1;
+    }
+    return s;
+  }
+  private portalKeyFor(p: Portal, year: number): string {
+    const m = this.map, V = m.width + 1, x = p.x, y = p.y;
+    const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
+    const hc = (hT + hR + hL + hB) / 4;
+    const q = (h: number) => Math.max(-80, Math.min(100, Math.round(((h - hc) * ZPX) / 3) * 3));
+    const st = portalState(p, year);
+    const t = p.t;
+    return portalKey({
+      look: t.look, bores: t.bores, face: p.face, kind: t.kind, g: [q(hT), q(hR), q(hB), q(hL)],
+      state: st === 2 ? 2 : st === 1 ? 1 : 0,
+      H: Math.round((t.kind === "trolley" ? 10 : t.bores === 2 ? 13 : 12) * ZPX),
+    });
+  }
+  private ws: [number, number, number] = [0, 0, 0];
+
   /**
    * A signature of everything a chunk's pixels depend on: the tiles in it and one tile around it
    * (streets and rows look at their neighbours), quantized the way the renderer quantizes them.
@@ -447,7 +533,7 @@ export class Renderer {
     }
     for (const b of g.company?.holdings?.biz ?? []) if (b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) mix(b.y * W + b.x + b.id.length * 131071);
     // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
-    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}`;
+    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}|${this.tunnelSig(cx, cy, w.year)}`;
     this.sigs.set(id, { stamp, sig });
     return sig;
   }
@@ -516,8 +602,10 @@ export class Renderer {
           const w2 = 1 - w0 - w1;
           if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
           const u = w0 * au + w1 * bu + w2 * qu, v = w0 * av + w1 * bv + w2 * qv, h = w0 * ah + w1 * bh + w2 * qh;
-          const c = tex(u, v, h, px + ox, py + oy);
-          let k = light + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          let c = tex(u, v, h, px + ox, py + oy);
+          // water drawn over the corner of a sloping bank tile is lit like the river, not like the slope
+          let k = (c & UNLIT ? 1 : light) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          c &= 0xffffff;
           k = Math.round(k * 14) / 14;
           let r = ((c >> 16) & 255) * k, gg = ((c >> 8) & 255) * k, b = (c & 255) * k;
           if (tintA > 0) { r += (tr - r) * tintA; gg += (tg - gg) * tintA; b += (tb - b) * tintA; }
@@ -565,6 +653,7 @@ export class Renderer {
       return 0.42 + 0.78 * Math.max(0, d);
     };
     const MPT = m.metersPerTile;
+    const SHADE_K = Math.sqrt(RELIEF);
 
     const tilesD = (x1 - x0) + (y1 - y0) - 1;
     for (let d = 0; d < tilesD; d++) {
@@ -585,8 +674,9 @@ export class Renderer {
           else { tint = 0x8c8a86; tintA = 0.62; }
         }
         const isWater = m.terrain[i] === Terrain.Water;
-        const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT), -MPT * (hL - hT), MPT * MPT);
-        const l2 = isWater ? 1 : lightOf(MPT * (hL - hB), MPT * (hR - hB), MPT * MPT);
+        // shade by the slopes as drawn (stretched by the hill relief, eased so the far sides don't go black)
+        const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT) * SHADE_K, -MPT * (hL - hT) * SHADE_K, MPT * MPT);
+        const l2 = isWater ? 1 : lightOf(MPT * (hL - hB) * SHADE_K, MPT * (hR - hB) * SHADE_K, MPT * MPT);
         tri(Tx, Ty, Rx, Ry, Lx, Ly, 0, 0, hT, 1, 0, hR, 0, 1, hL, l1, tex, tint, tintA);
         tri(Lx, Ly, Rx, Ry, Bx, By, 0, 1, hL, 1, 0, hR, 1, 1, hB, l2, tex, tint, tintA);
 
@@ -607,7 +697,10 @@ export class Renderer {
         }
 
         // with a data overlay on, show the ground (SimCity-style data map): only bridges stay
+        const sf = SMOOTH_SHORE && m.terrain[i] !== Terrain.Water ? shoreField(m) : null;
         for (const sp of this.tileSprites(g, tx, ty, i)) if (!view.overlay || sp.key.startsWith("bridge:")) {
+          // no trees standing in the river where the smooth bank gave the corner of the tile to the water
+          if (sf && sp.key.startsWith("tree:") && wetAt(sf, tx + sp.u, ty + sp.v, this.ws)[0] > 0.42) continue;
           // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
           objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
           blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
@@ -709,6 +802,19 @@ export class Renderer {
       // a notch between two wharf tiles is filled with quay paving, so the quay runs on the 45° line too
       const quay = shoreL && [at(shoreL[0], 0), at(0, shoreL[1])].every((j) => j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf));
       const polluted = Math.min(8, Math.floor(w.pollution[i] * 6)) * 0.05; // stepped, so chunk signatures stay stable
+      // a natural bank: the shoreline is the smooth curve through the staircase (core/shore), not the tile edges.
+      // Quays and wharves keep their straight stone edges.
+      const wharfNear = landMask && N8.some(([dx, dy]) => { const j = at(dx, dy); return j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf); });
+      if (SMOOTH_SHORE && landMask && !wharfNear) {
+        const sf = shoreField(m), ws: [number, number, number] = [0, 0, 0];
+        return (u: number, v: number, _h: number, gx: number, gy: number) => {
+          const d = shoreDist(wetAt(sf, x + u, y + v, ws));
+          if (d < 0) return bankPx(d, gx, gy);
+          let c = waterPx(d, gx, gy);
+          if (polluted > 0) c = rgb(((c >> 16) & 255) * (1 - polluted) + 70 * polluted, ((c >> 8) & 255) * (1 - polluted) + 64 * polluted, (c & 255) * (1 - polluted) + 50 * polluted);
+          return c;
+        };
+      }
       return (u: number, v: number, _h: number, gx: number, gy: number) => {
         let c = pick(WATER, hash(gx >> 2, gy >> 1, 3));
         const r = hash(gx >> 2, gy, 4);
@@ -863,9 +969,44 @@ export class Renderer {
     const wharf = m.special[i] === Special.Wharf;
     const paved = wharf || use === Use.Wharf;
     const waterL = paved || (!w.street[i] && !w.owner[i]) ? lCorner(waterMask, false) : null;
+    // open ground along a natural bank: the river may take part of the tile, up to the smooth shoreline
+    const natural = use === Use.Empty || use === Use.Forest || use === Use.Farm || use === Use.Rock || (use === Use.Park && w.sub[i] !== ParkSub.Paved);
+    const smoothBank = SMOOTH_SHORE && waterMask !== 0 && !paved && natural && !w.street[i] && !w.owner[i] && !w.structure[i] && rail < 0
+      && !N8.some(([dx, dy]) => { const j = at(dx, dy); return j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf); });
+    const sf = smoothBank ? shoreField(m) : null, ws: [number, number, number] = [0, 0, 0];
+
+    // the cutting in front of a tunnel portal: the roadway (or track) running out from the bores
+    const tpi = this.tunnelTiles().portal.get(i);
+    const head = tpi && (tpi.face === "x-" || tpi.face === "y-") ? tpi : undefined;
+    const ap = this.tunnelTiles().approach.get(i) ?? head;
+    const apSt = ap ? portalState(ap, w.year) : -1;
+    const apAlongU = ap ? ap.face[0] === "x" : false;
+    const apLanes = ap?.t.bores === 2 ? [0.27, 0.73] : [0.5], apW = ap?.t.bores === 2 ? 0.17 : 0.2;
 
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
+      if (apSt >= 0) {
+        const across = apAlongU ? v : u, along = apAlongU ? u : v;
+        if (head) {
+          // the back of a portal: the road runs in under the headwall's coping, the hill closes over it
+          const b = 1 - along;
+          if (b < 0.2) return c;
+          if (b < 0.27) return b < 0.215 ? 0x8a8070 : hash(gx, gy, 941) < 0.2 ? 0xa89c84 : 0xc4b89e;
+          if (b < 0.3) return 0x1a1a1e;
+        }
+        for (const lc of apLanes) {
+          const d = Math.abs(across - lc);
+          if (d > apW + 0.05) continue;
+          if (d > apW) { c = 0x8a8478; break; } // kerb / shoulder
+          if (ap!.t.kind === "road") { c = ap!.t.look === "concrete" ? (d < 0.012 && (Math.floor(along * 6) & 1) ? 0xe8e4d8 : 0x4a4a4e) : 0x8e8a80; break; }
+          if (apSt === 2) { c = hash(gx, gy, 940) < 0.3 ? 0x4e6a34 : 0x5e5a44; break; }
+          c = ap!.t.kind === "trolley" ? 0x8a8478 : hash(gx, gy, 30) < 0.5 ? 0x6a6258 : 0x5c544a;
+          if (d < 0.15 && (Math.floor(along / 0.06) & 1) === 0) c = ap!.t.kind === "trolley" ? 0x7a746a : 0x4a3626;
+          if (Math.abs(d - 0.06) < pxu * 0.9) c = 0xa8a8b0;
+          break;
+        }
+        if (ap!.t.bores === 2 && ap!.t.kind === "road" && Math.abs(across - 0.5) < 0.02) c = 0xb8b4a8;
+      }
       // a paved wharf takes the 45° line along the water too (no sawtooth of square tiles), with a stone edge
       if (waterMask && paved && waterL) {
         const [a, b] = orient(waterL, u, v);
@@ -873,7 +1014,11 @@ export class Renderer {
         if (dc < 0) return dc > -0.05 ? 0x3f7598 : pick(WATER, hash(gx >> 2, gy >> 1, 3));
         if (dc < 0.04) return 0x4a463e;
       }
-      if (waterMask && !paved) {
+      if (sf) {
+        const d = shoreDist(wetAt(sf, x + u, y + v, ws));
+        if (d >= 0) return waterPx(d, gx, gy) | UNLIT;
+        if (d > -0.3) c = bankPx(d, gx, gy, c);
+      } else if (waterMask && !paved) {
         let dw = edgeDist(waterMask, u, v);
         if (waterL) {
           // a point of land between two water sides: the river takes the corner (45° bank)
@@ -1004,6 +1149,20 @@ export class Renderer {
     const use = w.use[i];
     const t = m.terrain[i];
     const sub = w.sub[i];
+
+    // a tunnel portal fills its tile; its cutting runs out over the next few (no trees or buildings in the road)
+    const tp = this.tunnelTiles();
+    const pt = tp.portal.get(i);
+    if (pt && portalState(pt, w.year) >= 0) {
+      // a portal facing the camera is drawn over the terrain (drawPortals); one facing away is hidden by its own
+      // hill (the ground shader draws its road running up under the headwall's coping)
+      return out;
+    }
+    const ap = tp.approach.get(i);
+    if (ap && portalState(ap, w.year) >= 0) return out;
+    // the slope round a portal is cleared: no trees on the eight tiles about it
+    const near = tp.near.get(i);
+    if (near && portalState(near, w.year) >= 0 && use === Use.Forest) return out;
 
     // v0.28: a business you own stands on its tile (in place of the trees or the field)
     const held = holdingKey(g, i);
@@ -1177,7 +1336,8 @@ export class Renderer {
       const hAt = (t: number) => gA + (gB - gA) * t + lift * Math.pow(Math.sin(Math.PI * t), 0.45);
       const at = (t: number, side: number, dz = 0): [number, number] => S(ax + (bx - ax) * t + px * side, ay + (by - ay) * t + py * side, hAt(t) + dz);
       const ts: number[] = []; for (let k = 0; k <= N; k++) ts.push(k / N);
-      const steel = rail ? (built < 1890 ? "#3e3e46" : "#4e525c") : built >= 1955 ? "#c8a23a" : built >= 1890 ? "#5a6470" : "#3e3e46";
+      const paint = bridgePaint(sp.name, rail, built, year);
+      const steel = paint.steel;
       const lw = (w: number) => Math.max(1, w * z);
       const line = (pts: [number, number][], col: string, w: number) => { ctx.strokeStyle = col; ctx.lineWidth = lw(w); ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); };
       const seg = (p: [number, number], q: [number, number], col: string, w: number) => line([p, q], col, w);
@@ -1241,8 +1401,10 @@ export class Renderer {
             else { const u = (t - 0.5) / 0.3; zc = 2 + (TH - 2) * u * u; }
             cable.push(at(t, s, zc));
           }
-          line(cable, "#2a2a2e", 1.3);
-          for (let k = 1; k < N; k++) { const t = k / N; if (k % 2) continue; seg(at(t, s, 0.5), cable[k], "#4a4a50", 0.6); }
+          // the 1920s eyebar chains carry the paint (gold Sisters); older wire cables stay dark
+          const painted = !rail && built >= 1920;
+          line(cable, painted ? steel : "#2a2a2e", painted ? 1.7 : 1.3);
+          for (let k = 1; k < N; k++) { const t = k / N; if (k % 2) continue; seg(at(t, s, 0.5), cable[k], painted ? shade6(steel, 0.8) : "#4a4a50", 0.6); }
           ctx.fillStyle = "#2a2a2e";
           line(ts.map((t) => at(t, s, 1.2)), "#3a3a40", 0.8);
         } else if (type === "arch") {
@@ -1271,7 +1433,7 @@ export class Renderer {
       if (!rail && z >= 0.375) line(ts.map((t) => at(t, 0, 0.05)), built >= 1920 ? "#c8c040" : "#6e5c44", 0.5);
       if (rail && z >= 0.375) { line(ts.map((t) => at(t, -0.3, 0.1)), "#a8a8b0", 0.6); line(ts.map((t) => at(t, 0.3, 0.1)), "#a8a8b0", 0.6); }
       const fasc = ts.map((t) => at(t, 1, -1.8));
-      poly([...near, ...[...fasc].reverse()], type === "covered" ? "#5a2a1c" : "#4a4440");
+      poly([...near, ...[...fasc].reverse()], type === "covered" ? "#5a2a1c" : paint.girder);
       side(1);
       if (type === "covered") {
         const rf = ts.map((t) => at(t, -1, 5.5)), rn = ts.map((t) => at(t, 1, 5.5)), ridge = ts.map((t) => at(t, 0, 8));
@@ -1281,6 +1443,32 @@ export class Renderer {
       if (type === "truss" && z >= 0.375) {
         for (let k = 0; k <= N; k += 3) seg(at(k / N, -1, rail ? 9 : 8), at(k / N, 1, rail ? 9 : 8), steel, 0.7);
       }
+    }
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------ tunnel portals (drawn live over the terrain)
+  private portalSprites = new Map<string, Sprite>();
+  /**
+   * Portals that face the camera, drawn after the terrain like the bridges: a portal is cut into a slope, and
+   * on a 30 m grid the hill beside a one-tile cutting would otherwise bury it.
+   */
+  drawPortals(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const m = this.map, z = cam.zoom, year = g.world.year, V = m.width + 1;
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    const list = portals(m).filter((p) => (p.face === "x+" || p.face === "y+") && portalState(p, year) >= 0).sort((p, q) => p.x + p.y - (q.x + q.y));
+    for (const p of list) {
+      const hc = (m.vert[p.y * V + p.x] + m.vert[p.y * V + p.x + 1] + m.vert[(p.y + 1) * V + p.x] + m.vert[(p.y + 1) * V + p.x + 1]) / 4;
+      const [wx, wy] = project(p.x + 0.5, p.y + 0.5, hc);
+      const sx = (wx - cam.x) * z, sy = (wy - cam.y) * z;
+      if (sx < -200 || sx > cw + 200 || sy < -200 || sy > ch + 400) continue;
+      const key = this.portalKeyFor(p, year);
+      let sp = this.portalSprites.get(key);
+      if (!sp) { sp = cropSprite(buildPortal(key)); this.portalSprites.set(key, sp); }
+      ctx.drawImage(sp.canvas, Math.round(sx - sp.ax * z), Math.round(sy - sp.ay * z), Math.round(sp.canvas.width * z), Math.round(sp.canvas.height * z));
     }
     ctx.restore();
   }

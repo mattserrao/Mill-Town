@@ -7,8 +7,8 @@ import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
 import { loadMap, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
-import { type Camera, pickTile, placeLabelRects, project, ZOOMS } from "./render/iso";
-import { Renderer } from "./render/renderer";
+import { type Camera, pickTile, placeLabelRects, project, RELIEF, RELIEFS, setRelief, ZOOMS } from "./render/iso";
+import { Renderer, setSmoothShore } from "./render/renderer";
 import { Traffic } from "./render/traffic";
 import { drawHaze, drawSpills } from "./render/pollution";
 import { SoundController, summarizeView } from "./audio";
@@ -85,6 +85,17 @@ function announceVersion() {
   console.log(`%cMILL TOWN%c ${label}${v?.date ? ` · committed ${v.date}` : ""}`, "color:#e0a243;font-weight:bold;letter-spacing:2px", "color:inherit");
   $("version").textContent = v ? `v${v.version}·${v.sha}${v.dirty ? "*" : ""}` : "";
   $("version").title = v ? `${v.label}, committed ${v.date}` : "";
+}
+
+// hill relief before anything is projected: ?relief= in the address, else the remembered setting
+{
+  const asked = Number(new URLSearchParams(location.search).get("relief"));
+  let saved = NaN;
+  try { saved = Number(localStorage.getItem("mt.relief") ?? NaN); } catch { /* private mode */ }
+  const k = asked > 0 ? asked : saved;
+  if (RELIEFS.includes(k)) setRelief(k);
+  // ?shore=0: the old tile-edge river banks (for comparison)
+  if (new URLSearchParams(location.search).get("shore") === "0") setSmoothShore(false);
 }
 
 async function start() {
@@ -386,7 +397,7 @@ function requestRender() {
     // up nearest-neighbour like the chunks, so at 1.5× and 2× they keep the pixel grid instead of reading as
     // smooth lines next to 2×2 pixel blocks
     pixelLayer((c2, cm) => {
-      if (cm.zoom >= 0.1875) renderer.drawBridges(c2, cm, game);
+      if (cm.zoom >= 0.1875) { renderer.drawPortals(c2, cm, game); renderer.drawBridges(c2, cm, game); }
       if (cm.zoom >= 0.25) renderer.drawSpur(c2, cm, game);
       if (cm.zoom >= 0.25) renderer.drawMemorials(c2, cm, game);
       if (game.world.inclines.length && cm.zoom >= 0.25) renderer.drawInclines(c2, cm, game, anim ? t : 0);
@@ -977,6 +988,21 @@ function setupUI() {
     try { const v = localStorage.getItem("mt.streetlife"); if (v === "0" || v === "1" || v === "2") sel.value = v; } catch { /* private mode */ }
     Traffic.streetLife = Number(sel.value);
     sel.addEventListener("change", () => { Traffic.streetLife = Number(sel.value); try { localStorage.setItem("mt.streetlife", sel.value); } catch { /* private mode */ } requestRender(); });
+  }
+  // Hill relief: how tall the hills are drawn (?relief=3 in the address overrides it), remembered
+  {
+    const sel = $<HTMLSelectElement>("relief");
+    sel.value = String(RELIEF);
+    sel.addEventListener("change", () => {
+      // keep the tile at the middle of the screen where it was
+      const mid = pickTile(map, cam.x + canvas.width / 2 / cam.zoom, cam.y + canvas.height / 2 / cam.zoom);
+      setRelief(Number(sel.value));
+      try { localStorage.setItem("mt.relief", sel.value); } catch { /* private mode */ }
+      renderer.updateHeights();
+      renderer.invalidateAll();
+      if (mid) centerOn(mid.x, mid.y);
+      requestRender();
+    });
   }
   $("found").addEventListener("click", () => {
     if (!selected) return;
