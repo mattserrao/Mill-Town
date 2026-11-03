@@ -11,14 +11,13 @@ import { advanceTurn, newGame, type GameState } from "../src/core/game";
 import { parseMap, type MapMeta } from "../src/core/map";
 import { unpackGame } from "../src/core/save";
 
-// v0.29 (hex grid): the world is a different lattice, so every v0.24 hash is retired. The 1850 runs are pinned to
-// the hashes below (fill in with PRINT_HASH=1 after a change meant to alter results); the baked starts are
-// skipped until `npm run bake` has rebuilt them on the hex map (an old square-map start fails to load).
+// v0.29 (hex grid): the world is a different lattice, so the v0.24 hashes were retired and these are the hex ones
+// (the starts were re-baked on the hex map).
 const EXPECTED: Record<string, string> = {
-  "1850-desire": "",
-  "1850": "",
-  "1893-steel": "",
-  "1947-steel": "",
+  "1850-desire": "3746f122",
+  "1850": "1f5fc3fd",
+  "1893-steel": "c48e710d",
+  "1947-steel": "b228e0d9",
 };
 const SEASONS = Number(process.env.SEASONS ?? 10);
 
@@ -59,7 +58,7 @@ describe("results match", () => {
         if (/different map/.test(String(e))) return; // a start baked on the square map: rebake it
         throw e;
       }
-      if (process.env.PRINT_HASH) console.log(`HASH ${key} ${h}`);
+      if (process.env.PRINT_HASH) process.stderr.write(`HASH ${key} ${h}\n`);
       else if (EXPECTED[key]) expect(h).toBe(EXPECTED[key]);
       else expect(await run(key)).toBe(h); // not pinned yet: at least a second run must agree
     }, 120_000);
