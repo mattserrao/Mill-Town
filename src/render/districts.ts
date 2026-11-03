@@ -4,7 +4,7 @@
 import { cityKey, cityName, districts, zoneName } from "../core/districts";
 import type { GameState } from "../core/game";
 import { GROUPS } from "../core/ancestry";
-import { type GameMap, vh } from "../core/map";
+import type { GameMap } from "../core/map";
 import { zoneCensus } from "../core/town";
 import { type Camera, heightAt, placeLabelRects, project } from "./iso";
 
@@ -181,7 +181,7 @@ export function drawDistricts(ctx: CanvasRenderingContext2D, cam: Camera, g: Gam
   ctx.save();
   ctx.setTransform(base, 0, 0, base, 0, 0);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const S = (x: number, y: number): [number, number] => { const [wx, wy] = project(x + 0.5, y + 0.5, vh(m, Math.max(0, Math.min(m.width, x)), Math.max(0, Math.min(m.height, y))) + 8); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+  const S = (x: number, y: number): [number, number] => { const [wx, wy] = project(x + 0.5, y + 0.5, m.vert[Math.max(0, Math.min(m.height - 1, y)) * m.width + Math.max(0, Math.min(m.width - 1, x))] + 8); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
   const W = ctx.canvas.width / base, Hh = ctx.canvas.height / base, MG = 6;
   // labels are placed greedily (cities first, then neighbourhoods), kept inside the canvas, and
   // skipped when they would collide with one already placed or with reserved UI (minimap etc.)

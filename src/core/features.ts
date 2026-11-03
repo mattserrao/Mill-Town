@@ -1,6 +1,6 @@
 // Hand-placed historic features that aren't in the USGS data. Positions and dates approximate.
 
-import type { GameMap } from "./map";
+import { type GameMap, geoToCell } from "./map";
 
 export interface Incline { id: number; name: string; year: number; lower: [number, number]; upper: [number, number] }
 
@@ -76,8 +76,7 @@ export function regionTarget(year: number): number {
 }
 
 export function latLonToTile(m: GameMap, lat: number, lon: number): [number, number] {
-  const b = m.bounds;
-  return [Math.floor(((lon - b.west) / (b.east - b.west)) * m.width), Math.floor(((b.north - lat) / (b.north - b.south)) * m.height)];
+  return geoToCell(m, lat, lon);
 }
 
 /** Tiles along a straight line between two tile positions (inclusive). */

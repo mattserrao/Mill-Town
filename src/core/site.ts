@@ -3,7 +3,7 @@
 import { simBand } from "./band";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { type GameMap, distanceField, inBounds, sat, satSum, tilesFor, vh } from "./map";
+import { type GameMap, distanceField, inBounds, sat, satSum, tilesFor } from "./map";
 import { BUILD_COST_MULT, Coal, Terrain } from "./terrain";
 import type { World } from "./town";
 import { Use } from "./town";
@@ -93,7 +93,7 @@ export function evaluateSite(m: GameMap, w: World, f: SiteFields, industry: Indu
     land += w.landValue[i];
     grading += 120 * mult;
     displaced += w.pop[i];
-    for (const [vx, vy] of [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]]) { const h = vh(m, vx, vy); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+    { const h = m.vert[i]; lo = Math.min(lo, h); hi = Math.max(hi, h); }
   }
   const relief = isFinite(hi) ? hi - lo : 0;
   if (ok && relief > ind.site.maxReliefM) { ok = false; reasons.add(`Ground too uneven (${feet(relief)} of relief)`); }

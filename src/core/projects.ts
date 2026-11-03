@@ -12,7 +12,7 @@ import { feet } from "./units";
 import { bump } from "./business";
 import { type Annex, cal, claimFootprint, type Company, type GameState, log, nextWorksId, riverSideOf, updateWorksAccess, type Works } from "./game";
 import { INDUSTRIES, type IndustryId } from "./industries";
-import { inBounds, vh } from "./map";
+import { inBounds } from "./map";
 import { newestGroup } from "./business";
 import { evaluateSite, footprintTiles, popSAT } from "./site";
 import { habitable, Terrain } from "./terrain";
@@ -101,7 +101,7 @@ export function checkProject(g: GameState, kind: ProjectKind, x: number, y: numb
     if (blocked(w.use[i])) return fail("A church, landmark or works is in the way");
     if (m.rail[i] || m.bridge[i]) return fail("A railroad or bridge is in the way");
     out.displaced += w.pop[i];
-    for (const [vx, vy] of [[tx, ty], [tx + 1, ty + 1]]) { const h = vh(m, vx, vy); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+    { const h = m.vert[i]; lo = Math.min(lo, h); hi = Math.max(hi, h); }
     for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inBounds(m, tx + ax, ty + ay) && m.terrain[(ty + ay) * m.width + tx + ax] === Terrain.Water) water++;
   }
   const relief = hi - lo;

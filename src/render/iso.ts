@@ -1,8 +1,10 @@
-// 2:1 isometric projection with continuous terrain height.
-// World pixel space at zoom 1: tile (x, y) corner -> ((x - y) * 32, (x + y) * 16 - (h - BASE_M) * ZPX)
+// Hex projection: flat-top hexagons squashed 2:1 (the old isometric tilt), see core/hex.ts for the lattice.
+// World pixel space at zoom 1: cell (x, y) centre -> (CW * x, RH * (y + x / 2) - (h - BASE_M) * ZPX)
 
-import { type GameMap, vh } from "../core/map";
+import { type GameMap, cornerH, inBounds } from "../core/map";
+import { CW, HEX_CORNERS, HEX6, RH, cellAt } from "../core/hex";
 
+/** the sprite grid: house, plant and prop sprites are still authored on a 64 x 32 isometric diamond */
 export const TW = 64;
 export const TH = 32;
 export const HW = TW / 2;
@@ -12,26 +14,30 @@ export const ZPX = 1.15;
 export const BASE_M = 200;
 
 export function project(x: number, y: number, h: number): [number, number] {
-  return [(x - y) * HW, (x + y) * HH - (h - BASE_M) * ZPX];
+  const a = x - 0.5, b = y - 0.5;
+  return [a * CW, (b + a / 2) * RH - (h - BASE_M) * ZPX];
 }
 
-/** height at fractional tile position (bilinear over the tile's corners) */
+/** the continuous cell position (fx, fy) under world point (wx, wy) on the plane at height h */
+export function unproject(wx: number, wy: number, h: number): [number, number] {
+  const a = wx / CW, b = (wy + (h - BASE_M) * ZPX) / RH - a / 2;
+  return [a + 0.5, b + 0.5];
+}
+
+/** height at a fractional position (piecewise linear over the triangles between neighbouring cell centres) */
 export function heightAt(m: GameMap, fx: number, fy: number): number {
-  const x = Math.max(0, Math.min(m.width - 1, Math.floor(fx)));
-  const y = Math.max(0, Math.min(m.height - 1, Math.floor(fy)));
-  const u = Math.max(0, Math.min(1, fx - x)), v = Math.max(0, Math.min(1, fy - y));
-  const a = vh(m, x, y), b = vh(m, x + 1, y), c = vh(m, x, y + 1), d = vh(m, x + 1, y + 1);
-  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  const W = m.width, H = m.height;
+  const a = fx - 0.5, b = fy - 0.5;
+  const i = Math.max(0, Math.min(W - 2, Math.floor(a))), j = Math.max(0, Math.min(H - 2, Math.floor(b)));
+  const u = Math.max(0, Math.min(1, a - i)), v = Math.max(0, Math.min(1, b - j));
+  const h = m.vert;
+  const h00 = h[j * W + i], h10 = h[j * W + i + 1], h01 = h[(j + 1) * W + i], h11 = h[(j + 1) * W + i + 1];
+  return u + v <= 1 ? h00 + (h10 - h00) * u + (h01 - h00) * v : h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
 }
 
-/** screen-space corners of a tile top: [top, right, bottom, left] */
+/** screen-space corners of a hexagon top, east first then anticlockwise (see HEX_CORNERS) */
 export function tileCorners(m: GameMap, x: number, y: number): [number, number][] {
-  return [
-    project(x, y, vh(m, x, y)),
-    project(x + 1, y, vh(m, x + 1, y)),
-    project(x + 1, y + 1, vh(m, x + 1, y + 1)),
-    project(x, y + 1, vh(m, x, y + 1)),
-  ];
+  return HEX_CORNERS.map(([dx, dy], k) => project(x + 0.5 + dx, y + 0.5 + dy, cornerH(m, x, y, k)));
 }
 
 function inTri(px: number, py: number, a: [number, number], b: [number, number], c: [number, number]) {
@@ -42,24 +48,26 @@ function inTri(px: number, py: number, a: [number, number], b: [number, number],
   return !(neg && pos);
 }
 
-/** Front-most tile whose top surface contains the world-space point. */
+/** Front-most cell whose top surface contains the world-space point. */
 export function pickTile(m: GameMap, wx: number, wy: number): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null;
+  let bestD = -Infinity;
   const seen = new Set<number>();
   for (let h = m.maxHeight; h >= m.minHeight - 10; h -= 6) {
-    const yy = wy + (h - BASE_M) * ZPX;
-    const a = wx / HW, b = yy / HH;
-    const gx = Math.floor((a + b) / 2), gy = Math.floor((b - a) / 2);
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const x = gx + dx, y = gy + dy;
-      if (x < 0 || y < 0 || x >= m.width || y >= m.height) continue;
+    const [fx, fy] = unproject(wx, wy, h);
+    const [cx, cy] = cellAt(fx, fy);
+    for (let n = -1; n < 6; n++) {
+      const x = n < 0 ? cx : cx + HEX6[n][0], y = n < 0 ? cy : cy + HEX6[n][1];
+      if (!inBounds(m, x, y)) continue;
       const k = y * m.width + x;
       if (seen.has(k)) continue;
       seen.add(k);
-      const [t, r, bt, l] = tileCorners(m, x, y);
-      if (inTri(wx, wy, t, r, l) || inTri(wx, wy, l, r, bt)) {
-        if (!best || x + y > best.x + best.y) best = { x, y };
-      }
+      const c = project(x + 0.5, y + 0.5, m.vert[k]);
+      const cs = tileCorners(m, x, y);
+      let hit = false;
+      for (let q = 0; q < 6 && !hit; q++) hit = inTri(wx, wy, c, cs[q], cs[(q + 1) % 6]);
+      const d = 2 * y + x;
+      if (hit && d > bestD) { best = { x, y }; bestD = d; }
     }
   }
   return best;
