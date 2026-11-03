@@ -19,6 +19,8 @@ export interface GFig {
   placard?: number;
   flame?: boolean;
   seed: number;
+  /** a stable object for this figure (v0.28: lets the drawing ease it in and out behind buildings) */
+  ref?: object;
 }
 
 interface Member { look?: Look; spec?: VehicleSpec; back: number; side: number; placard?: number }
@@ -81,14 +83,14 @@ export class Gatherings {
         if (d < 0 || d > p.len) continue;
         const [fx, fy, tx, ty] = this.along(p.path, d);
         const moving = !(p.stay && head >= p.len);
-        out.push({ fx: fx - ty * mb.side, fy: fy + tx * mb.side, tx, ty, look: mb.look, spec: mb.spec, moving, placard: mb.placard, seed: k * 0.37 });
+        out.push({ fx: fx - ty * mb.side, fy: fy + tx * mb.side, tx, ty, look: mb.look, spec: mb.spec, moving, placard: mb.placard, seed: k * 0.37, ref: mb });
       }
-      for (const c of p.crowd) out.push({ fx: c.fx, fy: c.fy, tx: 0, ty: 1, look: c.look, moving: false, seed: c.fx });
+      for (const c of p.crowd) out.push({ fx: c.fx, fy: c.fy, tx: 0, ty: 1, look: c.look, moving: false, seed: c.fx, ref: c });
     }
     for (const c of this.crowds) {
       const ph = ((time / 45 + c.phase) % 1 + 1) % 1;
       if (ph > c.on) continue;
-      for (const f of c.figs) out.push({ fx: f.fx, fy: f.fy, tx: 0, ty: 1, look: f.look, moving: false, seed: f.fx });
+      for (const f of c.figs) out.push({ fx: f.fx, fy: f.fy, tx: 0, ty: 1, look: f.look, moving: false, seed: f.fx, ref: f });
     }
     for (const [x, y] of this.flames) out.push({ fx: x + 0.5, fy: y + 0.5, tx: 0, ty: 0, moving: false, flame: true, seed: tileNoise(x, y, 3, 951) * 10 });
     return out;

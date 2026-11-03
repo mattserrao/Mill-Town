@@ -433,6 +433,7 @@ export class Renderer {
       const vs = lix.get(i);
       if (vs) for (const sg of vs) if (sg.kind === "rail" && (m.railLines[String(sg.line)]?.year ?? 9999) <= w.year) rails += 64;
     }
+    for (const b of g.company?.holdings?.biz ?? []) if (b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) mix(b.y * W + b.x + b.id.length * 131071);
     // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
     const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}`;
     this.sigs.set(id, { stamp, sig });
@@ -992,6 +993,10 @@ export class Renderer {
     const t = m.terrain[i];
     const sub = w.sub[i];
 
+    // v0.28: a business you own stands on its tile (in place of the trees or the field)
+    const held = holdingKey(g, i);
+    if (held) { out.push({ key: held, u: 0.5, v: 0.5 }); return out; }
+
     switch (use) {
       case Use.Forest: {
         const high = m.elevation[i] > 320 || t === Terrain.Steep || t === Terrain.Cliff;
@@ -1515,7 +1520,9 @@ export class Renderer {
     // Keep every label wholly inside the canvas: labels whose anchor is on screen are slid in from the
     // edge; ones whose anchor is off screen are dropped. Towns go first, and a label that would sit on
     // top of one already drawn (or on reserved UI such as the minimap) is skipped.
-    const W = ctx.canvas.width, H = ctx.canvas.height, MG = 4;
+    // drawn under the app's dpr scale: the canvas in this context's own (CSS) pixels
+    const sc = ctx.getTransform().a || 1;
+    const W = ctx.canvas.width / sc, H = ctx.canvas.height / sc, MG = 4;
     const placed = reserved.map((r) => ({ ...r }));
     const order = items.filter((it) => cam.zoom >= it.min).sort((a, b) => a.min - b.min);
     ctx.textBaseline = "alphabetic";
@@ -1541,7 +1548,18 @@ export class Renderer {
       ctx.fillStyle = it.col;
       ctx.fillText(it.name, cx, by);
     }
+    ctx.textAlign = "start"; // later layers draw from the left
   }
+}
+
+/** the sprite of a business you own on this tile, if any */
+function holdingKey(g: GameState, i: number): string | null {
+  const biz = g.company?.holdings?.biz;
+  if (!biz?.length) return null;
+  const W = g.map.width;
+  if (g.world.owner[i]) return null; // never over a works
+  for (const b of biz) if (b.y * W + b.x === i) return `hold:${b.id}`;
+  return null;
 }
 
 function riverAxis(m: GameMap, x: number, y: number): "a" | "b" {

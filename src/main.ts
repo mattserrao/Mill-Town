@@ -7,7 +7,7 @@ import { INDUSTRIES, industriesIn, type IndustryId } from "./core/industries";
 import { loadMap, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
-import { type Camera, pickTile, project, ZOOMS } from "./render/iso";
+import { type Camera, pickTile, placeLabelRects, project, ZOOMS } from "./render/iso";
 import { Renderer } from "./render/renderer";
 import { Traffic } from "./render/traffic";
 import { drawHaze, drawSpills } from "./render/pollution";
@@ -338,6 +338,7 @@ const camCss = (): Camera => ({ x: cam.x, y: cam.y, zoom: cam.zoom / dpr });
 let pending = false;
 const t0 = performance.now();
 let lastFrame = 0;
+let lastTick = 0, vsync = 16.7, tickN = 0;
 function nightLevel(t: number): number {
   const mode = ($<HTMLSelectElement>("tod")).value;
   if (mode === "day") return 0;
@@ -360,7 +361,13 @@ function requestRender() {
   pending = true;
   requestAnimationFrame((now) => {
     pending = false;
-    if (animating() && now - lastFrame < 30) { requestRender(); return; } // ~30 fps
+    // ~30 fps, on whole display frames: every 2nd vsync at 60 Hz, every 4th at 120 Hz (a fixed 30 ms threshold
+    // landed on the vsync boundary, and timestamp jitter alternated 33 and 50 ms frames: judder)
+    if (lastTick) { const d = now - lastTick; if (d > 2 && d < 100) vsync += (d - vsync) * 0.1; }
+    lastTick = now;
+    const every = Math.max(1, Math.round(33.4 / vsync));
+    if (animating() && ++tickN % every !== 0 && now - lastFrame < 60) { requestRender(); return; }
+    tickN = 0;
     if (covered() && now - lastFrame < 500) { requestRender(); return; }
     lastFrame = now;
     const fpSize = footprintTiles(map, industry);
@@ -398,7 +405,7 @@ function requestRender() {
     ctx.scale(dpr, dpr);
     const cc = camCss(), rr = reservedRects(true);
     if (($<HTMLInputElement>("labels")).checked) renderer.drawLabels(ctx, cc, game, rr, overlay === "wards");
-    drawHoldings(cc);
+    drawHoldings(cc, rr);
     if (overlay === "supply") {
       const sc = currentChain();
       if (sc) drawSupply(ctx, cc, game, sc.works, sc.flows, anim ? t : 0, focusId, sc.preview, rr);
@@ -1231,27 +1238,45 @@ function startRoad(p: RoadPlan) {
   requestRender();
 }
 
-/** your businesses on the map: a small flag in the company colours, named when you're close */
-/** the flags on the businesses you own (drawn in CSS pixels: the context is already scaled) */
-function drawHoldings(c: Camera) {
+/**
+ * The businesses you own (v0.28): each stands on the map as its own building with a pennant (drawn in the chunks).
+ * Here, in CSS pixels: zoomed out, a small pennant marks each one; close up, its name, placed like the town names
+ * (kept off the controls and off other labels).
+ */
+function drawHoldings(c: Camera, reserved: { x: number; y: number; w: number; h: number }[]) {
   const h = game.company?.holdings;
   if (!h?.biz.length || c.zoom < 0.25) return;
   ctx.save();
-  ctx.font = "bold 11px ui-monospace, monospace"; ctx.textBaseline = "bottom";
+  ctx.font = "bold 11px ui-monospace, monospace"; ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
   const cw = canvas.width / dpr, chh = canvas.height / dpr;
+  const taken = [...reserved, ...placeLabelRects.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))];
+  const hit = (b: { x: number; y: number; w: number; h: number }) => taken.some((p) => b.x < p.x + p.w && b.x + b.w > p.x && b.y < p.y + p.h && b.y + b.h > p.y);
   for (const b of h.biz) {
     const [wx, wy] = project(b.x + 0.5, b.y + 0.5, map.elevation[b.y * map.width + b.x]);
-    const x = (wx - c.x) * c.zoom, y = (wy - c.y) * c.zoom;
+    const x = Math.round((wx - c.x) * c.zoom), y = Math.round((wy - c.y) * c.zoom);
     if (x < -50 || y < -50 || x > cw + 50 || y > chh + 50) continue;
-    const pole = 18 * Math.max(0.6, Math.min(1.5, c.zoom));
-    ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - pole); ctx.stroke();
-    ctx.fillStyle = "#e0b050"; ctx.fillRect(x, y - pole, 10, 7); ctx.fillStyle = "#8e3f2e"; ctx.fillRect(x, y - pole + 7, 10, 2);
-    if (c.zoom >= 0.75) {
-      const name = bizDef(b.id).name;
-      const w = ctx.measureText(name).width + 8;
-      ctx.fillStyle = "rgba(20,20,24,0.85)"; ctx.fillRect(x + 12, y - pole - 2, w, 15);
-      ctx.fillStyle = "#ffd34a"; ctx.fillText(name, x + 16, y - pole + 12);
+    if (c.zoom < 0.75) {
+      // a pennant over the building, legible when the sprite is small
+      const top = y - Math.round(14 * Math.max(0.6, c.zoom * 2));
+      ctx.fillStyle = "#1a1a1a"; ctx.fillRect(x, top, 1, y - top);
+      ctx.fillStyle = "#e0b050"; ctx.fillRect(x + 1, top, 6, 4); ctx.fillStyle = "#8e3f2e"; ctx.fillRect(x + 1, top + 4, 6, 1);
+      continue;
     }
+    const name = bizDef(b.id).name;
+    const tw = Math.ceil(ctx.measureText(name).width) + 8, bh = 15;
+    // above the building first, then either side, then below
+    const lift = Math.round(34 * c.zoom);
+    const tries = [[x - tw / 2, y - lift - bh], [x + 10, y - lift / 2 - bh], [x - tw - 10, y - lift / 2 - bh], [x - tw / 2, y + 6]];
+    let box: { x: number; y: number; w: number; h: number } | null = null;
+    for (const [bx, by] of tries) {
+      const cand = { x: Math.round(Math.max(4, Math.min(cw - tw - 4, bx))), y: Math.round(Math.max(4, Math.min(chh - bh - 4, by))), w: tw, h: bh };
+      if (!hit(cand)) { box = cand; break; }
+    }
+    if (!box) continue;
+    taken.push(box);
+    ctx.fillStyle = "rgba(20,20,24,0.82)"; ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = "#e0b050"; ctx.fillRect(box.x, box.y, 2, box.h);
+    ctx.fillStyle = "#ffd34a"; ctx.fillText(name, box.x + 5, box.y + 11);
   }
   ctx.restore();
 }

@@ -1859,6 +1859,7 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   for (let v = 0; v < 4; v++) s.set(`lot:burnt${v}`, burntLot(v));
   s.set("yard:scrap", scrapHeap());
   s.set("yard:kiln", brickKiln());
+  for (const [k, f] of HOLDINGS) s.set(`hold:${k}`, f());
   s.set("lamp:gas", lamp("gas"));
   s.set("lamp:elec", lamp("elec"));
   return s;
@@ -1906,3 +1907,166 @@ export function scaleSprite(s: Sprite, scale: number): SpriteBuf {
   if (!s.soft) for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i] >= 100 ? 255 : 0;
   return { w, h, ax: Math.round(s.ax * scale), ay: Math.round(s.ay * scale), px: new Uint32Array(d.data.buffer), soft: !!s.soft };
 }
+
+
+// ---------------------------------------------------------------- v0.28: the businesses you own (holdings)
+// One tile each, set beside a road, the river, the rails or a coal outcrop. A company pennant marks them.
+const PENNANT = "#e0b050";
+function holdFlag(p: Painter, u: number, v: number, z: number) {
+  const [x, y] = p.P(u, v, z);
+  p.px(x, y - 11, "#2a2a2e", 1, 11); p.px(x + 1, y - 11, PENNANT, 5, 3); p.px(x + 1, y - 8, "#8e3f2e", 5, 1);
+}
+function shed(p: Painter, u0: number, v0: number, u1: number, v1: number, h: number, wall: string, roof: string, axis: "u" | "v" = "u") {
+  const b = box(p, u0, v0, u1, v1, h, { wall, foundation: 1 });
+  gable(p, b, axis, 5, roof);
+  return b;
+}
+function holdCoke(): Sprite {
+  // a bank of beehive ovens with a larry track along the top, smoking
+  const p = new Painter(1, 90);
+  box(p, 0.1, 0.25, 0.9, 0.75, 4, { wall: "#8a6a52", top: "#6a5444" });
+  for (let k = 0; k < 4; k++) {
+    const u = 0.2 + k * 0.2;
+    for (let q = 0; q < 3; q++) cylinder(p, u, 0.5, 0.09 * (1 - q / 3), 4 + q * 2, 2, "#9a6a4a", "#5a3a2a");
+    const [x, y] = p.P(u, 0.75, 1); p.px(x - 1, y - 3, k % 2 ? "#ff7a2a" : "#3a1a12", 2, 2);
+  }
+  p.line(p.P(0.1, 0.5, 11), p.P(0.9, 0.5, 11), "#3a3030");
+  holdFlag(p, 0.9, 0.2, 0);
+  return p.sprite();
+}
+function holdOre(): Sprite {
+  // an ore dock: a red ore pile, a timber bulkhead and a Hulett-style unloader
+  const p = new Painter(1, 110);
+  box(p, 0.05, 0.05, 0.95, 0.95, 3, { wall: "#6a5a44", top: "#8a7a5e" });
+  const [ox, oy] = p.P(0.35, 0.55, 3);
+  blob(p, ox, oy - 4, 11, 5, ["#7a3a24", "#9a4a2a", "#5a2a1a"], (k) => tileNoise(5, k, 2, 77));
+  for (const [u, v] of [[0.7, 0.3], [0.7, 0.6]] as const) p.line(p.P(u, v, 3), p.P(u, v, 30), "#3a3a40");
+  box(p, 0.6, 0.25, 0.9, 0.65, 4, { wall: "#4a4a52", z0: 28, top: "#5a5a62" });
+  p.line(p.P(0.9, 0.45, 30), p.P(1.05, 0.45, 18), "#2a2a30");
+  holdFlag(p, 0.15, 0.15, 3);
+  return p.sprite();
+}
+function holdQuarry(): Sprite {
+  // a limestone quarry: a pale stepped cut, blocks waiting and a timber derrick
+  const p = new Painter(1, 100);
+  for (let k = 0; k < 3; k++) box(p, 0.1 + k * 0.12, 0.08, 0.92, 0.5 - k * 0.1, 5, { wall: shade("#d8d2c2", 1 - k * 0.06), top: "#ebe6d8", z0: k * 5 });
+  for (const [u, v] of [[0.25, 0.75], [0.42, 0.82], [0.32, 0.88]] as const) box(p, u, v, u + 0.1, v + 0.08, 3, { wall: "#cfc8b6", top: "#e4dfd0" });
+  p.line(p.P(0.75, 0.75), p.P(0.75, 0.75, 30), "#6a4a2a");
+  p.line(p.P(0.75, 0.75, 28), p.P(0.45, 0.6, 18), "#6a4a2a");
+  p.line(p.P(0.45, 0.6, 18), p.P(0.45, 0.6, 8), "#2a2a2a");
+  holdFlag(p, 0.9, 0.9, 0);
+  return p.sprite();
+}
+function holdSand(): Sprite {
+  // a glass-sand pit: white silica heaps, a washing shed
+  const p = new Painter(1, 90);
+  const [x, y] = p.P(0.35, 0.6);
+  blob(p, x, y - 4, 12, 6, ["#ece6d2", "#d8d0b8", "#f6f2e4"], (k) => tileNoise(9, k, 3, 78));
+  shed(p, 0.55, 0.15, 0.9, 0.45, 9, "#8a7a62", "#4a3a2e");
+  holdFlag(p, 0.15, 0.2, 0);
+  return p.sprite();
+}
+function holdBarge(): Sprite {
+  // the towboat company's landing: an office, a coal bin and mooring posts
+  const p = new Painter(1, 100);
+  box(p, 0.05, 0.05, 0.95, 0.95, 2, { wall: "#6a5a44", top: "#8a7a5e" });
+  const b = shed(p, 0.2, 0.2, 0.6, 0.55, 12, "#e4dcc8", "#3a4a5a");
+  windows(p, b, "left", 2, [5], "#2b2a2e", "#e7d9a8", true);
+  for (const u of [0.3, 0.6, 0.9]) cylinder(p, u, 0.92, 0.025, 2, 4, "#4a3a2a", "#2a2018");
+  box(p, 0.7, 0.25, 0.92, 0.55, 5, { wall: "#3a3030", top: "#18161a", z0: 2 });
+  holdFlag(p, 0.62, 0.22, 2);
+  return p.sprite();
+}
+function holdRail(): Sprite {
+  // the short line's engine house: a brick shed with a tall door and a water tank
+  const p = new Painter(1, 120);
+  const b = shed(p, 0.12, 0.25, 0.75, 0.8, 18, "#9a4e38", "#3a3a40", "u");
+  const [dx, dy] = p.P(0.43, 0.8); p.px(dx - 4, dy - 14, "#1e1a1a", 8, 14);
+  windows(p, b, "right", 2, [10]);
+  for (const [u, v] of [[0.82, 0.2], [0.95, 0.2], [0.82, 0.35], [0.95, 0.35]] as const) p.line(p.P(u, v), p.P(u, v, 16), "#4a3a2a");
+  cylinder(p, 0.88, 0.28, 0.1, 16, 9, "#7a5a3a", "#5a4028");
+  holdFlag(p, 0.15, 0.2, 0);
+  return p.sprite();
+}
+function holdTruck(): Sprite {
+  // a trucking garage: a concrete-block garage with roll doors and a pump
+  const p = new Painter(1, 100);
+  const b = box(p, 0.15, 0.2, 0.85, 0.75, 14, { wall: "#b8b2a2", top: "#6a665e", foundation: 1 });
+  for (let k = 0; k < 3; k++) { const [x, y] = lerp(b.D(0), b.C(0), (k + 0.5) / 3); p.px(x - 3, y - 10, "#4a4a50", 6, 10); p.px(x - 3, y - 10, "#6a6a70", 6, 1); }
+  const [px, py] = p.P(0.5, 0.92); p.px(px, py - 7, "#c8402a", 2, 7);
+  holdFlag(p, 0.85, 0.2, 14);
+  return p.sprite();
+}
+function holdGas(): Sprite {
+  // the gas works: a telescoping gasholder in its iron frame, and the retort house
+  const p = new Painter(1, 120);
+  cylinder(p, 0.6, 0.45, 0.3, 0, 22, "#6a6e72", "#4a4e52");
+  for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; if (Math.sin(a) + Math.cos(a) > -0.5) p.line(p.P(0.6 + Math.cos(a) * 0.32, 0.45 + Math.sin(a) * 0.32), p.P(0.6 + Math.cos(a) * 0.32, 0.45 + Math.sin(a) * 0.32, 30), "#2a2a30"); }
+  shed(p, 0.05, 0.62, 0.45, 0.95, 9, "#8a4a36", "#3a3a40");
+  stack(p, 0.15, 0.7, 14, 10);
+  holdFlag(p, 0.95, 0.9, 0);
+  return p.sprite();
+}
+function holdWater(): Sprite {
+  // the water company: a pumping station with a round-arched front and a standpipe tower
+  const p = new Painter(1, 130);
+  const b = shed(p, 0.12, 0.35, 0.65, 0.85, 14, "#b0644a", "#3e4a4a");
+  windows(p, b, "left", 3, [7], "#2b2a2e", "#e7d9a8", true);
+  cylinder(p, 0.8, 0.22, 0.09, 0, 34, "#d8d0bc", "#8a8070");
+  stack(p, 0.3, 0.45, 18, 12);
+  holdFlag(p, 0.8, 0.22, 34);
+  return p.sprite();
+}
+function holdElectric(): Sprite {
+  // a central station: brick dynamo hall, a stack, poles with wires out
+  const p = new Painter(1, 130);
+  const b = box(p, 0.12, 0.25, 0.75, 0.82, 18, { wall: "#9a5240", top: "#5a4a44", foundation: 1 });
+  windows(p, b, "left", 4, [6, 12]);
+  stack(p, 0.3, 0.35, 18, 18);
+  for (const v of [0.2, 0.55, 0.9]) { const [x, y] = p.P(0.92, v); p.px(x, y - 16, "#4a3a2a", 1, 16); p.px(x - 2, y - 15, "#4a3a2a", 5, 1); }
+  holdFlag(p, 0.7, 0.8, 18);
+  return p.sprite();
+}
+function holdStore(): Sprite {
+  // a company store: a two-storey frame store with a porch and a sign board
+  const p = new Painter(1, 110);
+  const b = shed(p, 0.15, 0.2, 0.85, 0.75, 16, "#c8b890", "#4a3a32", "v");
+  windows(p, b, "left", 3, [5, 11], "#2b2a2e", "#e7d9a8", true);
+  box(p, 0.15, 0.75, 0.85, 0.9, 1, { wall: "#6a5a44", top: "#8a7a5e" });
+  const [sx, sy] = p.P(0.5, 0.76, 15); p.px(sx - 6, sy - 3, "#2a3a2a", 12, 3); p.px(sx - 5, sy - 2, "#e0d4a8", 10, 1);
+  holdFlag(p, 0.85, 0.2, 16);
+  return p.sprite();
+}
+function holdMachine(): Sprite {
+  // a machine shop: a long sawtooth-roofed shop and a small stack for the forge
+  const p = new Painter(1, 110);
+  const b = box(p, 0.1, 0.25, 0.9, 0.8, 12, { wall: "#8a5a44", foundation: 1 });
+  windows(p, b, "left", 5, [6]);
+  for (let k = 0; k < 4; k++) { const u0 = 0.1 + k * 0.2, u1 = u0 + 0.2; p.poly([p.P(u0, 0.25, 12), p.P(u0, 0.8, 12), p.P(u1, 0.8, 18), p.P(u1, 0.25, 18)], k % 2 ? "#4a4a52" : "#55555e"); p.poly([p.P(u1, 0.25, 12), p.P(u1, 0.8, 12), p.P(u1, 0.8, 18), p.P(u1, 0.25, 18)], "#a8c0d0"); }
+  stack(p, 0.82, 0.32, 12, 12);
+  holdFlag(p, 0.15, 0.85, 0);
+  return p.sprite();
+}
+function holdBrick(): Sprite {
+  // a brickworks: two beehive kilns, a drying shed and stacked brick
+  const p = new Painter(1, 90);
+  for (const u of [0.3, 0.62]) { cylinder(p, u, 0.35, 0.16, 0, 7, "#9a5a3e", "#7a4a32"); for (let k = 0; k < 4; k++) cylinder(p, u, 0.35, 0.15 * (1 - k / 4), 7 + k * 2, 2, "#8a4e36", "#a46448"); }
+  shed(p, 0.15, 0.65, 0.6, 0.92, 6, "#7a6a52", "#4a3a2e");
+  const [sx, sy] = p.P(0.82, 0.78); p.px(sx - 4, sy - 5, "#a4523a", 8, 5); p.px(sx - 4, sy - 5, "#c06a4e", 8, 1);
+  stack(p, 0.88, 0.2, 0, 22);
+  holdFlag(p, 0.1, 0.9, 0);
+  return p.sprite();
+}
+function holdMine(): Sprite {
+  const s = mine(1);
+  const p = new Painter(1, 120);
+  p.ctx.drawImage(s.canvas, 0, 0);
+  holdFlag(p, 0.15, 0.85, 0);
+  return p.sprite();
+}
+/** business id → its sprite (keys are `hold:<id>`) */
+const HOLDINGS: [string, () => Sprite][] = [
+  ["coal_mine", holdMine], ["coke_ovens", holdCoke], ["ore_dock", holdOre], ["quarry", holdQuarry], ["sand_pit", holdSand],
+  ["barge_line", holdBarge], ["short_line", holdRail], ["trucking", holdTruck], ["gas_co", holdGas], ["water_co", holdWater],
+  ["electric_co", holdElectric], ["store_chain", holdStore], ["machine_shop", holdMachine], ["brickworks", holdBrick],
+];

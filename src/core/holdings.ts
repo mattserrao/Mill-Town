@@ -113,26 +113,64 @@ export function bizBlocked(g: GameState, d: BizDef): string | null {
   return null;
 }
 
-/** a spot on the map for the business: a coal outcrop, the riverbank, a railroad or a town street near the works */
+/**
+ * A spot on the map for the business: by a coal outcrop, on the riverbank, beside the rails or a main road.
+ * v0.28: on open ground (woods, fields, empty), never on the street, rails or water, at least a few tiles clear of
+ * the works and of your other businesses, so each stands as its own building rather than crowding the mill.
+ */
 function siteFor(g: GameState, d: BizDef): [number, number] {
   const m = g.map, w = g.world, c = g.company!;
   const cx = c.x + (c.footprint >> 1), cy = c.y + (c.footprint >> 1);
-  const taken = new Set(holdingsOf(g).biz.map((b) => b.y * m.width + b.x));
-  let best: [number, number] = [cx, cy], bd = Infinity;
-  for (let r = 4; r < 120 && bd === Infinity; r += 4) for (let y = cy - r; y <= cy + r; y += 2) for (let x = cx - r; x <= cx + r; x += 2) {
+  const others = holdingsOf(g).biz;
+  const minR = (c.footprint >> 1) + 5;
+  const W = m.width;
+  const isWater = (x: number, y: number) => inBounds(m, x, y) && m.terrain[y * W + x] === Terrain.Water;
+  const railOpen = (x: number, y: number) => inBounds(m, x, y) && m.rail[y * W + x] > 0 && (m.railLines[String(m.rail[y * W + x])]?.year ?? 9999) <= w.year;
+  const pike = (x: number, y: number) => inBounds(m, x, y) && w.street[y * W + x] === Street.Pike;
+  const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const near = (x: number, y: number, f: (x: number, y: number) => boolean) => N4.some(([dx, dy]) => f(x + dx, y + dy));
+  let best: [number, number] | null = null, bd = Infinity;
+  for (let r = minR; r < 140 && best === null; r += 3) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
     if (!inBounds(m, x, y)) continue;
-    const i = y * m.width + x;
-    if (taken.has(i) || m.terrain[i] === Terrain.Water || w.owner[i]) continue;
+    const dist = Math.hypot(x - cx, y - cy);
+    if (dist < minR || dist > r + 3) continue;
+    const i = y * W + x;
+    if (m.terrain[i] === Terrain.Water || w.owner[i] || w.street[i] || m.rail[i]) continue;
+    const u = w.use[i];
+    if (u !== 0 && u !== 1 && u !== 2) continue; // open land, woods or fields only
+    if (others.some((o) => Math.abs(o.x - x) + Math.abs(o.y - y) < 4)) continue;
     let ok = false;
     if (d.site === "coal") ok = m.coal[i] === 2;
-    else if (d.site === "river") ok = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(m, x + dx, y + dy) && m.terrain[(y + dy) * m.width + x + dx] === Terrain.Water);
-    else if (d.site === "rail") ok = m.rail[i] > 0 && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year;
-    else ok = w.street[i] === Street.Pike;
+    else if (d.site === "river") ok = near(x, y, isWater);
+    else if (d.site === "rail") ok = near(x, y, railOpen);
+    else ok = near(x, y, pike);
     if (!ok) continue;
-    const dd = Math.hypot(x - cx, y - cy) + ((x * 7 + y * 3) % 5);
+    const dd = dist + ((x * 7 + y * 3) % 5);
     if (dd < bd) { bd = dd; best = [x, y]; }
   }
-  return best;
+  if (best) return best;
+  // nothing suitable nearby: the nearest open tile beyond the works' edge
+  for (let r = minR; r < 200; r++) for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+    if (!inBounds(m, x, y) || Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue;
+    const i = y * W + x;
+    if (m.terrain[i] !== Terrain.Water && !w.owner[i] && !w.street[i] && !m.rail[i] && !others.some((o) => o.x === x && o.y === y)) return [x, y];
+  }
+  return [cx + minR, cy];
+}
+
+/** v0.28: a save from before the businesses stood as buildings: move any that sit on the works, a street or the water */
+export function resiteHoldings(g: GameState) {
+  const h = g.company?.holdings;
+  if (!h?.biz.length) return;
+  const m = g.map, w = g.world, c = g.company!;
+  const bad = (b: OwnedBiz) => {
+    const i = b.y * m.width + b.x;
+    const inWorks = b.x >= c.x - 2 && b.y >= c.y - 2 && b.x < c.x + c.footprint + 2 && b.y < c.y + c.footprint + 2;
+    return inWorks || w.owner[i] || w.street[i] || m.rail[i] || m.terrain[i] === Terrain.Water;
+  };
+  const keep = h.biz.filter((b) => !bad(b)), move = h.biz.filter(bad);
+  h.biz = keep;
+  for (const b of move) { const [x, y] = siteFor(g, bizDef(b.id)); b.x = x; b.y = y; h.biz.push(b); }
 }
 
 export function buyBiz(g: GameState, id: string): { ok: boolean; text: string } {
