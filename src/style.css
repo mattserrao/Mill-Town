@@ -200,7 +200,7 @@ input[type=range] { width: 120px; vertical-align: middle; }
 .brand { cursor: default; }
 .sep { width: 1px; height: 24px; background: var(--line); flex: none; }
 .kpi { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
-.kpi small { color: var(--muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.kpi small { color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .kpi b { font-size: 13px; color: var(--text); }
 .up { color: var(--good); } .down { color: var(--bad); } .muted { color: var(--muted); }
 #standing { display: flex; gap: 6px; }
@@ -252,7 +252,7 @@ label.check { display: flex; gap: 6px; align-items: center; color: var(--muted);
 .ov-name span { white-space: nowrap; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .card { background: var(--panel2); border: 1px solid var(--line); padding: 6px 8px; min-width: 0; }
-.card small { display: block; color: var(--muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.card small { display: block; color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .card b { display: block; font-size: 15px; }
 .card em { display: block; font-style: normal; color: var(--muted); font-size: 10px; }
 .card svg { display: block; width: 100%; height: 18px; margin-top: 2px; }
@@ -315,7 +315,7 @@ label.check { display: flex; gap: 6px; align-items: center; color: var(--muted);
 #mapTools { position: absolute; left: 10px; top: 10px; z-index: 6; }
 #layerBtn { background: rgba(34, 37, 43, 0.94); }
 #layerMenu { position: absolute; left: 0; top: 30px; z-index: 2; width: 280px; padding: 8px; background: rgba(34, 37, 43, 0.97); border: 1px solid var(--line); box-shadow: 3px 3px 0 rgba(0,0,0,0.5); }
-.ov-group { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin: 8px 0 3px; }
+.ov-group { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin: 8px 0 3px; }
 .ov-group:first-child { margin-top: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 label.chip { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 2px 6px; border: 1px solid var(--line); background: var(--panel2); font-size: 11px; cursor: pointer; }
@@ -486,10 +486,10 @@ button.link.go:hover:not(:disabled) { color: var(--accent); }
 .sc-opt select { font: inherit; }
 #succession .actions { margin-top: 10px; text-align: right; }
 #succession .actions button { font-family: inherit; font-size: 14px; padding: 6px 14px; }
-.legacy { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; text-align: center; }
-.legacy div { border: 1px solid #1e1a14; padding: 4px; }
-.legacy b { display: block; font-size: 22px; }
-.legacy small { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+#final .legacy { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; text-align: center; }
+#final .legacy div { border: 1px solid #1e1a14; padding: 4px; }
+#final .legacy b { display: block; font-size: 22px; }
+#final .legacy small { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .tree { font-size: 12px; margin: 6px 0; }
 .tree li { margin: 2px 0; }
 .dyn { font-size: 11px; width: 100%; border-collapse: collapse; }
@@ -647,16 +647,22 @@ label.check { display: flex; gap: 6px; align-items: center; }
 .st-ledger h5 { display: flex; justify-content: space-between; }
 
 /* the legacy line and the first-seasons checklist on the Overview (v0.21) */
-.legacy { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); }
-.legacy small { color: var(--muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
-.legacy b { font-size: 15px; }
-.legacy span { flex: 1; color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.legacy i { font-style: normal; font-size: 10px; color: var(--muted); }
+#overview .legacy { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); }
+#overview .legacy small { color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+#overview .legacy b { font-size: 15px; }
+#overview .legacy span { flex: 1; color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#overview .legacy i { font-style: normal; font-size: 10px; color: var(--muted); }
 .checklist { margin: 0 0 8px; padding: 6px 8px; border: 1px solid var(--accent); background: rgba(224, 162, 67, 0.06); }
 .cl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.cl-head small { color: var(--accent); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.cl-head small { color: var(--accent); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .cl-step { display: flex; gap: 6px; padding: 2px 0; font-size: 11px; }
 .cl-step > span { width: 12px; color: var(--accent); }
 .cl-step.ok { color: var(--muted); }
 .cl-step.ok b { font-weight: normal; }
-.cl-step em { display: block; font-style: normal; color: var(--muted); font-size: 10px; margin-top: 1px; }
+.cl-step em { display: block; font-style: normal; font-size: 11px; line-height: 1.35; margin-top: 1px; color: #b0aa9c; }
+
+/* v0.28: the zoom level (and "drawing…") under the zoom buttons; it sat hidden under the headline strip */
+#zoom.badge { left: 10px; top: 120px; bottom: auto; font-size: 11px; pointer-events: none; }
+/* v0.28: a visible keyboard focus everywhere */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:focus:not(:focus-visible) { outline: none; }

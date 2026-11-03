@@ -21,6 +21,7 @@ import { type GameMap, recomputeElevation } from "./map";
 import { recomputeLandValue } from "./town";
 import { updateRivers } from "./environment";
 import { initSleuth, sleuthSaving } from "./sleuth";
+import { resiteHoldings } from "./holdings";
 
 /**
  * 1: v0.1–v0.15 · 2: the family (v0.16) · 3: derived fields left out of the save and the graded ground stored
@@ -219,6 +220,7 @@ export async function unpackGame(blob: Blob, map: GameMap): Promise<GameState> {
     if (made) made.source = src;
     return made;
   };
+  resiteHoldings(g);
   g.pendingDecision = redo(g.pendingDecision);
   g.moreDecisions = (g.moreDecisions as unknown[]).map(redo).filter((d): d is NonNullable<typeof d> => !!d);
   if (!g.pendingDecision && g.moreDecisions.length) g.pendingDecision = g.moreDecisions.shift();

@@ -1,6 +1,7 @@
 // Trends: how the business, the markets and the town have moved, season by season. Three tabs (Business,
 // Prices & wages, Town). Line charts drawn on canvas; hover a chart to read off a year.
 
+import { money as fxMoney } from "./fx";
 import { cal, type GameState, type PricePoint } from "../core/game";
 import { INDUSTRIES, INDUSTRY_IDS, type IndustryId } from "../core/industries";
 import { RIVALS } from "../core/rivals";
@@ -17,7 +18,8 @@ interface Series {
 interface ChartOpts { fmt?: (n: number) => string; axis?: (n: number) => string; stacked?: boolean; marks?: { k: number; label: string }[]; max?: number }
 
 const IND_COLOUR: Record<IndustryId, string> = { steel: "#e07a4a", power: "#e8d050", glass: "#7ac8e0", metalworks: "#a8a0e0", aluminium: "#c8ccd4", chemicals: "#8ac06a", research: "#e0a0d0", nuclear: "#60d0b0", medicine: "#f08080" };
-const money = (n: number) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; return a >= 1e6 ? `${s}$${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${s}$${Math.round(a / 1000)}k` : a >= 100 ? `${s}$${Math.round(a).toLocaleString()}` : `${s}$${a.toFixed(2)}`; };
+// the game's one money format (fx), with cents for unit prices and wages under $100
+const money = (n: number) => (Math.abs(n) >= 100 ? fxMoney(n) : `${n < 0 ? "−" : ""}$${Math.abs(n).toFixed(2)}`);
 const moneyAxis = (n: number) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; return a >= 1e6 ? `${s}$${+(a / 1e6).toFixed(1)}M` : a >= 1000 ? `${s}$${+(a / 1000).toFixed(1)}k` : a >= 10 ? `${s}$${Math.round(a)}` : `${s}$${a.toFixed(2)}`; };
 const count = (n: number) => (Math.abs(n) >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e4 ? `${Math.round(n / 1000)}k` : Math.round(n).toLocaleString());
 const countAxis = (n: number) => (Math.abs(n) >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1000 ? `${+(n / 1000).toFixed(1)}k` : `${Math.round(n)}`);
@@ -112,7 +114,7 @@ function chart(cv: HTMLCanvasElement, years: number[], series: Series[], legend:
 
 const box = (id: string, title: string, now = "") => `<div class="tr-box"><h4>${title}${now ? `<b>${now}</b>` : ""}</h4><canvas id="${id}"></canvas><div class="tr-legend" id="${id}L"></div></div>`;
 
-export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) => void) {
+export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) => void, onClose?: () => void) {
   const now = cal(g).year;
   const c = g.company;
   const founded = g.prices.findIndex((p) => p.revenue !== undefined);
@@ -160,10 +162,11 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
     <div class="tr-range">${(["all", "30", "10"] as const).map((r) => `<button data-r="${r}" class="${r === range ? "on" : ""}">${r === "all" ? (tab === "business" ? "All" : "Since 1850") : `${r} yrs`}</button>`).join("")}</div>
     <button class="x tr-close" title="Close (Esc)">✕</button></div>${body}`;
   el.hidden = false;
-  el.querySelector(".tr-close")!.addEventListener("click", () => { el.hidden = true; });
-  el.querySelectorAll<HTMLButtonElement>("button[data-r]").forEach((b) => b.addEventListener("click", () => { range = b.dataset.r as typeof range; trendsView(g, el, onGo); }));
-  el.querySelectorAll<HTMLButtonElement>("button[data-t]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.t as typeof tab; trendsView(g, el, onGo); }));
-  el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => { el.hidden = true; onGo?.(b.dataset.go!); }));
+  const close = () => { if (onClose) onClose(); else el.hidden = true; };
+  el.querySelector(".tr-close")!.addEventListener("click", close);
+  el.querySelectorAll<HTMLButtonElement>("button[data-r]").forEach((b) => b.addEventListener("click", () => { range = b.dataset.r as typeof range; trendsView(g, el, onGo, onClose); }));
+  el.querySelectorAll<HTMLButtonElement>("button[data-t]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.t as typeof tab; trendsView(g, el, onGo, onClose); }));
+  el.querySelectorAll<HTMLButtonElement>("button[data-go]").forEach((b) => b.addEventListener("click", () => { close(); onGo?.(b.dataset.go!); }));
   const $ = (id: string) => el.querySelector<HTMLElement>(`#${id}`)!;
   const cv = (id: string) => $(id) as HTMLCanvasElement;
   const ix = (id: IndustryId, v: number | undefined) => (v === undefined ? undefined : (v / INDUSTRIES[id].basePrice) * 100);
@@ -226,4 +229,4 @@ export function trendsView(g: GameState, el: HTMLElement, onGo?: (tab: string) =
   }
 }
 
-export function resetTrends() { tab = "business"; }
+export function resetTrends() { tab = "business"; range = "all"; }

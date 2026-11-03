@@ -16,7 +16,7 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZPX } from "./iso";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, tileCorners, ZOOMS, ZPX } from "./iso";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -360,7 +360,19 @@ export class Renderer {
     for (const c of vis) {
       const key = `${s}:${c.cx},${c.cy}`;
       const chn = this.chunks.get(key);
-      if (!chn) continue;
+      if (!chn) {
+        // v0.28: not drawn at this zoom yet (just zoomed or jumped): show the same chunk from another zoom,
+        // scaled, rather than the bare background, until it's ready
+        let alt: Chunk | undefined, as = 0;
+        for (const z2 of ZOOMS) { const s2 = Math.min(1, z2); if (s2 === s || s2 === as) continue; const c2 = this.chunks.get(`${s2}:${c.cx},${c.cy}`); if (c2 && (!alt || Math.abs(Math.log(s2 / s)) < Math.abs(Math.log(as / s)))) { alt = c2; as = s2; } }
+        if (alt) {
+          const f = cam.zoom / as;
+          ctx.imageSmoothingEnabled = f < 1;
+          ctx.drawImage(alt.canvas, Math.round(alt.ox * f) - camX, Math.round(alt.oy * f) - camY, Math.round(alt.canvas.width * f), Math.round(alt.canvas.height * f));
+          ctx.imageSmoothingEnabled = false;
+        }
+        continue;
+      }
       this.chunks.delete(key);
       this.chunks.set(key, chn); // LRU touch
       const dx = Math.round(chn.ox * k) - camX, dy = Math.round(chn.oy * k) - camY;
@@ -433,6 +445,7 @@ export class Renderer {
       const vs = lix.get(i);
       if (vs) for (const sg of vs) if (sg.kind === "rail" && (m.railLines[String(sg.line)]?.year ?? 9999) <= w.year) rails += 64;
     }
+    for (const b of g.company?.holdings?.biz ?? []) if (b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) mix(b.y * W + b.x + b.id.length * 131071);
     // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
     const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}`;
     this.sigs.set(id, { stamp, sig });
@@ -992,6 +1005,10 @@ export class Renderer {
     const t = m.terrain[i];
     const sub = w.sub[i];
 
+    // v0.28: a business you own stands on its tile (in place of the trees or the field)
+    const held = holdingKey(g, i);
+    if (held) { out.push({ key: held, u: 0.5, v: 0.5 }); return out; }
+
     switch (use) {
       case Use.Forest: {
         const high = m.elevation[i] > 320 || t === Terrain.Steep || t === Terrain.Cliff;
@@ -1515,7 +1532,9 @@ export class Renderer {
     // Keep every label wholly inside the canvas: labels whose anchor is on screen are slid in from the
     // edge; ones whose anchor is off screen are dropped. Towns go first, and a label that would sit on
     // top of one already drawn (or on reserved UI such as the minimap) is skipped.
-    const W = ctx.canvas.width, H = ctx.canvas.height, MG = 4;
+    // drawn under the app's dpr scale: the canvas in this context's own (CSS) pixels
+    const sc = ctx.getTransform().a || 1;
+    const W = ctx.canvas.width / sc, H = ctx.canvas.height / sc, MG = 4;
     const placed = reserved.map((r) => ({ ...r }));
     const order = items.filter((it) => cam.zoom >= it.min).sort((a, b) => a.min - b.min);
     ctx.textBaseline = "alphabetic";
@@ -1541,7 +1560,18 @@ export class Renderer {
       ctx.fillStyle = it.col;
       ctx.fillText(it.name, cx, by);
     }
+    ctx.textAlign = "start"; // later layers draw from the left
   }
+}
+
+/** the sprite of a business you own on this tile, if any */
+function holdingKey(g: GameState, i: number): string | null {
+  const biz = g.company?.holdings?.biz;
+  if (!biz?.length) return null;
+  const W = g.map.width;
+  if (g.world.owner[i]) return null; // never over a works
+  for (const b of biz) if (b.y * W + b.x === i) return `hold:${b.id}`;
+  return null;
 }
 
 function riverAxis(m: GameMap, x: number, y: number): "a" | "b" {

@@ -161,8 +161,10 @@ export function drawDistricts(ctx: CanvasRenderingContext2D, cam: Camera, g: Gam
   const m = g.map, d = districts(m), year = g.world.year;
   const p = paths(m, year);
   const z = cam.zoom;
+  // v0.28: the caller draws in CSS pixels under a dpr scale; keep that scale when setting our own transform
+  const base = ctx.getTransform().a || 1;
   ctx.save();
-  ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z);
+  ctx.setTransform(z * base, 0, 0, z * base, -cam.x * z * base, -cam.y * z * base);
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   // neighbourhoods: thin, dashed and translucent so they sit back; city limits: solid gold, calmer than before
   ctx.strokeStyle = "rgba(12,12,16,0.4)"; ctx.lineWidth = 3 / z; ctx.stroke(p.nb);
@@ -177,10 +179,10 @@ export function drawDistricts(ctx: CanvasRenderingContext2D, cam: Camera, g: Gam
   ctx.restore();
   // names
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(base, 0, 0, base, 0, 0);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const S = (x: number, y: number): [number, number] => { const [wx, wy] = project(x + 0.5, y + 0.5, vh(m, Math.max(0, Math.min(m.width, x)), Math.max(0, Math.min(m.height, y))) + 8); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
-  const W = ctx.canvas.width, Hh = ctx.canvas.height, MG = 6;
+  const W = ctx.canvas.width / base, Hh = ctx.canvas.height / base, MG = 6;
   // labels are placed greedily (cities first, then neighbourhoods), kept inside the canvas, and
   // skipped when they would collide with one already placed or with reserved UI (minimap etc.)
   const placed: { x: number; y: number; w: number; h: number }[] = reserved.map((r) => ({ ...r }));

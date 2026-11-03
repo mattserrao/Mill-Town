@@ -92,7 +92,8 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
  * unless `must` (the works' own label), which then takes the least-bad spot.
  */
 function pill(ctx: CanvasRenderingContext2D, placed: Rect[], lb: Label, must = false): { leader: () => void; box: () => void } | null {
-  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const sc = ctx.getTransform().a || 1; // drawn under the app's dpr scale
+  const W = ctx.canvas.width / sc, H = ctx.canvas.height / sc;
   const maxW = Math.min(320, W - 2 * MARGIN) - 12;
   const measure = (lines: string[]) => {
     const fitted = lines.map((l, k) => { ctx.font = k ? FONT : FONT_B; return fit(ctx, l, maxW); });
@@ -232,7 +233,8 @@ export function drawSupply(ctx: CanvasRenderingContext2D, cam: Camera, g: GameSt
     ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
     ctx.globalAlpha = 1;
     // label the far end (the source for things coming in, the destination for things going out)
-    const W = ctx.canvas.width, H = ctx.canvas.height;
+    const sc = ctx.getTransform().a || 1;
+    const W = ctx.canvas.width / sc, H = ctx.canvas.height / sc;
     const far = anchor(f.kind === "input" || f.kind === "utilityIn" ? [...pts].reverse() : pts, W, H);
     if (!faded) {
       const qty = f.qty ? `${fmt(f.qty)}/season · ${Math.round(f.share * 100)}%` : "";
@@ -274,7 +276,8 @@ export function drawRivals(ctx: CanvasRenderingContext2D, cam: Camera, g: GameSt
       ctx.setLineDash([2, 5]); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
     }
     ctx.globalAlpha = 1;
-    const la = anchor(myC ? [myC, at] : [at, at], ctx.canvas.width, ctx.canvas.height);
+    const sc = ctx.getTransform().a || 1;
+    const la = anchor(myC ? [myC, at] : [at, at], ctx.canvas.width / sc, ctx.canvas.height / sc);
     if (!faded) labels.push({
       x: la[0], y: la[1], col,
       lines: [nameNow(c.def, g.world.year, c.state?.name, c.state?.nameYear).replace(/ \(.*\)$/, ""), c.state ? `${c.product} · ~${fmt(c.capacity)}/season` : c.def.entryYear > g.world.year ? `opens ${c.def.entryYear} near ${c.def.site}` : `never opened: no site near ${c.def.site}`, `${c.def.figures.join(" & ")}${c.km !== undefined ? ` · ${distance(c.km * 1000)}` : ""}`],

@@ -37,6 +37,7 @@ interface Car { type: CarType; len: number; col: string; col2?: string }
 
 interface Agent {
   kind: Kind;
+  fc?: Facing;                 // v0.28: the facing drawn (held until the heading clearly turns)
   x: number; y: number;        // current tile
   px: number; py: number;      // previous tile
   nx: number; ny: number;      // next tile
@@ -197,6 +198,30 @@ export class Traffic {
     return heightAt(m, fx, fy);
   }
 
+  /** v0.28: how much of a mover to show (0–1) given whether it's covered this frame: the cover must hold ~0.15 s
+   *  before it counts, and the figure eases in or out over ~0.12 s (it used to blink as it passed trees) */
+  private wantStreet = -1;
+  private boats: Agent[] = [];
+  private wantBoat = -1;
+  private visState = new WeakMap<object, { v: number; hid: boolean; t: number }>();
+  private seen(key: object, hidden: boolean): number {
+    let st = this.visState.get(key);
+    if (!st) { st = { v: hidden ? 0 : 1, hid: hidden, t: 0 }; this.visState.set(key, st); }
+    const dt = this.dt || 1 / 30;
+    if (hidden !== st.hid) { st.t += dt; if (st.t >= 0.15) { st.hid = hidden; st.t = 0; } } else st.t = 0;
+    const target = st.hid ? 0 : 1;
+    st.v += Math.sign(target - st.v) * Math.min(Math.abs(target - st.v), dt * 8);
+    return st.v;
+  }
+
+  /** v0.28: a screen point onto the chunks' pixel grid (2×2 device px at 2×), so movers step with the ground */
+  private snap2(sx: number, sy: number): [number, number] {
+    const c = this.cam, up = c.zoom / Math.min(1, c.zoom);
+    if (up <= 1) return [Math.round(sx), Math.round(sy)];
+    const ox = Math.round(c.x * c.zoom), oy = Math.round(c.y * c.zoom);
+    return [Math.round((sx + ox) / up) * up - ox, Math.round((sy + oy) / up) * up - oy];
+  }
+
   /** visible tile range (approx.) */
   private view(cam: Camera, cw: number, ch: number) {
     const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
@@ -281,9 +306,19 @@ export class Traffic {
     const wantMoored = season === "Winter" ? Math.min(8, tiles / 1800 + 1) : 0;
     for (let tries = 0; tries < 60 && mooredN < wantMoored; tries++) if (this.spawnBoat(g, v, true)) mooredN++;
     if (mooredN > wantMoored) { const b = this.agents.find((a) => a.moored && !a.dying); if (b) b.dying = true; }
+    // the counts follow the view smoothly (a pan or a zoom used to add or drop a batch at once)
+    const ease = Math.min(1, dt * 1.5);
+    this.wantStreet = this.wantStreet < 0 ? want.street : this.wantStreet + (want.street - this.wantStreet) * ease;
+    this.wantBoat = this.wantBoat < 0 ? want.boat : this.wantBoat + (want.boat - this.wantBoat) * ease;
+    want.street = this.wantStreet; want.boat = this.wantBoat;
+    // an empty or thin view (just jumped here) fills anywhere on screen; otherwise newcomers enter from the edges
+    this.edgeOnly = streetN >= want.street * 0.6;
     for (let tries = 0; tries < 150 && streetN < want.street; tries++) if (this.spawnStreet(g, v)) streetN++;
+    this.edgeOnly = false;
     for (let tries = 0; tries < 40 && trainN < want.train; tries++) if (this.spawnTrain(g, v)) trainN++;
+    this.edgeOnly = boatN >= want.boat * 0.6;
     for (let tries = 0; tries < 40 && boatN < want.boat; tries++) if (this.spawnBoat(g, v, false)) boatN++;
+    this.edgeOnly = false;
     // too many for the hour (night falling): a few at a time turn in for the night
     if (streetN > want.street * 1.1 + 4) {
       // people on foot go in first (commuters only once the shift change is over); cars and streetcars stay longest
@@ -321,6 +356,7 @@ export class Traffic {
       const b = this.agents.find((a) => (a.kind === "tow" || a.kind === "steamboat") && !a.moored && !a.dying);
       if (b) b.dying = true;
     }
+    this.boats = this.agents.filter((a) => a.kind === "steamboat" || a.kind === "tow");
     for (const a of this.agents) {
       a.alpha = a.dying ? a.alpha - dt * 2.2 : Math.min(1, a.alpha + dt * 2.5);
       if (a.kind === "steamboat" || a.kind === "tow") this.stepBoat(a, dt);
@@ -589,9 +625,18 @@ export class Traffic {
   }
 
   /** a random tile under a random point of the screen */
+  /** v0.28: spawn just off the screen's edge (so movers come and go across it), except while filling an empty view */
+  private edgeOnly = false;
   private randomTile(_v?: unknown): [number, number] {
     const m = this.m, c = this.cam;
-    const wx = c.x + (this.rng.next() * this.cw) / c.zoom, wy = c.y + (this.rng.next() * this.ch) / c.zoom;
+    const E = 70;
+    let px = 0, py = 0;
+    for (let k = 0; k < 6; k++) {
+      px = this.edgeOnly ? -E + this.rng.next() * (this.cw + 2 * E) : this.rng.next() * this.cw;
+      py = this.edgeOnly ? -E + this.rng.next() * (this.ch + 2 * E) : this.rng.next() * this.ch;
+      if (!this.edgeOnly || px < 0 || py < 0 || px > this.cw || py > this.ch) break;
+    }
+    const wx = c.x + px / c.zoom, wy = c.y + py / c.zoom;
     let h = 260, x = 0, y = 0;
     for (let k = 0; k < 3; k++) {
       const a = wx / HW, b = (wy + (h - BASE_M) * ZPX) / HH;
@@ -948,6 +993,17 @@ export class Traffic {
     const sl = Math.hypot(sx, sy);
     const wc = clamp01((8 - this.shore[i]) / 8) * 1.3;
     if (sl > 0) { wx += (sx / sl) * wc; wy += (sy / sl) * wc; }
+    // v0.28: keep clear of other boats (they used to sail through one another): steer off, and ease off behind one
+    let slow = 1;
+    for (const o of this.boats) {
+      if (o === a || o.dying) continue;
+      const ox = a.fx! - o.fx!, oy = a.fy! - o.fy!, d = Math.hypot(ox, oy);
+      const reach = (a.kind === "tow" ? 1.4 : 0.9) + (o.kind === "tow" ? 1.4 : 0.9);
+      if (d > reach || d < 1e-3) continue;
+      const push = (1 - d / reach) * 2.2;
+      wx += (ox / d) * push; wy += (oy / d) * push;
+      if ((-ox * dx - oy * dy) / d > 0.6) slow = Math.min(slow, 0.25 + 0.75 * (d / reach)); // it's ahead of us
+    }
     // look ahead for the bank
     const look = a.kind === "tow" ? 2.2 + (a.barges?.length ?? 0) * 0.25 : 1.6;
     const ax = Math.floor(a.fx! + dx * look), ay = Math.floor(a.fy! + dy * look);
@@ -963,10 +1019,11 @@ export class Traffic {
     const rate = (a.kind === "tow" ? 0.3 : 0.6) * (blocked ? 2.5 : 1);
     a.ang! += Math.max(-rate * dt, Math.min(rate * dt, da));
     dx = Math.cos(a.ang!); dy = Math.sin(a.ang!);
-    const v = a.speed * dt * (blocked ? 0.35 : 1);
+    const v = a.speed * dt * (blocked ? 0.35 : 1) * slow;
     const nx = a.fx! + dx * v, ny = a.fy! + dy * v;
     if (sv(Math.floor(nx), Math.floor(ny)) >= 1) { a.fx = nx; a.fy = ny; a.dist += v; a.stuck = 0; }
-    else if ((a.stuck! += dt) > 2.5) { a.sgn = -a.sgn!; a.stuck = 0; a.free = 0; a.wantX = -a.wantX!; a.wantY = -a.wantY!; }
+    // aground for a while (the head of the river, a narrow chute): it ties up and fades rather than spinning about
+    else if ((a.stuck! += dt) > 2.5) a.dying = true;
     a.x = Math.floor(a.fx!); a.y = Math.floor(a.fy!);
     // smoke from the stacks
     const steam = a.kind === "steamboat" || this.year < 1940;
@@ -1043,7 +1100,7 @@ export class Traffic {
 
   draw(ctx: CanvasRenderingContext2D, cam: Camera, _g: GameState, time: number, night = 0) {
     const z = cam.zoom, m = this.m;
-    const S = (fx: number, fy: number, h: number): [number, number] => { const [wx, wy] = project(fx, fy, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
+    const S = (fx: number, fy: number, h: number): [number, number] => { const [wx, wy] = project(fx, fy, h); return this.snap2((wx - cam.x) * z, (wy - cam.y) * z); };
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const lit = night > 0.35;
@@ -1086,8 +1143,13 @@ export class Traffic {
         const h = this.hAt(e.fx, e.fy);
         const [sx, sy] = S(e.fx, e.fy, h);
         if (sx < -60 || sy < -60 || sx > this.cw + 60 || sy > this.ch + 80) continue;
-        // behind a building on a nearer tile: hidden (feet and chest both covered)
-        if (this.occluded && this.occluded(sx, sy - 2 * z, Math.floor(e.fx) + Math.floor(e.fy)) && this.occluded(sx, sy - 7 * z, Math.floor(e.fx) + Math.floor(e.fy))) continue;
+        // behind a building on a nearer tile: hidden (feet and chest both covered). v0.28: eased in and out, and
+        // only once the cover has held a moment, so a figure passing a row of trees doesn't blink
+        const cover = !!this.occluded && this.occluded(sx, sy - 2 * z, Math.floor(e.fx) + Math.floor(e.fy)) && this.occluded(sx, sy - 7 * z, Math.floor(e.fx) + Math.floor(e.fy));
+        const ref = e.a ?? e.fig ?? e.gf?.ref;
+        const seen = ref ? this.seen(ref, cover) : cover ? 0 : 1;
+        if (seen <= 0.02) continue;
+        ctx.globalAlpha = seen * (e.a ? Math.max(0, Math.min(1, e.a.alpha)) : 1);
         if (e.barrel) {
           blit(barrelFig(), sx, sy);
           const fl = Math.sin(time * 13 + e.fx) * Math.sin(time * 7.3);
@@ -1133,7 +1195,6 @@ export class Traffic {
           continue;
         }
         const a = e.a!;
-        ctx.globalAlpha = Math.max(0, Math.min(1, a.alpha));
         if (a.kind === "walker") {
           const moving = !(a.wait && a.wait > 0) && a.speed > 0;
           const frame = moving ? (((a.dist * 5.5 + a.seed * 2) | 0) & 1) : 2;
@@ -1141,7 +1202,13 @@ export class Traffic {
           blit(walkerFig(a.look!, front, frame), sx, sy - (moving && frame === 1 ? k : 0));
         } else {
           const tl = Math.hypot(a.hx, a.hy) || 1;
-          const f: Facing = Math.abs(a.hx) > Math.abs(a.hy) ? (a.hx > 0 ? 0 : 2) : (a.hy > 0 ? 1 : 3);
+          // the facing switches only once the heading has clearly turned (it flickered between two on diagonals)
+          const ax = Math.abs(a.hx), ay = Math.abs(a.hy);
+          const along: Facing = ax > ay ? (a.hx > 0 ? 0 : 2) : (a.hy > 0 ? 1 : 3);
+          const keep = a.fc !== undefined && (a.fc === 0 ? a.hx > 0 : a.fc === 2 ? a.hx < 0 : a.fc === 1 ? a.hy > 0 : a.hy < 0)
+            && ((a.fc === 0 || a.fc === 2) ? ax * 1.35 > ay : ay * 1.35 > ax);
+          const f: Facing = keep ? a.fc! : along;
+          a.fc = f;
           const sp = a.spec!;
           const horse = sp.kind === "wagon" || sp.kind === "carriage" || sp.kind === "horsecar";
           const frame = ((a.dist * (horse ? 4 : 8)) | 0) & 1;
@@ -1251,9 +1318,12 @@ export class Traffic {
       // a car inside a works' walls, or behind a building, isn't drawn
       const ti = Math.floor(it.y) * this.m.width + Math.floor(it.x);
       if (this.worksTile?.(ti)) continue;
-      if (this.occluded && this.occluded(sx, sy - 2 * k, Math.floor(it.x) + Math.floor(it.y)) && this.occluded(sx, sy - 8 * k, Math.floor(it.x) + Math.floor(it.y))) continue;
+      const cover = !!this.occluded && this.occluded(sx, sy - 2 * k, Math.floor(it.x) + Math.floor(it.y)) && this.occluded(sx, sy - 8 * k, Math.floor(it.x) + Math.floor(it.y));
+      const seen = this.seen(it.car, cover);
+      if (seen <= 0.02) continue;
+      const a0 = ctx.globalAlpha; ctx.globalAlpha = a0 * seen;
       const dx = it.flip && isLoco(it.car.type) ? -it.dx : it.dx, dy = it.flip && isLoco(it.car.type) ? -it.dy : it.dy;
-      drawCar(ctx, it.car, sx, sy, k, dx, dy, lit);
+      blitCar(ctx, it.car, sx, sy, k, dx, dy, lit);
       if (isLoco(it.car.type)) {
         const front = it.car.len / 2;
         if (it.car.type === "steam") {
@@ -1268,6 +1338,7 @@ export class Traffic {
           this.light(sx + bx, sy + by, 20 * k, 0.35, 1);
         }
       } else if (lit && (it.car.type === "coach" || it.car.type === "caboose")) this.light(sx, sy - 7 * k, 12 * k, 0.4, 0);
+      ctx.globalAlpha = a0;
     }
   }
 
@@ -1277,7 +1348,7 @@ export class Traffic {
       const h = this.hAt(c.x, c.y);
       const [sx, sy] = S(c.x, c.y, h);
       if (sx < -80 || sy < -80 || sx > this.cw + 80 || sy > this.ch + 80) continue;
-      drawCar(ctx, c.car, sx, sy, k, c.dx, c.dy, lit);
+      blitCar(ctx, c.car, sx, sy, k, c.dx, c.dy, lit);
       if (c.car.type === "steam") {
         // the switcher simmers
         p.puffT -= this.dt;
@@ -1292,34 +1363,40 @@ export class Traffic {
     const fx = a.fx!, fy = a.fy!;
     const wl = m.waterLevel[a.y * m.width + a.x];
     const [wx0, wy0] = project(fx, fy, wl);
-    const sx = (wx0 - cam.x) * k, sy = (wy0 - cam.y) * k;
+    const [sx, sy] = this.snap2((wx0 - cam.x) * k, (wy0 - cam.y) * k);
     if (sx < -260 * k || sy < -200 * k || sx > this.cw + 260 * k || sy > this.ch + 200 * k) return;
     // behind a wharf, a warehouse or a bridge pier on the near bank: the hull and the stack both covered
-    if (this.occluded && this.occluded(sx, sy - 3 * k, Math.floor(fx) + Math.floor(fy)) && this.occluded(sx, sy - 12 * k, Math.floor(fx) + Math.floor(fy))) return;
-    const dx = Math.cos(a.ang!), dy = Math.sin(a.ang!);
+    const cover = !!this.occluded && this.occluded(sx, sy - 3 * k, Math.floor(fx) + Math.floor(fy)) && this.occluded(sx, sy - 12 * k, Math.floor(fx) + Math.floor(fy));
+    const seen = this.seen(a, cover);
+    if (seen <= 0.02) return;
+    ctx.globalAlpha *= seen;
+    // v0.28: the heading in 32 steps, and the hull drawn once per step as a pixel sprite (crisp, no shimmer)
+    const qa = ((Math.round((a.ang! / (Math.PI * 2)) * HEADINGS) % HEADINGS) + HEADINGS) % HEADINGS;
+    const dx = Math.cos((qa / HEADINGS) * Math.PI * 2), dy = Math.sin((qa / HEADINGS) * Math.PI * 2);
     const night = this.night, lit = night > 0.35;
     const O = (al: number, c: number, z = 0) => { const [ox, oy] = ooff(k, dx, dy, al, c, z); return [sx + ox, sy + oy] as [number, number]; };
-    const box = (a0: number, a1: number, c0: number, c1: number, z0: number, z1: number, col: string, top?: string) => obox(ctx, sx, sy, k, dx, dy, a0, a1, c0, c1, z0, z1, col, top);
     const steamboat = a.kind === "steamboat";
     const stern = steamboat ? -0.72 : -0.42;
     const moving = !a.moored;
     // wake: churned water at the stern and a V spreading behind
     if (moving) {
       const sp = Math.min(1.2, a.speed / 0.3);
-      ctx.lineWidth = Math.max(1, 1.3 * k);
+      // v0.28: the wake in whole pixels of the chunks' grid (it was drawn as smooth hairlines)
+      const up = Math.max(1, Math.round(k / Math.min(1, k)));
+      const dots = (p0: [number, number], p1: [number, number], w: number) => {
+        const n = Math.max(1, Math.ceil(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / up));
+        for (let j = 0; j <= n; j++) {
+          const x = p0[0] + ((p1[0] - p0[0]) * j) / n, y = p0[1] + ((p1[1] - p0[1]) * j) / n;
+          ctx.fillRect(Math.round(x / up) * up, Math.round(y / up) * up, up * w, up);
+        }
+      };
       // the V of the wake, fading as it spreads
       for (let q = 0; q < 3; q++) {
-        ctx.strokeStyle = `rgba(225,238,245,${(0.3 - q * 0.09).toFixed(2)})`;
-        ctx.beginPath();
-        for (const side of [-1, 1]) {
-          const p0 = O(stern - q * 0.35 * sp + 0.05, side * (0.15 + q * 0.13)), p1 = O(stern - (q + 1) * 0.35 * sp, side * (0.28 + q * 0.13));
-          ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]);
-        }
-        ctx.stroke();
+        ctx.fillStyle = `rgba(225,238,245,${(0.3 - q * 0.09).toFixed(2)})`;
+        for (const side of [-1, 1]) dots(O(stern - q * 0.35 * sp + 0.05, side * (0.15 + q * 0.13)), O(stern - (q + 1) * 0.35 * sp, side * (0.28 + q * 0.13)), 1);
       }
-      ctx.strokeStyle = "rgba(225,238,245,0.16)"; ctx.lineWidth = Math.max(1, 3.5 * k);
-      const q0 = O(stern, 0), q1 = O(stern - 0.9 * sp, 0);
-      ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke();
+      ctx.fillStyle = "rgba(225,238,245,0.12)";
+      dots(O(stern, 0), O(stern - 0.9 * sp, 0), Math.max(1, Math.round(2 * Math.min(1, k))));
       if (a.kind === "tow") {
         // a bow wave off the head of the raft
         const [bx, by] = O(0.3 + 0.93 * Math.ceil(a.barges!.length / 2) + 0.02, 0);
@@ -1330,6 +1407,23 @@ export class Traffic {
       ctx.fillStyle = `rgba(235,244,248,${ch.toFixed(2)})`;
       ctx.beginPath(); ctx.ellipse(cx, cy, 7 * k, 3 * k, 0, 0, Math.PI * 2); ctx.fill();
     }
+    // the hull, cabins and stacks: a sprite at the chunks' scale, blown up nearest-neighbour
+    const kk = Math.min(1, k), up = k / kk;
+    const pf = moving ? Math.floor((((time * 1.6 + a.seed) % 1) + 1) % 1 * 6) : 0;
+    const key = `${a.kind}|${a.col}|${(a.barges ?? []).join(",")}|${this.year < 1940 ? 1 : 0}|${qa}|${pf}|${lit ? 1 : 0}|${kk}`;
+    const spr = pixelSprite(key, a.kind === "tow" ? 0.3 + 0.93 * Math.ceil((a.barges?.length ?? 1) / 2) + 0.6 : 1, kk, (c2, cx, cy) => this.drawHull(c2, cx, cy, kk, dx, dy, a, pf / 6, moving, lit));
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(spr.c, Math.round(sx - spr.cx * up), Math.round(sy - spr.cy * up), Math.round(spr.c.width * up), Math.round(spr.c.height * up));
+    if (lit) {
+      if (a.kind === "tow") { const [lx, ly] = O(0.3 + 0.93 * Math.ceil(a.barges!.length / 2), 0, 4); this.light(lx, ly, 18 * k, 0.5, 1); }
+      else { const [lx, ly] = O(0, 0, 6); this.light(lx, ly, 26 * k, 0.45, 0); }
+    }
+  }
+
+  /** a boat's hull, barges, cabins and stacks, back to front, into a sprite (k: the sprite's scale) */
+  private drawHull(ctx: CanvasRenderingContext2D, sx: number, sy: number, k: number, dx: number, dy: number, a: Agent, phase: number, moving: boolean, lit: boolean) {
+    const box = (a0: number, a1: number, c0: number, c1: number, z0: number, z1: number, col: string, top?: string) => obox(ctx, sx, sy, k, dx, dy, a0, a1, c0, c1, z0, z1, col, top);
+    const time = phase / 1.6 - a.seed / 1.6;
     // parts back to front (by depth along the heading)
     type Part = { d: number; draw: () => void };
     const parts: Part[] = [];
@@ -1364,7 +1458,6 @@ export class Traffic {
         box(-0.13, 0.03, -0.075, 0.075, 12.8, 13.6, "#3a3a3e");
         for (const c of [-0.05, 0.05]) box(steam ? -0.02 : -0.22, steam ? 0.02 : -0.18, c - 0.018, c + 0.018, 9.5, steam ? 24 : 15, "#1e1e22");
       } });
-      if (lit) { const [lx, ly] = O(0.3 + 0.93 * cols, 0, 4); this.light(lx, ly, 18 * k, 0.5, 1); }
     } else {
       parts.push({ d: depth(-0.6, 0), draw: () => paddle(-0.78, -0.6, 0.16) });
       parts.push({ d: depth(0, 0), draw: () => {
@@ -1379,11 +1472,44 @@ export class Traffic {
         box(0.06, 0.16, -0.05, 0.05, 11.5, 15, "#f4f0e6", "#3a3a3e");
         for (const c of [-0.09, 0.09]) { box(0.33, 0.39, c - 0.018, c + 0.018, 5.6, 25, "#1c1a1a"); box(0.32, 0.4, c - 0.026, c + 0.026, 25, 27, "#2a2422"); }
       } });
-      if (lit) { const [lx, ly] = O(0, 0, 6); this.light(lx, ly, 26 * k, 0.45, 0); }
     }
     parts.sort((p, q) => p.d - q.d);
     for (const p of parts) p.draw();
   }
+}
+
+// ---------------------------------------------------------------- v0.28: movers as cached pixel sprites
+// Boats and rail cars are drawn from oriented boxes (obox). Drawn live at sub-pixel positions and any heading,
+// their edges shimmered and faces popped in and out as they turned, and they read as smooth 3D models on the
+// pixel-art map. Now each look (heading in 32 steps) is drawn once at the chunks' scale, its alpha made hard
+// like the sprites', and blown up nearest-neighbour like the chunks and the bridges.
+const HEADINGS = 32;
+type PixSprite = { c: HTMLCanvasElement; cx: number; cy: number };
+const pixCache = new Map<string, PixSprite>();
+function pixelSprite(key: string, reach: number, k: number, draw: (ctx: CanvasRenderingContext2D, cx: number, cy: number) => void): PixSprite {
+  const hit = pixCache.get(key);
+  if (hit) { pixCache.delete(key); pixCache.set(key, hit); return hit; }
+  // room for the longest reach along any heading, and for stacks rising above the deck
+  const rx = Math.ceil((reach + 0.3) * 46 * k) + 2, ry = Math.ceil((reach + 0.3) * 24 * k) + 2, up = Math.ceil(30 * k) + 2;
+  const c = document.createElement("canvas");
+  c.width = rx * 2; c.height = ry * 2 + up;
+  const x = c.getContext("2d", { willReadFrequently: true })!;
+  draw(x, rx, ry + up);
+  const d = x.getImageData(0, 0, c.width, c.height);
+  for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i] >= 110 ? 255 : 0;
+  x.putImageData(d, 0, 0);
+  const spr = { c, cx: rx, cy: ry + up };
+  pixCache.set(key, spr);
+  if (pixCache.size > 600) { const first = pixCache.keys().next().value; if (first !== undefined) pixCache.delete(first); }
+  return spr;
+}
+function blitCar(ctx: CanvasRenderingContext2D, c: Car, sx: number, sy: number, k: number, dx: number, dy: number, lit: boolean) {
+  const qa = ((Math.round((Math.atan2(dy, dx) / (Math.PI * 2)) * HEADINGS) % HEADINGS) + HEADINGS) % HEADINGS;
+  const qx = Math.cos((qa / HEADINGS) * Math.PI * 2), qy = Math.sin((qa / HEADINGS) * Math.PI * 2);
+  const kk = Math.min(1, k), up = k / kk;
+  const spr = pixelSprite(`car|${c.type}|${c.col}|${c.col2 ?? ""}|${c.len}|${qa}|${lit ? 1 : 0}|${kk}`, c.len, kk, (x, cx, cy) => drawCar(x, c, cx, cy, kk, qx, qy, lit));
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(spr.c, Math.round(sx - spr.cx * up), Math.round(sy - spr.cy * up), Math.round(spr.c.width * up), Math.round(spr.c.height * up));
 }
 
 // ---------------------------------------------------------------- trains

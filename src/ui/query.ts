@@ -212,7 +212,7 @@ export function neighbourhoodHtml(rep: AreaReport, year: number): string {
     ${character ? `<p class="q-list q-character">${esc(character)}</p>` : ""}
     <div class="q-kv"><div class="k">People</div><div class="v">${fmt(rep.pop)}</div>
       ${homes ? `<div class="k">Homes</div><div class="v">${esc(homes)}</div>` : ""}
-      ${rep.avgBuilt ? `<div class="k">Houses built</div><div class="v">${rep.avgBuilt}</div>` : ""}
+      ${rep.avgBuilt ? `<div class="k">Houses date from</div><div class="v" title="The average year its houses went up">c. ${rep.avgBuilt}</div>` : ""}
       ${places ? `<div class="k">Churches</div><div class="v">${esc(places)}</div>` : ""}
       ${rep.shops ? `<div class="k">Shops</div><div class="v">${rep.shops}</div>` : ""}
       <div class="k">Air · land</div><div class="v">${rep.pollution < 0.05 ? "clean" : rep.pollution < 0.3 ? "smoky" : "heavy smoke"} · $${fmt(rep.landValue)} avg</div>
