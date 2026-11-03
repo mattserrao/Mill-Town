@@ -17,8 +17,9 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, heightAt, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
-import { tunnelsIn } from "../core/tunnels";
+import { type Camera, BASE_M, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Portal, portals } from "../core/tunnels";
+import { buildPortal, portalKey } from "./portals";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
 import { buildSprites, cropSprite, scaleSprite, type Sprite, type SpriteBuf } from "./sprites";
 import { drawFire, drawPlume, rivalLook, type SmokeLook, smokeLook, windFor } from "./pollution";
@@ -108,6 +109,13 @@ export function bridgePaint(name: string, rail: boolean, built: number, year: nu
   if (gold !== undefined && year >= gold) return { steel: "#c8a23a", girder: "#a8842a" };
   if (SISTERS.has(name) && built >= 1920) return { steel: "#a4a8ac", girder: "#4e6a48" };
   return { steel: built >= 1890 ? "#5a6470" : "#3e3e46", girder: "#4a4440" };
+}
+
+/** -1 not yet built, 0 open, 1 open with lamps, 2 closed and boarded up */
+function portalState(p: Portal, year: number): number {
+  if (year < p.t.opened) return -1;
+  if (p.t.closed !== undefined && year > p.t.closed) return 2;
+  return p.t.kind === "road" || year >= 1920 ? 1 : 0;
 }
 
 /** draw natural river banks along the smooth shoreline (core/shore) rather than the tile edges */
@@ -209,11 +217,11 @@ export class Renderer {
 
   private sprite(key: string, s: number): SpriteBuf | null {
     // houses and plants are generated per variant: kept in a byte-budgeted LRU
-    if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|"))) {
+    if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|") || key.startsWith("T|"))) {
       let e = this.gen.get(key);
       if (e) { this.gen.delete(key); this.gen.set(key, e); }
       else {
-        const sp = cropSprite(key.startsWith("H|") ? buildHouse(key) : buildPlant(key));
+        const sp = cropSprite(key.startsWith("H|") ? buildHouse(key) : key.startsWith("T|") ? buildPortal(key) : buildPlant(key));
         this.built++;
         e = { sp, bufs: new Map(), bytes: sp.canvas.width * sp.canvas.height * 4 };
         this.gen.set(key, e);
@@ -457,6 +465,43 @@ export class Renderer {
   }
 
   private sigs = new Map<number, { stamp: string; sig: string }>();
+
+  // ------------------------------------------------------------ tunnels
+  private tunnelIdx: { portal: Map<number, Portal>; approach: Map<number, Portal>; near: Map<number, Portal> } | null = null;
+  /** portal tiles and the tiles of their cuttings, by tile index */
+  private tunnelTiles() {
+    if (this.tunnelIdx) return this.tunnelIdx;
+    const portal = new Map<number, Portal>(), approach = new Map<number, Portal>(), near = new Map<number, Portal>();
+    for (const p of portals(this.map)) {
+      portal.set(p.y * this.map.width + p.x, p);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near.set((p.y + dy) * this.map.width + p.x + dx, p);
+      for (const j of p.approach) if (!approach.has(j)) approach.set(j, p);
+    }
+    return (this.tunnelIdx = { portal, approach, near });
+  }
+  /** which tunnels touching a chunk are open/closed this year (so a chunk re-renders when one opens or closes) */
+  private tunnelSig(cx: number, cy: number, year: number): string {
+    let s = "";
+    const x0 = cx * CS - 1, y0 = cy * CS - 1, x1 = cx * CS + CS, y1 = cy * CS + CS;
+    for (const p of portals(this.map)) {
+      if (p.x < x0 - 6 || p.x > x1 + 6 || p.y < y0 - 6 || p.y > y1 + 6) continue;
+      s += portalState(p, year) + 1;
+    }
+    return s;
+  }
+  private portalKeyFor(p: Portal, year: number): string {
+    const m = this.map, V = m.width + 1, x = p.x, y = p.y;
+    const hT = m.vert[y * V + x], hR = m.vert[y * V + x + 1], hL = m.vert[(y + 1) * V + x], hB = m.vert[(y + 1) * V + x + 1];
+    const hc = (hT + hR + hL + hB) / 4;
+    const q = (h: number) => Math.max(-80, Math.min(100, Math.round(((h - hc) * ZPX) / 3) * 3));
+    const st = portalState(p, year);
+    const t = p.t;
+    return portalKey({
+      look: t.look, bores: t.bores, face: p.face, kind: t.kind, g: [q(hT), q(hR), q(hB), q(hL)],
+      state: st === 2 ? 2 : st === 1 ? 1 : 0,
+      H: Math.round((t.kind === "trolley" ? 10 : t.bores === 2 ? 13 : 12) * ZPX),
+    });
+  }
   private ws: [number, number, number] = [0, 0, 0];
 
   /**
@@ -488,7 +533,7 @@ export class Renderer {
     }
     for (const b of g.company?.holdings?.biz ?? []) if (b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) mix(b.y * W + b.x + b.id.length * 131071);
     // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
-    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}`;
+    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}|${this.tunnelSig(cx, cy, w.year)}`;
     this.sigs.set(id, { stamp, sig });
     return sig;
   }
@@ -930,8 +975,38 @@ export class Renderer {
       && !N8.some(([dx, dy]) => { const j = at(dx, dy); return j >= 0 && (m.special[j] === Special.Wharf || w.use[j] === Use.Wharf); });
     const sf = smoothBank ? shoreField(m) : null, ws: [number, number, number] = [0, 0, 0];
 
+    // the cutting in front of a tunnel portal: the roadway (or track) running out from the bores
+    const tpi = this.tunnelTiles().portal.get(i);
+    const head = tpi && (tpi.face === "x-" || tpi.face === "y-") ? tpi : undefined;
+    const ap = this.tunnelTiles().approach.get(i) ?? head;
+    const apSt = ap ? portalState(ap, w.year) : -1;
+    const apAlongU = ap ? ap.face[0] === "x" : false;
+    const apLanes = ap?.t.bores === 2 ? [0.27, 0.73] : [0.5], apW = ap?.t.bores === 2 ? 0.17 : 0.2;
+
     return (u: number, v: number, h: number, gx: number, gy: number) => {
       let c = base(u, v, h, gx, gy);
+      if (apSt >= 0) {
+        const across = apAlongU ? v : u, along = apAlongU ? u : v;
+        if (head) {
+          // the back of a portal: the road runs in under the headwall's coping, the hill closes over it
+          const b = 1 - along;
+          if (b < 0.2) return c;
+          if (b < 0.27) return b < 0.215 ? 0x8a8070 : hash(gx, gy, 941) < 0.2 ? 0xa89c84 : 0xc4b89e;
+          if (b < 0.3) return 0x1a1a1e;
+        }
+        for (const lc of apLanes) {
+          const d = Math.abs(across - lc);
+          if (d > apW + 0.05) continue;
+          if (d > apW) { c = 0x8a8478; break; } // kerb / shoulder
+          if (ap!.t.kind === "road") { c = ap!.t.look === "concrete" ? (d < 0.012 && (Math.floor(along * 6) & 1) ? 0xe8e4d8 : 0x4a4a4e) : 0x8e8a80; break; }
+          if (apSt === 2) { c = hash(gx, gy, 940) < 0.3 ? 0x4e6a34 : 0x5e5a44; break; }
+          c = ap!.t.kind === "trolley" ? 0x8a8478 : hash(gx, gy, 30) < 0.5 ? 0x6a6258 : 0x5c544a;
+          if (d < 0.15 && (Math.floor(along / 0.06) & 1) === 0) c = ap!.t.kind === "trolley" ? 0x7a746a : 0x4a3626;
+          if (Math.abs(d - 0.06) < pxu * 0.9) c = 0xa8a8b0;
+          break;
+        }
+        if (ap!.t.bores === 2 && ap!.t.kind === "road" && Math.abs(across - 0.5) < 0.02) c = 0xb8b4a8;
+      }
       // a paved wharf takes the 45° line along the water too (no sawtooth of square tiles), with a stone edge
       if (waterMask && paved && waterL) {
         const [a, b] = orient(waterL, u, v);
@@ -1074,6 +1149,20 @@ export class Renderer {
     const use = w.use[i];
     const t = m.terrain[i];
     const sub = w.sub[i];
+
+    // a tunnel portal fills its tile; its cutting runs out over the next few (no trees or buildings in the road)
+    const tp = this.tunnelTiles();
+    const pt = tp.portal.get(i);
+    if (pt && portalState(pt, w.year) >= 0) {
+      // a portal facing the camera is drawn over the terrain (drawPortals); one facing away is hidden by its own
+      // hill (the ground shader draws its road running up under the headwall's coping)
+      return out;
+    }
+    const ap = tp.approach.get(i);
+    if (ap && portalState(ap, w.year) >= 0) return out;
+    // the slope round a portal is cleared: no trees on the eight tiles about it
+    const near = tp.near.get(i);
+    if (near && portalState(near, w.year) >= 0 && use === Use.Forest) return out;
 
     // v0.28: a business you own stands on its tile (in place of the trees or the field)
     const held = holdingKey(g, i);
@@ -1358,72 +1447,28 @@ export class Renderer {
     ctx.restore();
   }
 
-  // ------------------------------------------------------------ tunnels (portals, drawn live)
+  // ------------------------------------------------------------ tunnel portals (drawn live over the terrain)
+  private portalSprites = new Map<string, Sprite>();
   /**
-   * The tunnels under Mount Washington, as scenery: a portal facade set into the hillside at each end, square to
-   * the bore, with its arches (dark, lamp-lit once the road tunnels have lights; boarded up once closed) and
-   * short wing walls holding back the hill.
+   * Portals that face the camera, drawn after the terrain like the bridges: a portal is cut into a slope, and
+   * on a 30 m grid the hill beside a one-tile cutting would otherwise bury it.
    */
-  drawTunnels(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
-    const m = this.map, z = cam.zoom, year = g.world.year;
+  drawPortals(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState) {
+    const m = this.map, z = cam.zoom, year = g.world.year, V = m.width + 1;
     const cw = ctx.canvas.width, ch = ctx.canvas.height;
-    const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
-    const poly = (pts: [number, number][], col: string) => { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); };
-    const portals: { x: number; y: number; dx: number; dy: number; t: ReturnType<typeof tunnelsIn>[number]; city: boolean }[] = [];
-    for (const t of tunnelsIn(year)) {
-      const L = Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]);
-      const ux = (t.b[0] - t.a[0]) / L, uy = (t.b[1] - t.a[1]) / L;
-      portals.push({ x: t.a[0], y: t.a[1], dx: ux, dy: uy, t, city: true }, { x: t.b[0], y: t.b[1], dx: -ux, dy: -uy, t, city: false });
-    }
-    // the facade is squared to the tile grid like everything else in the iso view (an arbitrary bearing read as an
-    // edge-on slab): it faces whichever grid direction is nearest the way out of the hill
-    for (const pt of portals) {
-      const nx = -pt.dx, ny = -pt.dy;
-      if (Math.abs(nx) >= Math.abs(ny)) { pt.dx = -Math.sign(nx); pt.dy = 0; } else { pt.dx = 0; pt.dy = -Math.sign(ny); }
-    }
-    // back to front
-    portals.sort((p, q) => p.x + p.y - (q.x + q.y));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (const pt of portals) {
-      const { t } = pt;
-      const c = S(pt.x, pt.y, heightAt(m, pt.x, pt.y));
-      if (c[0] < -200 || c[0] > cw + 200 || c[1] < -200 || c[1] > ch + 300) continue;
-      // the facade sits a little way into the slope; (dx, dy) points into the hill
-      const px = -pt.dy, py = pt.dx;
-      const hw = t.bores === 2 ? 1.0 : 0.6, H = t.kind === "trolley" ? 9 : t.bores === 2 ? 12 : 11;
-      const h0 = Math.min(heightAt(m, pt.x - px * hw, pt.y - py * hw), heightAt(m, pt.x + px * hw, pt.y + py * hw), heightAt(m, pt.x, pt.y)) - 0.5;
-      const F = (u: number, zz: number, out = 0): [number, number] => S(pt.x + px * u - pt.dx * out, pt.y + py * u - pt.dy * out, h0 + zz);
-      const closed = t.closed !== undefined && year > t.closed;
-      const face = t.look === "concrete" ? "#c4c0b4" : t.look === "brick" ? "#8e4c38" : "#b2a68e";
-      const lit = !closed && (t.kind === "road" || year >= 1920);
-      // facing the camera (south/east) the face is in light, facing away it's in shade
-      const toCam = -(pt.dx + pt.dy) > 0;
-      const faceCol = toCam ? face : shade6(face, 0.8);
-      // seen from behind (the portals on Mount Washington's north face look away from the camera): only the top of
-      // the headwall shows over the hill, with the road running up to it
-      const facing = -(pt.dx + pt.dy) / Math.SQRT2;
-      // facade and coping
-      poly([F(-hw, -1), F(hw, -1), F(hw, H), F(-hw, H)], faceCol);
-      poly([F(-hw - 0.06, H), F(hw + 0.06, H), F(hw + 0.06, H + 1.2), F(-hw - 0.06, H + 1.2)], shade6(face, toCam ? 0.85 : 0.6));
-      if (t.look === "concrete") poly([F(-hw, H * 0.62), F(hw, H * 0.62), F(hw, H * 0.7), F(-hw, H * 0.7)], "#3a3a3e"); // name band
-      if (t.look === "stone" && z >= 0.375) for (let k = 1; k < 4; k++) { const a = F(-hw, (H * k) / 4), b = F(hw, (H * k) / 4); ctx.strokeStyle = shade6(faceCol, 0.85); ctx.lineWidth = Math.max(1, 0.5 * z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
-      // the bores: a rectangle with a round top (postwar: a flatter, wider mouth)
-      const aw = t.bores === 2 ? 0.36 : 0.4, ah = t.look === "concrete" ? H * 0.5 : H * 0.55;
-      for (let k = 0; k < t.bores && facing > 0; k++) {
-        const uc = t.bores === 2 ? (k ? 0.45 : -0.45) : 0;
-        const arch: [number, number][] = [F(uc - aw, 0), F(uc + aw, 0)];
-        for (let j = 0; j <= 10; j++) { const a = (Math.PI * j) / 10; arch.push(F(uc + Math.cos(a) * aw, ah + Math.sin(a) * aw * (t.look === "concrete" ? 2.5 : 6))); }
-        poly(arch, closed ? "#4a3a2a" : "#151517");
-        if (lit && z >= 0.375) { ctx.fillStyle = "#e8d070"; for (let j = 1; j < 4; j++) { const q = F(uc - aw + (2 * aw * j) / 4, ah * 0.8); ctx.fillRect(q[0], q[1], Math.max(1, z), Math.max(1, z)); } }
-        if (closed && z >= 0.5) { ctx.strokeStyle = "#2a2018"; ctx.lineWidth = Math.max(1, 0.6 * z); for (let j = 1; j < 4; j++) { const a = F(uc - aw + (2 * aw * j) / 4, 0), b = F(uc - aw + (2 * aw * j) / 4, ah); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
-      }
-      // road or track running out of the mouth, laid on the ground
-      if (!(pt.city && t.bridged)) for (let k = 0; k < t.bores; k++) {
-        const uc = t.bores === 2 ? (k ? 0.45 : -0.45) : 0;
-        const G = (u: number, o: number): [number, number] => { const gx = pt.x + px * u - pt.dx * o, gy = pt.y + py * u - pt.dy * o; return S(gx, gy, Math.max(heightAt(m, gx, gy), o < 0.3 ? h0 : -1e9) + 0.15); };
-        for (let o = 0; o < 2.4; o += 0.3) poly([G(uc - aw, o), G(uc + aw, o), G(uc + aw, o + 0.32), G(uc - aw, o + 0.32)], t.kind === "road" ? "#5a5a5c" : "#5c544a");
-      }
+    ctx.imageSmoothingEnabled = false;
+    const list = portals(m).filter((p) => (p.face === "x+" || p.face === "y+") && portalState(p, year) >= 0).sort((p, q) => p.x + p.y - (q.x + q.y));
+    for (const p of list) {
+      const hc = (m.vert[p.y * V + p.x] + m.vert[p.y * V + p.x + 1] + m.vert[(p.y + 1) * V + p.x] + m.vert[(p.y + 1) * V + p.x + 1]) / 4;
+      const [wx, wy] = project(p.x + 0.5, p.y + 0.5, hc);
+      const sx = (wx - cam.x) * z, sy = (wy - cam.y) * z;
+      if (sx < -200 || sx > cw + 200 || sy < -200 || sy > ch + 400) continue;
+      const key = this.portalKeyFor(p, year);
+      let sp = this.portalSprites.get(key);
+      if (!sp) { sp = cropSprite(buildPortal(key)); this.portalSprites.set(key, sp); }
+      ctx.drawImage(sp.canvas, Math.round(sx - sp.ax * z), Math.round(sy - sp.ay * z), Math.round(sp.canvas.width * z), Math.round(sp.canvas.height * z));
     }
     ctx.restore();
   }
