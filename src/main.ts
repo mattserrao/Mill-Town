@@ -8,6 +8,7 @@ import { loadMap, type GameMap } from "./core/map";
 import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
 import { type Camera, pickTile, placeLabelRects, project, RELIEF, RELIEFS, setRelief, ZOOMS } from "./render/iso";
+import { DETAIL, setDetail } from "./render/light";
 import { Renderer, setSmoothShore } from "./render/renderer";
 import { Traffic } from "./render/traffic";
 import { drawHaze, drawSpills } from "./render/pollution";
@@ -94,6 +95,12 @@ function announceVersion() {
   try { saved = Number(localStorage.getItem("mt.relief") ?? NaN); } catch { /* private mode */ }
   const k = asked > 0 ? asked : saved;
   if (RELIEFS.includes(k)) setRelief(k);
+  // v0.31 Detail: ?detail= in the address, else the remembered setting (High by default)
+  const dq = new URLSearchParams(location.search).get("detail");
+  let dsaved: string | null = null;
+  try { dsaved = localStorage.getItem("mt.detail"); } catch { /* private mode */ }
+  const dv = dq ?? dsaved;
+  if (dv === "0" || dv === "1" || dv === "2") setDetail(Number(dv));
   // ?shore=0: the old tile-edge river banks (for comparison)
   if (new URLSearchParams(location.search).get("shore") === "0") setSmoothShore(false);
 }
@@ -1004,6 +1011,17 @@ function setupUI() {
       requestRender();
     });
   }
+  // Detail (v0.31): shadows, reflections and yard clutter (?detail=0|1|2 in the address overrides it), remembered
+  {
+    const sel = $<HTMLSelectElement>("detail");
+    sel.value = String(DETAIL);
+    sel.addEventListener("change", () => {
+      setDetail(Number(sel.value));
+      try { localStorage.setItem("mt.detail", sel.value); } catch { /* private mode */ }
+      renderer.invalidateAll();
+      requestRender();
+    });
+  }
   $("found").addEventListener("click", () => {
     if (!selected) return;
     const name = ($<HTMLInputElement>("companyName")).value.trim() || suggestName(industry, game.seed);
@@ -1606,7 +1624,8 @@ if (new URLSearchParams(location.search).has("dev") || import.meta.env.DEV) Obje
     incline: () => { const r = buildIncline(game); afterChange(); return r; },
     tech: (ids: string[]) => { if (game.company) { game.company.techs = ids; game.world.version++; afterChange(); } },
     tod: (v: string) => { ($<HTMLSelectElement>("tod")).value = v; requestRender(); },
-    get pending() { return renderer.pending; },
+    /** jump into a later start (the baked snapshot) without the menu: mt.later(1920, "steel") */
+    later: (year: number, ind: IndustryId = "steel", seed = 1) => startLater(seed, { year, faction: "industrialist", industry: ind, first: "", surname: "" }),    get pending() { return renderer.pending; },
     query: (x: number, y: number) => { selected = { x, y }; const [sx, sy] = tileScreen(x, y); showQuery(x, y, sx, sy); requestRender(); },
     get traffic() { return traffic; },
     /** place a test landmark of a kind at a named place (for checking sprites) */

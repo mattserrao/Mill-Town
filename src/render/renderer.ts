@@ -4,6 +4,8 @@
 // tiles), followed by its sprites, all painted back-to-front into one pixel buffer.
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
+import { clutterSprites } from "./clutter";
+import { DETAIL, shadowKind, shadowShape, terrainLight } from "./light";
 import { lineIndex, segDist, type Seg } from "../core/lines";
 import { shoreDist, shoreField, wetAt } from "../core/shore";
 import { rivalRunning, techsForYear, type GameState, type Works } from "../core/game";
@@ -17,7 +19,7 @@ import { latLonToTile } from "../core/features";
 import { FarmSub, LotSub, ParkSub, SHOP_CLOSED } from "../core/platlayout";
 import { CEM_FILL, CEM_FIXED, CEM_PLOT, CEM_RURAL, cemFaith } from "../core/civiclife";
 import { buildHouse, houseKey, styleForYear, type HouseKind } from "./houses";
-import { type Camera, BASE_M, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
+import { type Camera, BASE_M, heightAt, HH, HW, placeLabelRects, project, RELIEF, tileCorners, ZOOMS, ZPX } from "./iso";
 import { type Portal, portals } from "../core/tunnels";
 import { buildPortal, portalKey } from "./portals";
 import { buildPlant, type Emitter, emittersFor, layoutAnnex, layoutPlant, type PlantCtx, plantKey, type PlantTile } from "./plants";
@@ -140,6 +142,25 @@ function bankPx(d: number, gx: number, gy: number, ground = -1): number {
 }
 
 // 8 neighbour directions (dx, dy)
+/** a roadway's surface by era: 0 packed dirt, 1 Belgian block, 2 brick, 3 asphalt (with a centre line from 1940) */
+function paving(pave: number, gx: number, gy: number, ds: number, roadW: number, along: number): number {
+  if (pave === 0) return hash(gx, gy, 29) < 0.12 ? 0x7a6a4e : 0x8e7c5a;
+  if (pave === 1) return (gx % 3 === 0 || gy % 2 === 0) ? 0x5e5a54 : hash(gx >> 1, gy >> 1, 28) < 0.5 ? 0x8a867e : 0x7a766e;
+  if (pave === 2) return (gy % 3 === 0) ? 0x6a4c40 : ((gx + Math.floor(gy / 3) * 3) % 6 === 0) ? 0x70503f : hash(gx >> 2, gy >> 1, 33) < 0.5 ? 0x8a6250 : 0x7e5a4a;
+  if (ds < 0.012 && (Math.floor(along * 7) & 1) && roadW > 0.15) return 0xd8d0a8;
+  const r = hash(gx, gy, 34);
+  return r < 0.06 ? 0x3a3a3e : hash(gx >> 3, gy >> 2, 35) < 0.12 ? 0x4e4c4a : 0x46464a;
+}
+/** worn ground between city buildings: bare earth, cinders and tufts of grass */
+function trodden(gx: number, gy: number): number {
+  const r = hash(gx, gy, 38);
+  return r < 0.08 ? 0x4e4a40 : hash(gx >> 1, gy >> 1, 39) < 0.3 ? 0x6e7a40 : r < 0.55 ? 0x7a6c56 : 0x6e6250;
+}
+/** sidewalk: flagstone / brick pavers (concrete reads the same at this size), with a joint every few px */
+function sidewalk(gx: number, gy: number): number {
+  return (gx % 4 === 0 || gy % 3 === 0) ? 0x8e887a : hash(gx >> 2, gy >> 1, 36) < 0.5 ? 0xb4ac9a : 0xa8a090;
+}
+
 const N8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 export class Renderer {
@@ -172,6 +193,7 @@ export class Renderer {
 
   constructor(private map: GameMap) {
     this.base = buildSprites();
+    for (const [k, sp] of clutterSprites()) this.base.set(k, sp);
     this.ncx = Math.ceil(map.width / CS);
     this.ncy = Math.ceil(map.height / CS);
     this.chunkHeights = new Float32Array(this.ncx * this.ncy * 2);
@@ -190,7 +212,11 @@ export class Renderer {
   }
 
   /** call after terrain heights change (grading) */
+  /** bumped when the terrain is regraded, so the hills' shadows are worked out again */
+  heightsVersion = 0;
+  private slagN = 0;
   updateHeights() {
+    this.heightsVersion++;
     const m = this.map, V = m.width + 1;
     for (let cy = 0; cy < this.ncy; cy++) for (let cx = 0; cx < this.ncx; cx++) {
       let lo = Infinity, hi = -Infinity;
@@ -347,12 +373,13 @@ export class Renderer {
     ctx.fillRect(0, 0, cw, ch);
     ctx.imageSmoothingEnabled = false;
     placeLabelRects.length = 0;
+    if ((g.world.slagN ?? 0) !== this.slagN) { this.slagN = g.world.slagN ?? 0; this.updateHeights(); }
     this.updatePlants(g);
 
     const s = Math.min(1, cam.zoom);
     this.setScale(s);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}`;
+    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}|d${DETAIL}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -525,6 +552,7 @@ export class Renderer {
       const p = w.pollution[i];
       mix(w.use[i] | (w.sub[i] << 5) | (w.street[i] << 10) | ((w.pop[i] > 0 ? 1 : 0) << 14) | (w.structure[i] << 15) | (w.eth[i] << 24));
       if (((x | y) & 7) === 0) mix(w.kit[(y >> 3) * Math.ceil(W / 8) + (x >> 3)] + 7919);
+      if (w.slag?.[i]) mix(w.slag[i] * 7919 + 13);
       mix(w.built[i] | ((p < 0.15 ? 0 : p < 0.4 ? 1 : p < 0.5 ? 2 : p < 1.2 ? 3 : 4) << 12) | (Math.min(8, Math.floor(p * 6)) << 16) | (w.owner[i] << 20));
       if (this.plants.has(i)) plant = true;
       if (m.rail[i] && (m.railLines[String(m.rail[i])]?.year ?? 9999) <= w.year) rails++;
@@ -533,7 +561,7 @@ export class Renderer {
     }
     for (const b of g.company?.holdings?.biz ?? []) if (b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) mix(b.y * W + b.x + b.id.length * 131071);
     // year-gated looks: gas → electric lamps and timber → concrete steps in 1910
-    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}|${plant ? this.plantsKey : ""}|${this.tunnelSig(cx, cy, w.year)}`;
+    const sig = `${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}|${rails}|${w.year >= 1910 ? 1 : 0}${[1865, 1885, 1890, 1900, 1905, 1915, 1925, 1935, 1940].filter((y) => w.year >= y).length}|${plant ? this.plantsKey : ""}|${this.tunnelSig(cx, cy, w.year)}`;
     this.sigs.set(id, { stamp, sig });
     return sig;
   }
@@ -571,6 +599,12 @@ export class Renderer {
     const cw = Math.max(1, ex - ox), ch = Math.max(1, ey - oy);
     const buf = new Uint32Array(cw * ch);
     const depth = new Uint16Array(cw * ch);
+    // v0.31: which diagonal row of tiles drew each ground pixel (+1), so sprites can be drawn after all the ground
+    // (the cast-shadow pass lies between) and still be hidden by the ground of nearer tiles on a hill
+    const gdep = new Uint16Array(cw * ch);
+    // v0.31 (High, closer zooms): which pixels are open water, for the daytime reflections
+    const wmask = DETAIL >= 2 && s >= 0.5 && !view.overlay ? new Uint8Array(cw * ch) : null;
+    let triWater = false;
     let objDepth = 1;
     const year = w.year;
     const pxu = 1 / (HW * s * 1.2); // ~ uv units per pixel
@@ -586,6 +620,7 @@ export class Renderer {
       ax: number, ay: number, bx: number, by: number, qx: number, qy: number,
       au: number, av: number, ah: number, bu: number, bv: number, bh: number, qu: number, qv: number, qh: number,
       light: number, tex: (u: number, v: number, h: number, gx: number, gy: number) => number, tint: number, tintA: number,
+      sa = 1, sb = 1, sq = 1, gd = 0,
     ) => {
       const minX = Math.max(0, Math.floor(Math.min(ax, bx, qx))), maxX = Math.min(cw - 1, Math.ceil(Math.max(ax, bx, qx)));
       const minY = Math.max(0, Math.floor(Math.min(ay, by, qy))), maxY = Math.min(ch - 1, Math.ceil(Math.max(ay, by, qy)));
@@ -603,21 +638,25 @@ export class Renderer {
           if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
           const u = w0 * au + w1 * bu + w2 * qu, v = w0 * av + w1 * bv + w2 * qv, h = w0 * ah + w1 * bh + w2 * qh;
           let c = tex(u, v, h, px + ox, py + oy);
+          if (wmask && (triWater || c & UNLIT) && (c & 255) > ((c >> 16) & 255) + 25) wmask[py * cw + px] = 1;
           // water drawn over the corner of a sloping bank tile is lit like the river, not like the slope
-          let k = (c & UNLIT ? 1 : light) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          const sh = w0 * sa + w1 * sb + w2 * sq;
+          let k = (c & UNLIT ? 1 - (1 - sh) * 0.5 : light * sh) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
           c &= 0xffffff;
           k = Math.round(k * 14) / 14;
           let r = ((c >> 16) & 255) * k, gg = ((c >> 8) & 255) * k, b = (c & 255) * k;
           if (tintA > 0) { r += (tr - r) * tintA; gg += (tg - gg) * tintA; b += (tb - b) * tintA; }
           buf[py * cw + px] = 0xff000000 | (Math.min(255, b) << 16) | (Math.min(255, gg) << 8) | Math.min(255, r);
           depth[py * cw + px] = 1;
+          gdep[py * cw + px] = gd;
         }
       }
     };
 
-    const blit = (key: string, fx: number, fy: number, hOff = 0) => {
+    const blit = (key: string, fx: number, fy: number, hOff = 0, dLim = 65535, mul = 1) => {
       const sb = this.sprite(key, s);
       if (!sb) return;
+      const mr = Math.round(mul * 256);
       const tx = Math.min(W - 1, Math.floor(fx)), ty = Math.min(H - 1, Math.floor(fy));
       const u = fx - tx, v = fy - ty;
       const a = m.vert[ty * V + tx], b = m.vert[ty * V + tx + 1], c = m.vert[(ty + 1) * V + tx], d = m.vert[(ty + 1) * V + tx + 1];
@@ -631,9 +670,11 @@ export class Renderer {
         for (let xx = 0; xx < sb.w; xx++) {
           const bx_ = dx + xx;
           if (bx_ < 0 || bx_ >= cw) continue;
-          const p = sb.px[row + xx];
+          let p = sb.px[row + xx];
           const al = p >>> 24;
           if (!al) continue;
+          if (gdep[drow + bx_] > dLim) continue; // the ground of a nearer tile (a hill) is in front
+          if (mr < 256) p = (p & 0xff000000) | ((((p >> 16) & 255) * mr >> 8) << 16) | ((((p >> 8) & 255) * mr >> 8) << 8) | ((p & 255) * mr >> 8);
           if (al >= 128) depth[drow + bx_] = objDepth;
           if (al === 255 || !sb.soft) { buf[drow + bx_] = p | 0xff000000; continue; }
           const q = buf[drow + bx_], f = al / 255;
@@ -656,13 +697,18 @@ export class Renderer {
     const SHADE_K = Math.sqrt(RELIEF);
 
     const tilesD = (x1 - x0) + (y1 - y0) - 1;
+    // v0.31 light: hill shadows and occlusion per vertex (Med and High), cast shadows of sprites (High)
+    const TL = DETAIL >= 1 ? terrainLight(m, this.heightsVersion) : null;
+    const vshade = (j: number, water: boolean) => TL ? 1 - (TL.shadow[j] * 0.34 + TL.ao[j] * 0.2) * (water ? 0.6 : 1) : 1;
+    const placed: { key: string; fx: number; fy: number; h: number; d: number; od: number; mul: number }[] = [];
     for (let d = 0; d < tilesD; d++) {
       for (let tx = Math.max(x0, x0 + d - (y1 - y0 - 1)); tx <= Math.min(x1 - 1, x0 + d); tx++) {
         const ty = y0 + d - (tx - x0);
         const i = ty * W + tx;
         const hT = m.vert[ty * V + tx], hR = m.vert[ty * V + tx + 1], hL = m.vert[(ty + 1) * V + tx], hB = m.vert[(ty + 1) * V + tx + 1];
         const [Tx, Ty] = P(tx, ty, hT), [Rx, Ry] = P(tx + 1, ty, hR), [Lx, Ly] = P(tx, ty + 1, hL), [Bx, By] = P(tx + 1, ty + 1, hB);
-        const tex = this.groundShader(g, tx, ty, i, pxu, view.grid, railActive);
+        let tex = this.groundShader(g, tx, ty, i, pxu, view.grid, railActive);
+        if (DETAIL > 0 && m.terrain[i] === Terrain.Water) tex = withCurrent(tex, riverAxis(m, tx, ty));
         let tint = 0, tintA = 0;
         const pol = w.pollution[i];
         if (pol > 0.02 && m.terrain[i] !== Terrain.Water) { tint = 0x2e2824; tintA = Math.min(0.55, pol * 0.35); }
@@ -674,11 +720,14 @@ export class Renderer {
           else { tint = 0x8c8a86; tintA = 0.62; }
         }
         const isWater = m.terrain[i] === Terrain.Water;
+        triWater = isWater;
         // shade by the slopes as drawn (stretched by the hill relief, eased so the far sides don't go black)
         const l1 = isWater ? 1 : lightOf(-MPT * (hR - hT) * SHADE_K, -MPT * (hL - hT) * SHADE_K, MPT * MPT);
         const l2 = isWater ? 1 : lightOf(MPT * (hL - hB) * SHADE_K, MPT * (hR - hB) * SHADE_K, MPT * MPT);
-        tri(Tx, Ty, Rx, Ry, Lx, Ly, 0, 0, hT, 1, 0, hR, 0, 1, hL, l1, tex, tint, tintA);
-        tri(Lx, Ly, Rx, Ry, Bx, By, 0, 1, hL, 1, 0, hR, 1, 1, hB, l2, tex, tint, tintA);
+        const jT = ty * V + tx, sT = vshade(jT, isWater), sR = vshade(jT + 1, isWater), sL = vshade(jT + V, isWater), sB = vshade(jT + V + 1, isWater);
+        const gd = tx + ty + 1;
+        tri(Tx, Ty, Rx, Ry, Lx, Ly, 0, 0, hT, 1, 0, hR, 0, 1, hL, l1, tex, tint, tintA, sT, sR, sL, gd);
+        tri(Lx, Ly, Rx, Ry, Bx, By, 0, 1, hL, 1, 0, hR, 1, 1, hB, l2, tex, tint, tintA, sL, sR, sB, gd);
 
         // map-edge skirt (diorama base)
         if (ty === H - 1 || tx === W - 1) {
@@ -702,8 +751,77 @@ export class Renderer {
           // no trees standing in the river where the smooth bank gave the corner of the tile to the water
           if (sf && sp.key.startsWith("tree:") && wetAt(sf, tx + sp.u, ty + sp.v, this.ws)[0] > 0.42) continue;
           // bridge decks count as ground (traffic runs on them); everything else stands in front of what's behind it
-          objDepth = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
-          blit(sp.key, tx + sp.u, ty + sp.v, sp.h ?? 0);
+          const od = sp.key.startsWith("bridge:") ? 1 : 2 + Math.floor(tx + sp.u) + Math.floor(ty + sp.v);
+          // a building or tree standing in a hill's shadow is shaded with it
+          const mul = TL ? 1 - TL.shadow[jT + (sp.u > 0.5 ? 1 : 0) + (sp.v > 0.5 ? V : 0)] * 0.3 : 1;
+          placed.push({ key: sp.key, fx: tx + sp.u, fy: ty + sp.v, h: sp.h ?? 0, d: gd, od, mul });
+        }
+      }
+    }
+
+    // cast shadows on the ground (High): each sprite's shadow is thrown screen-right (the sun is low in the south-west)
+    if (DETAIL >= 2 && !view.overlay && placed.length) {
+      const mask = new Uint8Array(cw * ch);
+      for (const pl of placed) {
+        const kind = shadowKind(pl.key);
+        if (!kind) continue;
+        const sb = this.sprite(pl.key, s);
+        if (!sb) continue;
+        const sh = shadowShape(sb, kind);
+        if (!sh) continue;
+        const [sx, sy] = P(pl.fx, pl.fy, heightAt(m, pl.fx, pl.fy) + pl.h);
+        const ax = Math.round(sx), ay = Math.round(sy);
+        const R = sh.runs;
+        for (let k = 0; k < R.length; k += 3) {
+          const yy = ay + R[k];
+          if (yy < 0 || yy >= ch) continue;
+          const row = yy * cw;
+          for (let xx = Math.max(0, ax + R[k + 1]); xx <= Math.min(cw - 1, ax + R[k + 2]); xx++) {
+            const g2 = gdep[row + xx];
+            // only on ground, and not up the face of a hill that stands in front of the sprite
+            if (g2 && g2 <= pl.d + 2 && mask[row + xx] < 1) mask[row + xx] = 1;
+          }
+        }
+        const C = sh.contact;
+        for (let k = 0; k < C.length; k += 2) {
+          const yy = ay + C[k], xx = ax + C[k + 1];
+          if (yy < 0 || yy >= ch || xx < 0 || xx >= cw) continue;
+          if (gdep[yy * cw + xx]) mask[yy * cw + xx] = 2;
+        }
+      }
+      for (let p = 0; p < mask.length; p++) {
+        const mk = mask[p];
+        if (!mk) continue;
+        const q = buf[p], f = mk === 2 ? 150 : 172; // /256; a cool shadow, a darker line at the foot
+        const r = (q & 255) * f >> 8, gg = ((q >> 8) & 255) * f >> 8, b = Math.min(255, (((q >> 16) & 255) * (f + 14)) >> 8);
+        buf[p] = 0xff000000 | (b << 16) | (gg << 8) | r;
+      }
+    }
+    for (const pl of placed) { objDepth = pl.od; blit(pl.key, pl.fx, pl.fy, pl.h, pl.d, pl.mul); }
+
+    // daytime reflections (High): the far bank and what stands on it, mirrored in the water below the shoreline,
+    // rippled and fading with distance from the bank (the boats and bridges are drawn live and aren't reflected)
+    if (wmask) {
+      const fade = Math.round(56 * s);
+      for (let px = 0; px < cw; px++) {
+        let edge = -1;
+        for (let py = 0; py < ch; py++) {
+          const p = py * cw + px;
+          if (!wmask[p] || depth[p] >= 2) { edge = buf[p] >>> 24 ? py : -1; continue; }
+          if (edge < 0) continue;
+          const k = py - edge;
+          if (k > fade) continue;
+          const sy = edge - k;
+          if (sy < 0) continue;
+          const sx = Math.min(cw - 1, Math.max(0, px + Math.round(Math.sin((py + ox) * 0.9 + (oy & 7)) * 1.2)));
+          const q = buf[sy * cw + sx];
+          if (!(q >>> 24)) continue;
+          const f = 0.32 * (1 - k / fade);
+          const c0 = buf[p];
+          const r = (c0 & 255) * (1 - f) + (q & 255) * f * 0.8;
+          const gg = ((c0 >> 8) & 255) * (1 - f) + ((q >> 8) & 255) * f * 0.85;
+          const b = ((c0 >> 16) & 255) * (1 - f) + ((q >> 16) & 255) * f * 0.95;
+          buf[p] = 0xff000000 | (Math.round(b) << 16) | (Math.round(gg) << 8) | Math.round(r);
         }
       }
     }
@@ -908,6 +1026,18 @@ export class Renderer {
         return hash(sx, gy >> 1, 18) < 0.5 ? 0x8e8a80 : 0x7a766e;
       }; break;
       case Use.Rock: {
+        if (w.slag?.[i]) {
+          // v0.31: a slag dump — grey-tan cinders, crusted darker, fresh pale runs where the ladles tipped
+          const lvl = w.slag[i];
+          base = (_u, _v, h, gx, gy) => {
+            const r = hash(gx, gy, 960);
+            if (r < 0.06) return 0x4a463e;
+            if (hash(gx >> 2, gy, 961) < 0.08 + lvl * 0.004) return 0xb4aa94; // a fresh run
+            const band = Math.floor(h / 1.5 + hash(gx >> 3, gy >> 2, 962) * 0.8) & 3;
+            return [0x7a7468, 0x857e70, 0x6e695e, 0x8e8676][band];
+          };
+          break;
+        }
         // bare bluff: soft, broken strata (not hard contour bands), with a ragged, chamfered edge into the
         // woods or fields next to it so a chain of rock tiles doesn't read as a staircase
         const soft = rawMask((j) => w.use[j] !== Use.Rock && m.terrain[j] !== Terrain.Water);
@@ -932,6 +1062,10 @@ export class Renderer {
         if (use === Use.Empty && w.sub[i] === LotSub.Scrub) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 923) < 0.5 ? 0x5a7a34 : 0x668a3a); break; }
         if (use === Use.Empty && w.sub[i] === LotSub.Yard) { base = (_u, _v, _h, gx, gy) => (hash(gx >> 1, gy >> 1, 920) < 0.5 ? 0x74a646 : 0x80b050); break; }
         const pal = t === Terrain.Floodplain ? PAL.meadow : PAL.grass;
+        // v0.31: an open lot in the thick of the city is worn bare, not lawn
+        let townN = 0;
+        for (const [dx, dy] of N8) { const j = at(dx, dy); if (j >= 0) { const u2 = w.use[j]; if (u2 === Use.Rowhouses || u2 === Use.Commerce || u2 === Use.Industry || u2 === Use.Civic) townN++; } }
+        if (use === Use.Empty && townN >= 3) { const heavy = townN >= 5; base = (_u, _v, _h, gx, gy) => (heavy || hash(gx >> 2, gy >> 1, 37) < 0.6 ? trodden(gx, gy) : pick(pal, hash(gx >> 1, gy >> 1, 23))); break; }
         base = (_u, _v, _h, gx, gy) => {
           const r = hash(gx, gy, 22);
           if (r > 0.995) return 0xe8e0a0;
@@ -943,6 +1077,16 @@ export class Renderer {
     if (t === Terrain.Cliff && use === Use.Forest) {
       const b0 = base;
       base = (u, v, h, gx, gy) => (hash(gx >> 2, gy >> 1, 24) < 0.35 ? PAL.rock[(Math.floor(h / 2.5)) % 5] : b0(u, v, h, gx, gy));
+    } else if (DETAIL > 0 && m.slope[i] >= 20 && (use === Use.Forest || use === Use.Empty) && !w.street[i]) {
+      // v0.31: the steep hillsides show their bones — sandstone and shale ledges breaking out of the woods in level
+      // bands (the strata run flat under the hills), a dark overhang under each
+      const b0 = base, strong = Math.min(1, (m.slope[i] - 18) / 16);
+      base = (u, v, h, gx, gy) => {
+        const f = h / 4.5 + hash(gx >> 4, gy >> 3, 963) * 0.5;
+        const fr = f - Math.floor(f);
+        if (fr < 0.2 && hash(gx >> 2, Math.floor(f), 964) < 0.55 * strong) return fr < 0.05 ? 0x4e4436 : hash(gx, gy, 965) < 0.3 ? 0x8a7a5e : 0xa0906e;
+        return b0(u, v, h, gx, gy);
+      };
     }
 
     // linear features
@@ -952,6 +1096,13 @@ export class Renderer {
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
     const alley = w.street[i] === Street.Alley;
     const streetW = w.street[i] === Street.Pike ? 0.17 : alley ? 0.07 : dense ? 0.26 : 0.14;
+    // v0.31 city streets: a narrower roadway with kerbs and sidewalks; paving by era (0 dirt, 1 Belgian block,
+    // 2 brick, 3 asphalt) — main roads and the old city first
+    const year = w.year;
+    const pike = w.street[i] === Street.Pike;
+    const pave = year >= (pike ? 1915 : dense ? 1925 : 1935) ? 3 : year >= (pike ? 1885 : dense ? 1890 : 1905) ? 2 : year >= (dense || pike ? 1865 : 9999) ? 1 : 0;
+    const roadW = pike ? 0.2 : 0.17, walkW = roadW + 0.13;
+    const hydrant = DETAIL > 0 && year >= 1875 && hash(x, y, 966) < 0.3;
     // creeks and rails come from the source vectors where the map has them (smooth on any angle);
     // otherwise from the raster masks
     const vec = m.lines.creek.length > 0 || m.lines.rail.length > 0;
@@ -1049,14 +1200,23 @@ export class Renderer {
         if (ds < 0.09) c = landing ? (wood ? 0x9a8a6a : 0xb0aca4) : (Math.floor(along / 0.03) & 1) ? (wood ? 0x8a7a5e : 0xa8a49c) : (wood ? 0x5e4e3a : 0x6e6a64);
         else if (Math.abs(ds - 0.11) < pxu * 1.2) c = wood ? 0x3a3028 : 0x4a5a6a;
       } else if (w.street[i]) {
-        const [ds] = lineDist(streetMask, u, v);
-        if (ds < streetW) {
-          if (alley) {
-            // a rear alley: a narrow dirt track between the backs of the lots
-            c = hash(gx, gy, 29) < 0.2 ? 0x8a7a5a : 0xa8966e;
-          } else if (dense) {
-            // cobbles
-            c = (gx % 3 === 0 || gy % 2 === 0) ? 0x6a665e : hash(gx >> 1, gy >> 1, 28) < 0.5 ? 0x8e8a82 : 0x7e7a72;
+        const [ds, along] = lineDist(streetMask, u, v);
+        if (alley) {
+          // a rear alley: a narrow dirt track between the backs of the lots (brick in the old city after 1900)
+          if (ds < streetW) c = dense && year >= 1900 ? ((gx % 4 === 0 || gy % 2 === 0) ? 0x6a4a3e : 0x8a5a46) : hash(gx, gy, 29) < 0.2 ? 0x8a7a5a : 0xa8966e;
+        } else if (dense) {
+          // v0.31: a city street — the roadway (paved by era), a stone kerb, the sidewalk, then the areaways to the house fronts
+          if (ds < roadW) c = paving(pave, gx, gy, ds, roadW, along);
+          else if (ds < roadW + Math.max(pxu * 1.2, 0.018)) c = year < 1870 ? 0x8a7a62 : 0xb4ae9e; // kerb
+          else if (ds < walkW) c = hydrant && Math.abs(ds - roadW - 0.04) < 0.022 && Math.abs(along - 0.3) < 0.03 ? 0xb8382a : sidewalk(gx, gy);
+          else if (use === Use.Empty && w.sub[i] === 0) c = ds < walkW + 0.06 ? (hash(gx >> 1, gy, 31) < 0.55 ? 0x76695a : 0x6a5e50) : trodden(gx, gy); // areaways, trodden
+        } else if (ds < streetW) {
+          if (pave >= 3 || (pave >= 2 && w.street[i] === Street.Pike)) {
+            // a paved country road: asphalt (or brick on the pike) with gravel shoulders
+            c = ds > streetW - pxu * 2 ? (hash(gx, gy, 32) < 0.5 ? 0x9a9078 : 0x8a826c) : paving(w.street[i] === Street.Pike ? pave : 3, gx, gy, ds, streetW, along);
+          } else if (pave >= 2 && w.street[i] !== Street.Pike && w.pop[i] + (dense ? 1 : 0) > 0) {
+            // macadam: crushed stone, rolled
+            c = ds > streetW - pxu * 1.5 ? 0x7a7060 : hash(gx, gy, 29) < 0.2 ? 0x9a927e : 0xaaa28c;
           } else {
             c = ds > streetW - pxu * 1.5 ? 0x6e5e44 : hash(gx, gy, 29) < 0.12 ? 0x7a6a4e : 0x92805e;
             if (Math.abs(ds - streetW * 0.45) < pxu * 0.8) c = 0x7e6c50; // wheel ruts
@@ -1142,6 +1302,55 @@ export class Renderer {
     return false;
   }
 
+  // ------------------------------------------------------------ v0.31 clutter and industrial landforms
+  /** wires along straight streets (telegraph on the pikes from the 1850s, electric in town from the 1890s, the
+   * trolley wire on the car lines 1890–1960) and billboards along the main roads from 1905 */
+  private clutter(g: GameState, x: number, y: number, i: number, out: { key: string; u: number; v: number; h?: number }[]) {
+    const m = this.map, w = g.world, W = m.width, yr = w.year, st = w.street[i];
+    const S = (dx: number, dy: number) => { const nx = x + dx, ny = y + dy; return nx >= 0 && ny >= 0 && nx < W && ny < m.height ? w.street[ny * W + nx] : 0; };
+    if (st && st !== Street.Bridge && st !== Street.Steps && st !== Street.Alley && m.slope[i] < 14) {
+      const ew = (S(1, 0) || S(-1, 0)) && !S(0, 1) && !S(0, -1), ns = (S(0, 1) || S(0, -1)) && !S(1, 0) && !S(-1, 0);
+      if (ew || ns) {
+        const o = ew ? "a" : "b", dense = this.denseStreet(g, x, y), pike = st === Street.Pike;
+        const kind = pike && dense && yr >= 1890 && yr < 1960 ? "trolley" : (dense && yr >= 1890) || (yr >= 1915 && (w.pop[i] > 0 || this.near(g, x, y, (j) => w.pop[j] > 0))) ? "elec" : pike && yr >= 1850 ? "tel" : "";
+        // (wires are a pixel line: at half size and below they only scratch the map)
+        if (kind && this.curScale >= 0.75 && (DETAIL >= 2 || dense)) out.push({ key: `wire:${kind}:${o}:${(ew ? x : y) % 2 === 0 ? 1 : 0}`, u: 0.5, v: 0.5 });
+      }
+    }
+    return out;
+  }
+  private near(_g: GameState, x: number, y: number, f: (j: number) => boolean): boolean {
+    const m = this.map, W = m.width;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && f(ny * W + nx)) return true; }
+    return false;
+  }
+  /** next to a drift mine */
+  private byMine(g: GameState, x: number, y: number): boolean { return this.near(g, x, y, (j) => g.world.use[j] === Use.Mine); }
+  /** a strip mine on an open hilltop in the country, from 1942 (the war's coal) */
+  private stripMine(g: GameState, x: number, y: number, i: number): boolean {
+    const m = this.map, w = g.world;
+    if (w.year < 1942 || m.elevation[i] < 330 || m.slope[i] > 10) return false;
+    if (hash(x >> 3, y >> 3, 970 + (w.seed & 0xff)) > 0.06) return false;
+    if (this.near(g, x, y, (j) => w.pop[j] > 0 || w.street[j] > 0)) return false;
+    return hash(x, y >> 1, 971) < 0.75;
+  }
+  /** an open lot by the works or the mines: coke ovens by a mine (1850–1930), ore by a steel works' dock, billboards on the pike */
+  private industrialLot(g: GameState, x: number, y: number, i: number): string | null {
+    const m = this.map, w = g.world, W = m.width, yr = w.year;
+    const h = hash(x, y, 972 + (w.seed & 0xff));
+    if (yr < 1930 && this.byMine(g, x, y) && h < 0.5) {
+      const o = this.near(g, x, y, (j) => g.world.use[j] === Use.Mine && (j % W) !== x) ? "b" : "a";
+      return `coke:${o}:${Math.floor(hash(x, y, 973) * 3)}`;
+    }
+    if (h < 0.55 && this.near(g, x, y, (j) => { const pr = this.plants.get(j); return pr?.t.ground === "dock" && pr.c.ind === "steel" && pr.c.status !== "idle"; })) return `ore:${Math.floor(hash(x, y, 974) * 2)}`;
+    if (yr >= 1905 && h < 0.16 && this.near(g, x, y, (j) => w.street[j] === Street.Pike)) {
+      const o = this.near(g, x, y, (j) => w.street[j] === Street.Pike && (j % W) !== x) ? "a" : "b";
+      return `bill:${o}:${Math.floor(hash(x, y, 975) * 4)}`;
+    }
+    void i;
+    return null;
+  }
+
   private tileSprites(g: GameState, x: number, y: number, i: number): { key: string; u: number; v: number; h?: number }[] {
     const m = this.map, w = g.world, W = m.width;
     const out: { key: string; u: number; v: number; h?: number }[] = [];
@@ -1171,18 +1380,42 @@ export class Renderer {
     switch (use) {
       case Use.Forest: {
         const high = m.elevation[i] > 320 || t === Terrain.Steep || t === Terrain.Cliff;
-        const count = 3 + Math.floor(n(2) * 3);
+        // v0.31: the strip mines of the 1940s on the open hilltops out in the country, and gob beside the drift mines
+        if (DETAIL > 0 && this.stripMine(g, x, y, i)) { out.push({ key: `strip:${Math.floor(n(42) * 2)}`, u: 0.5, v: 0.5 }); break; }
+        if (DETAIL > 0 && this.byMine(g, x, y) && n(43) < 0.45) { out.push({ key: `gob:${Math.floor(n(44) * 2)}`, u: 0.5, v: 0.5 }); break; }
+        // v0.31: the woods by site. Sycamore and silver maple on the river bottoms, hemlock in the cool north-facing
+        // hollows, oak and hickory up on the hills; trees near the works thin out and yellow in the smoke. Trees
+        // stand in clumps and glades, not evenly.
+        const Vv = W + 1;
+        const north = (m.vert[(y + 1) * Vv + x] + m.vert[(y + 1) * Vv + x + 1] - m.vert[y * Vv + x] - m.vert[y * Vv + x + 1]) / 2;
+        let wet = t === Terrain.Floodplain;
+        if (!wet) for (const [dx, dy] of N8) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && m.terrain[ny * W + nx] === Terrain.Water) { wet = true; break; } }
+        const shady = north > 4 && m.slope[i] >= 8;
+        const pol = w.pollution[i];
+        const clump = hash(x >> 2, y >> 2, 35 + (w.seed & 0xff)) * 0.6 + hash(x >> 1, y >> 1, 36) * 0.4;
+        const count = DETAIL === 0 ? 3 + Math.floor(n(2) * 3) : Math.max(1, Math.round(1.5 + clump * 4.5 + n(2) - (pol > 0.8 ? 1.5 : 0)));
         for (let k = 0; k < count; k++) {
           const u = 0.15 + hash(x * 7 + k, y, 31) * 0.7, v = 0.15 + hash(x, y * 7 + k, 32) * 0.7;
           const r = hash(x + k, y - k, 33);
-          const sp = high ? (r < 0.55 ? "pine" : r < 0.85 ? "oak" : "bush") : (r < 0.45 ? "oak" : r < 0.8 ? "maple" : r < 0.92 ? "pine" : "bush");
-          out.push({ key: `tree:${sp}${Math.floor(hash(k, x + y, 34) * (sp === "bush" ? 2 : 3))}`, u, v });
+          let sp = high ? (r < 0.55 ? "pine" : r < 0.85 ? "oak" : "bush") : (r < 0.45 ? "oak" : r < 0.8 ? "maple" : r < 0.92 ? "pine" : "bush");
+          if (DETAIL > 0) {
+            if (wet) sp = r < 0.45 ? "sycamore" : r < 0.8 ? "maple" : r < 0.9 ? "oak" : "bush";
+            else if (shady) sp = r < 0.55 ? "hemlock" : r < 0.8 ? "oak" : r < 0.9 ? "maple" : "bush";
+            else if (high) sp = r < 0.6 ? "oak" : r < 0.75 ? "maple" : r < 0.88 ? "pine" : "bush";
+            if (pol > 0.5 && hash(x - k, y + k, 37) < Math.min(0.8, (pol - 0.4) * 0.7)) sp = "sick";
+          }
+          const nv = sp === "bush" || sp === "sumac" || sp === "sick" ? 2 : 3;
+          out.push({ key: `tree:${sp}${Math.floor(hash(k, x + y, 34) * nv)}`, u, v });
         }
         break;
       }
       case Use.Empty:
-        if (sub === LotSub.Weeds) { if (n(3) < 0.4) out.push({ key: "tree:bush0", u: 0.25 + n(6) * 0.5, v: 0.25 + n(7) * 0.5 }); break; }
-        if (sub === LotSub.Scrub) { for (let k = 0; k < 2; k++) if (n(3 + k) < 0.75) out.push({ key: n(5 + k) < 0.5 ? `tree:bush${k}` : `tree:maple${Math.floor(n(9 + k) * 2)}`, u: 0.2 + n(11 + k) * 0.6, v: 0.2 + n(13 + k) * 0.6 }); break; }
+        if (DETAIL > 0 && !w.street[i] && !sub && t !== Terrain.Water) {
+          const ind = this.industrialLot(g, x, y, i);
+          if (ind) { out.push({ key: ind, u: 0.5, v: 0.5 }); break; }
+        }
+        if (sub === LotSub.Weeds) { if (n(3) < 0.4) out.push({ key: DETAIL > 0 && n(4) < 0.5 ? `tree:sumac${Math.floor(n(5) * 2)}` : "tree:bush0", u: 0.25 + n(6) * 0.5, v: 0.25 + n(7) * 0.5 }); break; }
+        if (sub === LotSub.Scrub) { for (let k = 0; k < 2; k++) if (n(3 + k) < 0.75) out.push({ key: n(5 + k) < 0.5 ? (DETAIL > 0 ? `tree:sumac${k}` : `tree:bush${k}`) : `tree:maple${Math.floor(n(9 + k) * 2)}`, u: 0.2 + n(11 + k) * 0.6, v: 0.2 + n(13 + k) * 0.6 }); break; }
         if (sub === LotSub.Burnt) { out.push({ key: `lot:burnt${Math.floor(n(3) * 4)}`, u: 0.5, v: 0.5 }); break; }
         if (sub === LotSub.Cleared) { if (n(3) < 0.12) out.push({ key: "tree:bush0", u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
         if (sub !== LotSub.Yard) { if (!w.street[i] && t !== Terrain.Water && n(3) < 0.18) out.push({ key: n(4) < 0.5 ? "tree:bush0" : `tree:oak${Math.floor(n(5) * 3)}`, u: 0.3 + n(6) * 0.4, v: 0.3 + n(7) * 0.4 }); break; }
@@ -1251,6 +1484,14 @@ export class Renderer {
         if (st > 0 && st < 255) out.push({ key: `struct:${STRUCTURES[st]}`, u: 0.5, v: 0.5 });
         break;
       }
+      case Use.Rock:
+        if (w.slag?.[i]) {
+          // the dump's face (an edge tile) shows the tipped runs; its flat top the dump track and a ladle car
+          let edge = false;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && !(w.slag[ny * W + nx] >= w.slag[i] - 2)) edge = true; }
+          if (edge || n(40) < 0.35) out.push({ key: `slag:${edge ? 1 : 0}:${Math.floor(n(41) * 4)}`, u: 0.5, v: 0.5 });
+        }
+        break;
       case Use.Wharf:
         if (n(18) < 0.3) out.push({ key: `wharf:${Math.floor(n(19) * 3)}`, u: 0.5, v: 0.5 });
         break;
@@ -1260,6 +1501,9 @@ export class Renderer {
         if (pr && pr.t.part) {
           const soot = Math.min(3, Math.floor(pr.years / 12) + 1);
           out.push({ key: plantKey(pr.t, pr.c, soot, Math.floor(n(14) * 3)), u: 0.5, v: 0.5 });
+        } else if (DETAIL > 0 && pr?.t.ground === "spur" && pr.c.status !== "idle" && n(45) < 0.7) {
+          // v0.31: a string of cars standing on the works' siding (hoppers in, gondolas and boxcars out)
+          out.push({ key: `cars:${pr.t.axis === "v" ? "b" : "a"}:${Math.floor(n(46) * 4)}`, u: 0.5, v: 0.5 });
         }
         break;
       }
@@ -1268,6 +1512,7 @@ export class Renderer {
     // gas (later electric) street lamps along busy streets
     if (w.street[i] && w.street[i] !== Street.Bridge && (x * 3 + y) % 4 === 0 && this.denseStreet(g, x, y))
       out.push({ key: w.year >= 1910 ? "lamp:elec" : "lamp:gas", u: 0.5, v: 0.5 });
+    if (DETAIL > 0) this.clutter(g, x, y, i, out);
 
     if (t === Terrain.Water) {
       // bridges are drawn whole as smooth spans (drawBridges), not per tile
@@ -1286,7 +1531,9 @@ export class Renderer {
         // cargo (sprite variant, see BARGE_CARGO): 0 coal, 1 iron ore, 2 limestone/sand
         const r = n(22);
         const cargo = dockInd === "steel" ? (r < 0.5 ? 0 : r < 0.85 ? 1 : 2) : dockInd === "glass" ? (r < 0.3 ? 0 : 2) : dockInd === "power" ? 0 : dockInd ? (r < 0.6 ? 0 : 2) : r < 0.75 ? 0 : r < 0.9 ? 1 : 2;
-        if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
+        // v0.31: from the 1880s the coal came down in tows, and lay at the landings in rafts of barges waiting to be unloaded
+        if (DETAIL > 0 && w.year >= 1880 && (dock || nearWharf) && (x + y) % 3 === 0 && n(27) < (dock ? 0.45 : 0.18)) out.push({ key: `fleet:${axis}:${Math.floor(n(28) * 3)}`, u: 0.5, v: 0.5 });
+        else if (dock && (x + y) % 2 === 0) out.push({ key: `boat:barge:${axis}:${cargo}`, u: 0.5, v: 0.5 });
         else if ((x + y) % 2 === 0 && n(24) < 0.4) {
           // packets at the wharves until the railroads and the Depression end them (~1930); then a moored towboat now and then
           // moored where there's room, not on a lattice, and not quite parallel
@@ -1607,8 +1854,165 @@ export class Renderer {
       if (sx < -80 || sx > cw + 80 || sy < -80 || sy > ch + 80) continue;
       drawFire(ctx, sx, sy, e.size * z, e.kind === "flame", e.size >= 1.2, e.seed, this.looks[e.group].heat, wind, t, night);
     }
+    // v0.31: the furnaces light the sky and the smoke over them, the Bessemers flare, the rivers carry it all
+    this.drawPours(ctx, cam, g, t, night);
+    if (DETAIL > 0 && t > 0 && z >= 0.5 && g.turn % 4 >= 2) this.drawChimneys(ctx, cam, g, t, night);
+    if (night > 0.02 && DETAIL > 0) this.drawNightGlow(ctx, cam, g, t, night);
     ctx.globalCompositeOperation = "source-over";
     ctx.restore();
+  }
+
+  /**
+   * Coal fires in the houses in the autumn and winter seasons: a thin wisp of smoke from the chimneys, leaning
+   * downwind (one house in four or so at any moment, so the street doesn't look on fire).
+   */
+  private drawChimneys(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number, night: number) {
+    const m = this.map, w = g.world, z = cam.zoom, cw = ctx.canvas.width, ch = ctx.canvas.height;
+    const corners = [[0, 0], [cw, 0], [cw, ch], [0, ch]].map(([px, py]) => {
+      const wx = cam.x + px / z, wy = cam.y + py / z + (260 - BASE_M) * ZPX;
+      const a = wx / HW, b = wy / HH;
+      return [(a + b) / 2, (b - a) / 2];
+    });
+    const x0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 2), x1 = Math.min(m.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 4);
+    const y0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 2), y1 = Math.min(m.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 4);
+    const wind = windFor(g);
+    const winter = g.turn % 4 === 3;
+    const shade = Math.round(150 - night * 70);
+    let drawn = 0;
+    for (let y = y0; y <= y1 && drawn < 700; y++) for (let x = x0; x <= x1 && drawn < 700; x++) {
+      const i = y * m.width + x, u = w.use[i];
+      if (!(u === Use.Cottage || u === Use.Houses || u === Use.Rowhouses) || !w.pop[i]) continue;
+      if (hash(x, y, 990) > (winter ? 0.35 : 0.18)) continue;
+      const [wx, wy] = project(x + 0.5, y + 0.5, m.elevation[i]);
+      const sx = (wx - cam.x) * z + (hash(x, y, 991) - 0.5) * 30 * z, sy = (wy - cam.y) * z - (u === Use.Rowhouses ? 34 : 24) * z;
+      if (sx < -30 || sx > cw + 30 || sy < -60 || sy > ch + 10) continue;
+      drawn++;
+      for (let k = 0; k < 4; k++) {
+        const ph = ((t * 0.35 + hash(x, y, 992) + k / 4) % 1);
+        const rise = ph * 22 * z, lean = ph * ph * 14 * z * wind.s;
+        const px = sx + wind.x * lean + Math.sin(t * 1.3 + k + x) * 1.2 * z, py = sy - rise + wind.y * lean * 0.3;
+        ctx.globalAlpha = (1 - ph) * 0.32;
+        ctx.fillStyle = `rgb(${shade},${shade},${shade + 6})`;
+        const r = Math.max(1, (1.2 + ph * 3.5) * z);
+        ctx.fillRect(Math.round(px - r / 2), Math.round(py - r / 2), Math.round(r), Math.round(r));
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** is this screen point over the river? (inverse projection at the river's level) */
+  private waterAt(cam: Camera, sx: number, sy: number): boolean {
+    const m = this.map, z = cam.zoom;
+    const wx = cam.x + sx / z, wy = cam.y + sy / z + (RIVER_M - BASE_M) * ZPX;
+    const a = wx / HW, b = wy / HH;
+    const x = Math.floor((a + b) / 2), y = Math.floor((b - a) / 2);
+    if (x < 0 || y < 0 || x >= m.width || y >= m.height) return false;
+    return m.terrain[y * m.width + x] === Terrain.Water;
+  }
+
+  /**
+   * "Hell with the lid off": each furnace's glow lights the sky and the underside of its smoke, a Bessemer blow
+   * flares every twenty seconds or so and throws the whole works into light, and every bright light near the
+   * water lays a broken, shimmering streak across the river.
+   */
+  private drawNightGlow(ctx: CanvasRenderingContext2D, cam: Camera, _g: GameState, t: number, night: number) {
+    const z = cam.zoom, cw = ctx.canvas.width, ch = ctx.canvas.height;
+    ctx.globalCompositeOperation = "lighter";
+    const sky = skyGlow();
+    // one broad glow per works (its furnaces together), not a pile of overlapping ones that blow out to white
+    const groups = new Map<number, { x: number; y: number; n: number; size: number }>();
+    for (const e of this.emitters) {
+      if (!e.running || (e.kind !== "glow" && e.kind !== "flame")) continue;
+      const gr = groups.get(e.group) ?? { x: 0, y: 0, n: 0, size: 0 };
+      gr.x += e.wx; gr.y += e.wy; gr.n++; gr.size += e.size;
+      groups.set(e.group, gr);
+    }
+    const lights: { sx: number; sy: number; R: number; a: number; seed: number }[] = [];
+    for (const [grp, gr] of groups) {
+      const sx = (gr.x / gr.n - cam.x) * z, sy = (gr.y / gr.n - cam.y) * z;
+      const heat = this.looks[grp]?.heat ?? 0.6;
+      const R = (170 + 50 * Math.sqrt(gr.size)) * z;
+      if (sx < -R || sx > cw + R || sy < -R || sy > ch + R * 1.5) continue;
+      lights.push({ sx, sy: sy - 30 * z, R, a: night * (0.24 + heat * 0.3), seed: grp });
+    }
+    // a Bessemer blow: a few seconds of white-orange light every ~20 s, each converter on its own beat
+    for (const e of this.emitters) {
+      if (!e.running || e.kind !== "flame" || e.size < 1.2) continue;
+      const ph = ((t + e.seed * 13.7) % 21) / 21;
+      const blow = ph < 0.16 ? Math.sin((ph / 0.16) * Math.PI) : 0;
+      if (blow <= 0) continue;
+      const sx = (e.wx - cam.x) * z, sy = (e.wy - cam.y) * z;
+      lights.push({ sx, sy, R: (110 + 160 * blow) * z, a: night * 0.4 * blow, seed: e.seed });
+    }
+    for (const L of lights) {
+      if (L.a < 0.01) continue;
+      ctx.globalAlpha = Math.min(1, L.a);
+      ctx.drawImage(sky, L.sx - L.R, L.sy - L.R * 0.75, L.R * 2, L.R * 1.5);
+      // the reflection: down from the light to the river, a column of broken orange dashes
+      if (z < 0.25) continue;
+      let first = -1;
+      for (let k = 4; k < 200; k += 4) if (this.waterAt(cam, L.sx, L.sy + k * z)) { first = k; break; }
+      if (first < 0) continue;
+      for (let k = 0; k < 28; k++) {
+        const yy = L.sy + (first + k * 3.2) * z;
+        if (!this.waterAt(cam, L.sx, yy)) break;
+        const flick = hash(k, Math.floor(t * 6 + L.seed), 980);
+        const wv = (8 + 14 * (1 - k / 28)) * z * (0.6 + flick * 0.8) * Math.min(1.6, L.R / (150 * z));
+        ctx.globalAlpha = Math.min(1, L.a * 2.2) * (1 - k / 28) * (0.5 + flick * 0.5);
+        ctx.fillStyle = k < 4 ? "#ffd890" : "#ff9a40";
+        ctx.fillRect(Math.round(L.sx - wv / 2 + (flick - 0.5) * 4 * z), Math.round(yy), Math.max(1, Math.round(wv)), Math.max(1, Math.round(1.2 * z)));
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** the slag dumps' edges where the ladles are tipping now (worked out once a turn) */
+  private pourTiles: { x: number; y: number; h: number }[] = [];
+  private pourKey = "";
+  /** molten slag poured down a dump's face: a glowing run that cools over a few seconds; brightest at night */
+  private drawPours(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number, night: number) {
+    const w = g.world, m = this.map, W = m.width;
+    if (!w.slag || DETAIL === 0) return;
+    const key = `${g.turn}|${w.slagN}|${g.seed}`;
+    if (key !== this.pourKey) {
+      this.pourKey = key;
+      this.pourTiles = [];
+      const hot: [number, number][] = g.plants.filter((p) => p.output > 0 && this.isSteel(g, p.owner)).map((p) => [p.x + p.fp / 2, p.y + p.fp / 2]);
+      for (let i = 0; i < w.slag.length; i++) {
+        if (!w.slag[i] || w.use[i] !== Use.Rock) continue;
+        const x = i % W, y = (i / W) | 0;
+        if (!hot.some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 26)) continue;
+        let edge = false;
+        for (const [dx, dy] of [[1, 0], [0, 1], [1, 1]]) { const nx = x + dx, ny = y + dy; if (nx < W && ny < m.height && !w.slag[ny * W + nx]) edge = true; }
+        if (edge) this.pourTiles.push({ x, y, h: m.elevation[i] });
+      }
+    }
+    if (!this.pourTiles.length) return;
+    const z = cam.zoom, cw = ctx.canvas.width, ch = ctx.canvas.height;
+    ctx.globalCompositeOperation = "lighter";
+    for (const p of this.pourTiles) {
+      const ph = ((t + hash(p.x, p.y, 981) * 40) % 40) / 40;
+      if (ph > 0.12) continue;
+      const k = ph / 0.12; // 0 → 1: pour, then cool
+      const [wx, wy] = project(p.x + 0.6, p.y + 0.6, p.h);
+      const sx = (wx - cam.x) * z, sy = (wy - cam.y) * z;
+      if (sx < -50 || sx > cw + 50 || sy < -50 || sy > ch + 80) continue;
+      const len = Math.min(1, k * 3) * 22 * z, cool = k < 0.35 ? 1 : 1 - (k - 0.35) / 0.65;
+      const a = cool * (0.35 + night * 0.65);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#ffb040";
+      ctx.fillRect(Math.round(sx), Math.round(sy), Math.max(1, Math.round(2 * z)), Math.round(len));
+      ctx.fillStyle = "#ff6020";
+      ctx.fillRect(Math.round(sx - z), Math.round(sy + len * 0.5), Math.max(1, Math.round(4 * z)), Math.round(len * 0.5));
+      if (night > 0.05) { ctx.globalAlpha = a * 0.5; const R = 40 * z; ctx.drawImage(skyGlow(), sx - R, sy - R * 0.5, R * 2, R * 1.4); }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+  private isSteel(g: GameState, owner: string): boolean {
+    if (owner.startsWith("p")) return (g.company && [g.company, ...g.company.others].find((x) => x.id === owner)?.industry) === "steel";
+    return RIVALS.find((d) => d.id === owner)?.industry === "steel";
   }
 
   /** Lit windows and street lamps after dark (visible tiles only). */
@@ -1785,6 +2189,34 @@ function shade6(col: string, k: number): string {
 
 /** the soft glow of a street lamp, drawn once and scaled */
 let lampGlowCanvas: HTMLCanvasElement | null = null;
+/**
+ * v0.31: the current — faint streaks drawn out along the river's run on open water (not the banks), so the river
+ * reads as moving water rather than a flat blue field
+ */
+function withCurrent(inner: (u: number, v: number, h: number, gx: number, gy: number) => number, ax: "a" | "b") {
+  return (u: number, v: number, h: number, gx: number, gy: number) => {
+    const c = inner(u, v, h, gx, gy);
+    const r = (c >> 16) & 255, b = c & 255;
+    if (b < r + 25) return c;
+    const line = ax === "a" ? gy * 2 - gx : gy * 2 + gx, along = ax === "a" ? gx : -gx;
+    const ln = Math.floor(line / 5), seg = Math.floor((along + hash(ln, 0, 983) * 40) / 26);
+    if (((line % 5) + 5) % 5 === 0 && hash(ln, seg, 984) < 0.22 && ((along % 26) + 26) % 26 < 14) return (c & UNLIT) | rgb(Math.min(255, r + 14), Math.min(255, ((c >> 8) & 255) + 16), Math.min(255, b + 18));
+    return c;
+  };
+}
+/** the river's pool level (m): the Monongahela and Allegheny pools at the Point are about 710 ft */
+const RIVER_M = 219;
+let skyGlowCanvas: HTMLCanvasElement | null = null;
+/** a broad, soft orange glow (the sky over a furnace) */
+function skyGlow(): HTMLCanvasElement {
+  if (skyGlowCanvas) return skyGlowCanvas;
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const x = c.getContext("2d")!, gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, "rgba(255,170,90,0.75)"); gr.addColorStop(0.3, "rgba(240,120,50,0.42)");
+  gr.addColorStop(0.65, "rgba(190,70,30,0.14)"); gr.addColorStop(1, "rgba(150,45,20,0)");
+  x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+  return (skyGlowCanvas = c);
+}
 function lampGlow(): HTMLCanvasElement {
   if (lampGlowCanvas) return lampGlowCanvas;
   const c = document.createElement("canvas"); c.width = c.height = 32;

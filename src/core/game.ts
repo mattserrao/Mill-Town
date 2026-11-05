@@ -6,6 +6,7 @@ import { initSleuth, sleuthNatural, sleuthSeason, sleuthYear, type SleuthState }
 import { passClock } from "./passtimes";
 import { distance, feet } from "./units";
 import { INDUSTRIES, type IndustryId } from "./industries";
+import { slagSeason, type SlagState } from "./slag";
 import { type GameMap, inBounds, recomputeElevation, resetMap, type Span, tilesFor } from "./map";
 import { roadsSeason } from "./roads";
 import { freightMult, holdingsSeason, type Holdings, inputMult, upkeepMult } from "./holdings";
@@ -212,6 +213,8 @@ export interface GameState {
   turn: number;
   company?: Company;
   rivals: RivalState[];
+  /** v0.31: the steel works' slag still to tip (core/slag) */
+  slag?: SlagState;
   log: { turn: number; text: string }[];
   /** minutes from the works to every block (walk / streetcar / car by year) */
   access?: Float32Array;
@@ -809,6 +812,8 @@ export function advanceTurn(g: GameState): void {
   // smoke and the rivers in one pass over the town
   updateAir(g.map, g.world, g.env, g.plants, season, mod(g, "pollution"), { sewageMult: mod(g, "riverLoad") });
   mark("smoke and rivers");
+  slagSeason(g);
+  mark("slag dumps");
   if (g.growthModel === "sleuth") sleuthNatural(g); else naturalGrowth(g, rng);
   recordPrices(g);
   mark("births and sickness");
