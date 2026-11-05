@@ -15,8 +15,8 @@ import { unpackGame } from "../src/core/save";
 const EXPECTED: Record<string, string> = {
   "1850-desire": "195c5413",
   "1850": "84aaa795",
-  "1893-steel": "85007d6d",
-  "1947-steel": "f375d958",
+  "1893-steel": "e0198415", // v0.31: slag dumps take land
+  "1947-steel": "e5ddf24a",
 };
 const SEASONS = Number(process.env.SEASONS ?? 10);
 

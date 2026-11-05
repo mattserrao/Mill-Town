@@ -181,7 +181,8 @@ export function cylinder(p: Painter, u: number, v: number, r: number, z0: number
 
 // ---------------------------------------------------------------- trees
 
-export function tree(kind: "oak" | "maple" | "pine" | "bush" | "dead", v: number): Sprite {
+export type TreeKind = "oak" | "maple" | "pine" | "bush" | "dead" | "sycamore" | "hemlock" | "sumac" | "sick";
+export function tree(kind: TreeKind, v: number): Sprite {
   const p = new Painter(1, 96);
   const [x, y] = p.P(0.5, 0.5);
   const s = 0.8 + (v % 3) * 0.2;
@@ -196,6 +197,39 @@ export function tree(kind: "oak" | "maple" | "pine" | "bush" | "dead", v: number
       p.px(x - ww / 2 + 1, yy, k % 6 < 2 ? "#2c5130" : "#24442a", ww, 1);
       p.px(x - ww / 2 + 1, yy, "#3f6e3c", Math.max(1, Math.round(ww / 3)), 1);
     }
+  } else if (kind === "hemlock") {
+    // v0.31: hemlock in the cool, shaded hollows: dark, broad, soft-tipped, drooping tiers
+    const h = Math.round(24 * s), w = Math.round(15 * s);
+    p.px(x, y - 3, "#3e2c1e", 2, 3);
+    for (let k = 0; k < h; k++) {
+      const tier = k % 5;
+      const ww = Math.max(1, Math.round(Math.pow(k / h, 0.8) * w * (0.75 + tier * 0.07)));
+      const yy = y - 2 - h + k;
+      p.px(x - ww / 2 + 1, yy, tier < 2 ? "#1f3a2a" : "#18301f", ww, 1);
+      p.px(x - ww / 2 + 1, yy, "#2e5238", Math.max(1, Math.round(ww / 3)), 1);
+      if (tier === 4 && ww > 4) { p.px(x - ww / 2, yy + 1, "#18301f", 1, 1); p.px(x + ww / 2 + 1, yy + 1, "#18301f", 1, 1); }
+    }
+  } else if (kind === "sycamore") {
+    // v0.31: sycamore on the river bottoms: pale, mottled bark that shows white, a big open light-green crown
+    const h = Math.round(14 * s), r = 10 * s;
+    p.px(x, y - h, "#d8d2c0", 2, h);
+    for (let k = 0; k < h; k += 3) p.px(x + (k % 2), y - h + k, "#9a9484", 1, 2);
+    p.px(x - 3, y - h + 2, "#d8d2c0", 3, 1); p.px(x + 2, y - h + 4, "#d8d2c0", 3, 1);
+    blob(p, x + 1, y - h - r * 0.55, r, r * 0.75, ["#4a6e2c", "#6a8e38", "#86a844", "#a2bc5a"], rnd);
+  } else if (kind === "sumac") {
+    // v0.31: sumac and tree-of-heaven on waste ground: a few leaning stems and flat, spreading leaf clusters
+    for (let k = 0; k < 3; k++) {
+      const bx = x - 4 + k * 4, hh = Math.round((7 + (v + k) % 3 * 2) * s);
+      p.line([bx, y], [bx + (k - 1), y - hh], "#5a4632");
+      blob(p, bx + (k - 1) * 1.5, y - hh - 1, 3.5 * s, 2 * s, ["#3e6a26", "#5a8a30", "#7aa03a"], (q) => rnd(q + k * 31));
+      if ((v + k) % 2 === 0) p.px(bx + (k - 1), y - hh - 3, "#a8322a", 1, 2); // the red fruit cones
+    }
+  } else if (kind === "sick") {
+    // v0.31: a tree in the smoke: a thin, part-bare crown, yellowed
+    const h = Math.round(11 * s);
+    p.px(x, y - h, "#4b3523", 2, h);
+    p.px(x - 3, y - h + 2, "#4b3523", 3, 1); p.px(x + 2, y - h - 1, "#4b3523", 3, 1);
+    blob(p, x + 2, y - h - 4, 5 * s, 3.5 * s, ["#5a5a2e", "#6e6a34", "#8a7e3e"], rnd);
   } else if (kind === "bush") {
     const r = 4 * s;
     blob(p, x, y - r, r + 1, r, ["#2f5527", "#3f6b31", "#567f3a"], rnd);
@@ -1822,6 +1856,9 @@ export function buildSprites(): Map<SpriteKey, Sprite> {
   const s = new Map<SpriteKey, Sprite>();
   for (let v = 0; v < 3; v++) { s.set(`tree:oak${v}`, tree("oak", v)); s.set(`tree:maple${v}`, tree("maple", v)); s.set(`tree:pine${v}`, tree("pine", v)); }
   for (let v = 0; v < 2; v++) { s.set(`tree:bush${v}`, tree("bush", v)); }
+  // v0.31: trees by site — sycamore on the bottoms, hemlock in shaded hollows, sumac on waste ground, smoke-sick trees
+  for (let v = 0; v < 3; v++) { s.set(`tree:sycamore${v}`, tree("sycamore", v)); s.set(`tree:hemlock${v}`, tree("hemlock", v)); }
+  for (let v = 0; v < 2; v++) { s.set(`tree:sumac${v}`, tree("sumac", v)); s.set(`tree:sick${v}`, tree("sick", v)); }
   s.set("tree:dead0", tree("dead", 0));
   for (let v = 0; v < 3; v++) s.set(`cabin:${v}`, cabin(v));
   for (let v = 0; v < 2; v++) s.set(`farm:${v}`, farmstead(v));

@@ -277,7 +277,9 @@ let hazeKey = "", hazeT = -1, hazeDrawn = 0;
  */
 export function drawHaze(ctx: CanvasRenderingContext2D, g: GameState, cam: Camera, cw: number, ch: number, time = 0) {
   const y = g.world.year, z = cam.zoom;
-  const tint = y < 1884 ? 0.07 : y < 1891 ? 0.035 : y < 1947 ? 0.085 : Math.max(0.012, 0.085 - (y - 1947) * 0.003);
+  // v0.31 era grade: natural gas cleared the air 1884–91; the worst smoke was 1900–1941 ("streetlights at noon");
+  // the smoke-control ordinance (1941, enforced from 1946–47) cleared it, and the Renaissance city is bright
+  const tint = y < 1884 ? 0.07 : y < 1891 ? 0.035 : y < 1900 ? 0.085 : y < 1941 ? 0.115 : y < 1947 ? 0.115 - (y - 1941) * 0.007 : Math.max(0.01, 0.073 - (y - 1947) * 0.004);
   const [hr, hg, hb] = hazeColour(y);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);

@@ -149,6 +149,9 @@ export interface World {
   version: number;
   /** the seed block each tile belongs to (v0.25 block growth model; 0 none) */
   blockId?: Uint16Array;
+  /** v0.31: steps of slag tipped on each tile (0 none; see core/slag), and how many steps in all (for the renderer) */
+  slag?: Uint8Array;
+  slagN?: number;
 }
 
 export function useForPop(p: number): Use {

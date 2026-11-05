@@ -221,7 +221,7 @@ export function gz(s: HouseSpec, u: number, v: number): number {
 
 export const TERRACE_PX = 9; // relief across a lot above which it's cut into a level terrace
 
-const STONE = "#8e8474";
+const STONE0 = "#8e8474";
 
 /**
  * Cut-and-fill terrace: a level platform at height F over the rect, with stone retaining walls where
@@ -229,6 +229,8 @@ const STONE = "#8e8474";
  */
 export function terrace(p: Painter, s: HouseSpec, r: Rect, F: number, top: string) {
   const [u0, v0, u1, v1] = r;
+  // v0.31: the stone darkens with the soot of the years
+  const STONE = shade(STONE0, 1 - s.soot * 0.09);
   const gA = gz(s, u0, v0), gB = gz(s, u1, v0), gC = gz(s, u1, v1), gD = gz(s, u0, v1);
   const wall = (a: [number, number, number], b: [number, number, number], col: string) => {
     // a/b = [u, v, ground]; draw between ground and F on the side where they differ
@@ -291,7 +293,8 @@ function yard(p0: Painter, s: HouseSpec, f: ReturnType<typeof frame>, a0: number
     const q0 = f.pt(p, a0 + 0.08, (d0 + d1) / 2, 7), q1 = f.pt(p, a0 + 0.45, (d0 + d1) / 2, 7);
     p.px(q0[0], q0[1], "#6a5a4a", 1, 7); p.px(q1[0], q1[1], "#6a5a4a", 1, 7);
     p.line(q0, q1, "#cfc8b8");
-    const cols = ["#e8e4dc", "#c84a3a", "#4a6aa0", "#e8d070", "#f0f0f0"];
+    // in the smoky years the wash comes off the line grey (v0.31)
+    const cols = s.soot >= 2 ? ["#b8b4aa", "#8a5a50", "#5a6a80", "#b0a878", "#c0bcb4"] : ["#e8e4dc", "#c84a3a", "#4a6aa0", "#e8d070", "#f0f0f0"];
     for (let k = 1; k < 5; k++) { const [x, y] = lerp(q0, q1, k / 5); p.px(x, y + 1, cols[(k + s.v) % cols.length], 2, 3); }
   }
   // vegetable garden
@@ -359,20 +362,49 @@ function wallFor(s: HouseSpec, k = 0): string {
   return pal[(s.v + k) % pal.length];
 }
 
-function detachedHouse(p: Painter, s: HouseSpec, a0: number, a1: number, z0: number, fnd: number, k = 0) {
+/** v0.31: one platted lot along the tile's street front: its lot lines, the house's own width on it, whether it's narrow */
+export interface Lot { a0: number; a1: number; h0: number; h1: number; narrow: boolean; garden: boolean }
+
+/**
+ * How a frame-house tile is platted: one wide lot, a pair, or three or four narrow 25-ft lots (the mill towns'
+ * usual plat) — the lot lines fall at slightly different places on each tile, and each house takes most of its lot
+ * with a side yard on one side or the other. Deterministic per house spec.
+ */
+export function lotsFor(s: HouseSpec): Lot[] {
+  const n = s.style >= 2 && rnd(s, 1) < 0.4 ? 1 : s.style >= 1 && s.style <= 3 && rnd(s, 5) < 0.4 ? (rnd(s, 6) < 0.25 ? 4 : 3) : 2;
+  const ws: number[] = [];
+  for (let k = 0; k < n; k++) ws.push(0.8 + rnd(s, 150 + k) * 0.4);
+  const tot = ws.reduce((a, b) => a + b, 0), span = 0.94;
+  const out: Lot[] = [];
+  let a = 0.03;
+  for (let k = 0; k < n; k++) {
+    const w = (ws[k] / tot) * span, a0 = a, a1 = a + w;
+    a = a1;
+    const narrow = n >= 3;
+    if (n === 1) { out.push({ a0, a1, h0: 0.12, h1: 0.88, narrow: false, garden: false }); continue; }
+    const fill = narrow ? 0.86 : 0.78 + rnd(s, 160 + k) * 0.1, side = rnd(s, 170 + k) < 0.5;
+    const hw = w * fill, h0 = side ? a0 + 0.01 : a1 - 0.01 - hw;
+    out.push({ a0, a1, h0, h1: h0 + hw, narrow, garden: n >= 3 && k === n - 1 && rnd(s, 180) < 0.15 });
+  }
+  return out;
+}
+
+function detachedHouse(p: Painter, s: HouseSpec, a0: number, a1: number, z0: number, fnd: number, k = 0, narrow = 0) {
   const f = frame(s);
   const st = s.style;
   const brick = st === 0 && rnd(s, 10 + k) < 0.35;
   const wall = brick ? BRICK[(s.v + k) % BRICK.length] : wallFor(s, k);
   const roof = ROOF[(s.v + k) % ROOF.length];
-  const depth = st === 4 ? 0.34 : 0.4;
-  const d0 = 0.12;
+  const depth = narrow ? 0.44 : st === 4 ? 0.34 : 0.4;
+  // each lot's own setback from the street (v0.31)
+  const d0 = 0.08 + Math.floor(rnd(s, 140 + k) * 3) * 0.04;
   const stories = st === 4 ? 1 : st === 3 ? (rnd(s, 11 + k) < 0.6 ? 1 : 2) : 2;
   const h = stories * 9 + 2;
   const [u0, v0, u1, v1] = f.rect(a0, a1, d0, d0 + depth);
   const b = box(p, u0, v0, u1, v1, h, { wall, z0, foundation: fnd, fnd: "#8a8070" });
   const sf = f.streetFace;
-  if (st === 0) { gable(p, b, f.ridge, 7, roof); chimney(p, u0 + 0.03, (v0 + v1) / 2, z0 + h, 9, brick ? "#7a3a2a" : "#8a4a36"); chimney(p, u1 - 0.03, (v0 + v1) / 2, z0 + h, 9); }
+  if (narrow && st >= 1 && st <= 3) gable(p, b, f.across, 8, roof); // a front-gabled worker's house on a narrow lot
+  else if (st === 0) { gable(p, b, f.ridge, 7, roof); chimney(p, u0 + 0.03, (v0 + v1) / 2, z0 + h, 9, brick ? "#7a3a2a" : "#8a4a36"); chimney(p, u1 - 0.03, (v0 + v1) / 2, z0 + h, 9); }
   else if (st === 1) { hip(p, b, 4, roof); if (sf) cornice(p, b, sf, "#5a4a3a"); }
   else if (st === 2) { hip(p, b, 9, roof); const g = box(p, ...f.rect(a0 + (a1 - a0) * 0.55, a1, d0, d0 + 0.12), 4, { wall, z0: z0 + h }); gable(p, g, f.across, 5, roof); }
   else if (st === 3) { gable(p, b, f.across, 6, roof); }
@@ -406,9 +438,19 @@ function houseSprite(s0: HouseSpec): Sprite {
   const z0 = s.lift, fnd = s.fnd;
   switch (s.kind) {
     case "house": {
+      // v0.31: the tile is platted into lots (lotsFor): each house on its own lot, lots of different widths, a fence
+      // down each lot line through the back yards, now and then a lot kept as a kitchen garden
       yard(p, s, f, 0.05, 0.95, 0.6, 0.97);
-      if (s.style >= 2 && rnd(s, 1) < 0.4) detachedHouse(p, s, 0.12, 0.88, z0, fnd);
-      else { detachedHouse(p, s, 0.05, 0.45, z0, fnd, 0); detachedHouse(p, s, 0.55, 0.95, z0, fnd, 1); }
+      const lots = lotsFor(s);
+      const lift = lifted(p, s.lift > 0 && Math.max(...s.g) - Math.min(...s.g) >= TERRACE_PX ? s.lift : 0);
+      lots.forEach((L, k) => {
+        if (k > 0 && s.style <= 3) for (let t = 0.6; t <= 0.97; t += 0.06) { const q = f.pt(lift, L.a0 - 0.01, t, 0); lift.px(q[0], q[1] - 3, "#7a6650", 1, 3); }
+        if (L.garden) {
+          for (let r = 0; r < 4; r++) for (let t = L.a0 + 0.03; t < L.a1 - 0.02; t += 0.04) { const q = f.pt(lift, t, 0.2 + r * 0.09, 0); lift.px(q[0], q[1] - 1, r % 2 ? "#5a7a30" : "#3e5a24", 2, 1); }
+          return;
+        }
+        detachedHouse(p, s, L.h0, L.h1, z0, fnd, k, L.narrow ? 0.24 : 0);
+      });
       break;
     }
     case "cottage": {

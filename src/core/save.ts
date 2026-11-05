@@ -26,10 +26,11 @@ import { resiteHoldings } from "./holdings";
 /**
  * 1: v0.1–v0.15 · 2: the family (v0.16) · 3: derived fields left out of the save and the graded ground stored
  * as a difference from the map (v0.20) · 4: civic life (v0.27: `civ`, made on first use; the plats' cemeteries
- * pick up their stones at the next spring). Bump it whenever the shape of the state changes, and teach `migrate`
+ * pick up their stones at the next spring) · 5: slag dumps (v0.31: `world.slag`, `slag`; made on first use, the
+ * graded ground carries their height). Bump it whenever the shape of the state changes, and teach `migrate`
  * what an older save lacks.
  */
-export const SAVE_FORMAT = 4;
+export const SAVE_FORMAT = 5;
 export const MAX_SAVES = 12;
 export const AUTOSAVE = "autosave";
 
