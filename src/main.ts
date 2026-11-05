@@ -9,6 +9,7 @@ import { evaluateSite, footprintTiles, popSAT } from "./core/site";
 import { ANCHORS } from "./core/ancestry";
 import { type Camera, pickTile, placeLabelRects, project, RELIEF, RELIEFS, setRelief, ZOOMS } from "./render/iso";
 import { DETAIL, setDetail } from "./render/light";
+import { SEASONS, setSeasons } from "./render/seasons";
 import { Renderer, setSmoothShore } from "./render/renderer";
 import { Traffic } from "./render/traffic";
 import { drawHaze, drawSpills } from "./render/pollution";
@@ -1019,6 +1020,21 @@ function setupUI() {
     sel.addEventListener("change", () => {
       setDetail(Number(sel.value));
       try { localStorage.setItem("mt.detail", sel.value); } catch { /* private mode */ }
+      renderer.invalidateAll();
+      requestRender();
+    });
+  }
+  // Seasons (v0.32): autumn colour and winter snow on the map; off unless turned on (?seasons=1 overrides), remembered
+  {
+    const cb = $<HTMLInputElement>("seasons");
+    const q = new URLSearchParams(location.search).get("seasons");
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("mt.seasons"); } catch { /* private mode */ }
+    setSeasons((q ?? saved) === "1");
+    cb.checked = SEASONS;
+    cb.addEventListener("change", () => {
+      setSeasons(cb.checked);
+      try { localStorage.setItem("mt.seasons", cb.checked ? "1" : "0"); } catch { /* private mode */ }
       renderer.invalidateAll();
       requestRender();
     });

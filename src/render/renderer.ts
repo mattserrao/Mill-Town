@@ -5,7 +5,8 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { clutterSprites } from "./clutter";
-import { type SeasonLook, seasonGround, seasonLook, seasonSprite } from "./seasons";
+import { roadDist, roadIndex } from "./roads";
+import { SEASONS, type SeasonLook, seasonGround, seasonLook, seasonSprite } from "./seasons";
 import { DETAIL, shadowKind, shadowShape, terrainLight } from "./light";
 import { lineIndex, segDist, type Seg } from "../core/lines";
 import { shoreDist, shoreField, wetAt } from "../core/shore";
@@ -392,7 +393,7 @@ export class Renderer {
     ctx.imageSmoothingEnabled = false;
     placeLabelRects.length = 0;
     if ((g.world.slagN ?? 0) !== this.slagN) { this.slagN = g.world.slagN ?? 0; this.updateHeights(); }
-    const look = DETAIL > 0 ? seasonLook(g.turn) : 0;
+    const look = DETAIL > 0 && SEASONS ? seasonLook(g.turn) : 0;
     if (look !== this.look) { this.look = look; this.seasonal.clear(); }
     this.updatePlants(g);
 
@@ -1159,7 +1160,7 @@ export class Renderer {
     }
 
     // linear features
-    const incline = use === Use.Incline ? mask((j) => w.use[j] === Use.Incline) : -1;
+    const inclineLine = this.inclineLineNear(w, x, y);
     const stairs = w.street[i] === Street.Steps || (w.street[i] > 0 && m.slope[i] >= 24);
     const streetMask = w.street[i] ? mask((j) => w.street[j] > 0) : 0;
     const dense = use === Use.Rowhouses || w.street[i] && [at(1, 0), at(-1, 0), at(0, 1), at(0, -1)].some((j) => j >= 0 && w.use[j] === Use.Rowhouses);
@@ -1183,6 +1184,15 @@ export class Renderer {
       for (const sg of list) { const [d, a] = segDist(sg, x + u, y + v); if (d < bd) { bd = d; ba = a; } }
       return [bd, ba];
     };
+    // v0.32: roads as smooth lines across tiles (render/roads.ts); their roadway also runs over the corners of the
+    // tiles beside a street where a staircase is cut into a diagonal or a hairpin rounded
+    const roadSegs = roadIndex(m, w).get(i) ?? [];
+    const nearestRoad = (u: number, v: number): [number, number] => {
+      let bd = 9, ba = 0;
+      for (const sg of roadSegs) { const [d, a] = roadDist(sg, x + u, y + v); if (d < bd) { bd = d; ba = a; } }
+      return [bd, ba];
+    };
+    const roadHere = roadSegs.length > 0 && !w.street[i] && t !== Terrain.Water && !m.rail[i] && use !== Use.Industry && use !== Use.Wharf;
     const rail = vec ? (railSegs.length ? 0 : -1) : railActive(i) ? mask((j) => railActive(j)) : -1;
     const creekMask = vec ? (creekSegs.length ? 0 : -1) : m.creek[i] ? mask((j) => m.creek[j] > 0 || m.terrain[j] === Terrain.Water) : -1;
     const waterMask = rawMask((j) => m.terrain[j] === Terrain.Water);
@@ -1257,19 +1267,25 @@ export class Renderer {
         if (dc < cw) c = hash(gx, gy, 27) < 0.15 ? 0x8cb4d4 : 0x467aa0;
         else if (dc < cw + 0.04) c = 0x5e6a44;
       }
-      if (incline >= 0) {
-        const [di] = lineDist(incline || 0xff, u, v);
-        if (di < 0.22) c = hash(gx, gy, 46) < 0.5 ? 0x6a5e48 : 0x5e5440; // cleared right-of-way
+      if (inclineLine) {
+        // the cleared right-of-way, straight from foot to head (the trestle itself is drawn live, over it)
+        const [di] = segDist({ kind: "rail", line: 0, ax: inclineLine[0], ay: inclineLine[1], bx: inclineLine[2], by: inclineLine[3], s0: 0 }, x + u, y + v);
+        if (di < 0.24) c = hash(gx, gy, 46) < 0.5 ? 0x6a5e48 : 0x5e5440;
       }
       if (w.street[i] && stairs) {
         // Pittsburgh city steps: concrete or timber treads with landings and pipe handrails
-        const [ds, along] = lineDist(streetMask, u, v);
+        const [ds, along] = roadSegs.length ? nearestRoad(u, v) : lineDist(streetMask, u, v);
         const landing = (Math.floor(along / 0.25) & 1) === 1 && (along % 0.25) < 0.06;
         const wood = w.year < 1910;
         if (ds < 0.09) c = landing ? (wood ? 0x9a8a6a : 0xb0aca4) : (Math.floor(along / 0.03) & 1) ? (wood ? 0x8a7a5e : 0xa8a49c) : (wood ? 0x5e4e3a : 0x6e6a64);
         else if (Math.abs(ds - 0.11) < pxu * 1.2) c = wood ? 0x3a3028 : 0x4a5a6a;
+      } else if (roadHere) {
+        // the edge of a smoothed road crossing this tile's corner
+        const [ds, along] = nearestRoad(u, v);
+        const rw = dense ? roadW : streetW;
+        if (ds < rw) c = pave >= 3 ? paving(3, gx, gy, ds, rw, along) : pave >= 1 && dense ? paving(pave, gx, gy, ds, rw, along) : ds > rw - pxu * 1.5 ? 0x6e5e44 : hash(gx, gy, 29) < 0.12 ? 0x7a6a4e : 0x92805e;
       } else if (w.street[i]) {
-        const [ds, along] = lineDist(streetMask, u, v);
+        const [ds, along] = roadSegs.length && !alley ? nearestRoad(u, v) : lineDist(streetMask, u, v);
         if (alley) {
           // a rear alley: a narrow dirt track between the backs of the lots (brick in the old city after 1900)
           if (ds < streetW) c = dense && year >= 1900 ? ((gx % 4 === 0 || gy % 2 === 0) ? 0x6a4a3e : 0x8a5a46) : hash(gx, gy, 29) < 0.2 ? 0x8a7a5a : 0xa8966e;
@@ -1875,6 +1891,24 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** v0.32: the straight line (foot to head, tile coords) of an incline passing this tile or the next one */
+  private inclineIdx: { n: number; idx: Map<number, [number, number, number, number]> } | null = null;
+  private inclineLineNear(w: GameState["world"], x: number, y: number): [number, number, number, number] | null {
+    const W = this.map.width;
+    const sig = w.inclines.reduce((a, inc) => a + inc.id * 97 + inc.path.length, w.inclines.length);
+    if (!this.inclineIdx || this.inclineIdx.n !== sig) {
+      const idx = new Map<number, [number, number, number, number]>();
+      for (const inc of w.inclines) {
+        if (inc.path.length < 2) continue;
+        const [x0, y0] = inc.path[0], [x1, y1] = inc.path[inc.path.length - 1];
+        const L: [number, number, number, number] = [x0 + 0.5, y0 + 0.5, x1 + 0.5, y1 + 0.5];
+        for (const [px, py] of inc.path) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) idx.set((py + dy) * W + px + dx, L);
+      }
+      this.inclineIdx = { n: sig, idx };
+    }
+    return this.inclineIdx.idx.get(y * W + x) ?? null;
+  }
+
   drawInclines(ctx: CanvasRenderingContext2D, cam: Camera, g: GameState, t: number) {
     const m = this.map, z = cam.zoom;
     const S = (x: number, y: number, h: number): [number, number] => { const [wx, wy] = project(x, y, h); return [(wx - cam.x) * z, (wy - cam.y) * z]; };
@@ -1884,17 +1918,24 @@ export class Renderer {
       const path = inc.path;
       if (path.length < 2) continue;
       const [x0, y0] = path[0], [x1, y1] = path[path.length - 1];
-      const h0 = m.elevation[y0 * m.width + x0] + 2, h1 = m.elevation[y1 * m.width + x1] + 2;
-      const A = S(x0 + 0.5, y0 + 0.5, h0), B = S(x1 + 0.5, y1 + 0.5, h1);
+      const N = Math.max(4, Math.round(Math.hypot(x1 - x0, y1 - y0) * 4));
+      // v0.32: one smooth profile over the whole run, not a step per tile. The ground under the line (bilinear, so it
+      // doesn't step at tile edges), eased over about a tile and a half; the deck is that or the straight grade from
+      // station to station, whichever is higher (on trestles over a dip, never buried in the hill), eased again so the
+      // grade bends gently, and made to climb all the way (an incline never dips)
+      const gx = (f: number) => x0 + 0.5 + (x1 - x0) * f, gy = (f: number) => y0 + 0.5 + (y1 - y0) * f;
+      const ground: number[] = [];
+      for (let k = 0; k <= N; k++) ground.push(heightAt(m, gx(k / N), gy(k / N)));
+      const ease = (a: number[], r: number) => a.map((_, k) => { let s2 = 0, n2 = 0; for (let q = Math.max(0, k - r); q <= Math.min(a.length - 1, k + r); q++) { s2 += a[q]; n2++; } return s2 / n2; });
+      const h0 = ground[0] + 1.5, h1 = ground[N] + 1.5;
+      let prof = ease(ground, 3).map((gh, k) => Math.max(gh + 1, h0 + (h1 - h0) * (k / N)));
+      prof[0] = h0; prof[N] = h1;
+      prof = ease(prof, 2); prof[0] = h0; prof[N] = h1;
+      const up = h1 >= h0;
+      for (let k = 1; k <= N; k++) prof[k] = up ? Math.max(prof[k], prof[k - 1]) : Math.min(prof[k], prof[k - 1]);
+      const A = S(gx(0), gy(0), h0), B = S(gx(1), gy(1), h1);
       if (Math.max(A[0], B[0]) < -50 || Math.min(A[0], B[0]) > ctx.canvas.width + 50 || Math.max(A[1], B[1]) < -50 || Math.min(A[1], B[1]) > ctx.canvas.height + 50) continue;
-      const N = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) * 3));
-      const deck = (k: number): [number, number, number, number, number] => {
-        const f = k / N;
-        const fx = x0 + 0.5 + (x1 - x0) * f, fy = y0 + 0.5 + (y1 - y0) * f;
-        const ground = m.elevation[Math.min(m.height - 1, Math.floor(fy)) * m.width + Math.min(m.width - 1, Math.floor(fx))];
-        const h = Math.max(h0 + (h1 - h0) * f, ground + 1); // a straight grade on trestles over low ground, never buried in the hill
-        return [fx, fy, h, ground, f];
-      };
+      const deck = (k: number): [number, number, number, number, number] => [gx(k / N), gy(k / N), prof[k], ground[k], k / N];
       // trestle bents
       ctx.strokeStyle = "#3e2e1e";
       ctx.lineWidth = Math.max(1, 1.2 * z);

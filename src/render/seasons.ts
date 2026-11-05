@@ -7,6 +7,10 @@
 import { tileNoise } from "../core/rng";
 import type { SpriteBuf } from "./sprites";
 
+/** v0.32: seasons are off unless turned on (☰ menu → Seasons, or ?seasons=1): the turn-to-turn change was too jarring */
+export let SEASONS = false;
+export function setSeasons(on: boolean) { SEASONS = on; }
+
 /** 0 green (spring, summer), 1 autumn, 2 winter */
 export type SeasonLook = 0 | 1 | 2;
 export function seasonLook(turn: number): SeasonLook {

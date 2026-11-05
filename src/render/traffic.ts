@@ -13,6 +13,7 @@
 // Street figures are cached sprites (figures.ts); trains and boats are drawn live as oriented boxes.
 
 import { snapToRail } from "../core/lines";
+import { snapToRoad } from "./roads";
 import { blockGrid, blockOf } from "../core/blocks";
 import { allWorks, cal, type GameState, type Works } from "../core/game";
 import { siteAccess } from "../core/freight";
@@ -1116,7 +1117,7 @@ export class Traffic {
       const list: D[] = [];
       for (const a of this.agents) {
         if (BIG.has(a.kind)) continue;
-        const p = this.place(a);
+        const p = this.place(a, _g);
         list.push({ d: p[0] + p[1], a, fx: p[0], fy: p[1], tx: p[2], ty: p[3] });
       }
       for (const pk of this.pickets) {
@@ -1255,13 +1256,22 @@ export class Traffic {
   }
 
   /** a street figure's position (rounded through the corners) and heading */
-  private place(a: Agent): [number, number, number, number] {
+  private place(a: Agent, g?: GameState): [number, number, number, number] {
     const m0x = (a.px + a.x) / 2 + 0.5, m0y = (a.py + a.y) / 2 + 0.5;
     const cx = a.x + 0.5, cy = a.y + 0.5;
     const m1x = (a.x + a.nx) / 2 + 0.5, m1y = (a.y + a.ny) / 2 + 0.5;
     const s = Math.min(1, a.t), u = 1 - s;
     let fx = u * u * m0x + 2 * u * s * cx + s * s * m1x, fy = u * u * m0y + 2 * u * s * cy + s * s * m1y;
     let tx = 2 * u * (cx - m0x) + 2 * s * (m1x - cx), ty = 2 * u * (cy - m0y) + 2 * s * (m1y - cy);
+    // v0.32: onto the drawn (smoothed) road, heading along it the way the walk is going
+    if (g) {
+      const r = snapToRoad(this.m, g.world, fx, fy, 0.55);
+      if (r) {
+        fx = r[0]; fy = r[1];
+        const sgn = r[2] * tx + r[3] * ty >= 0 ? 1 : -1;
+        tx = r[2] * sgn; ty = r[3] * sgn;
+      }
+    }
     const tl = Math.hypot(tx, ty);
     if (tl > 0.05) { tx /= tl; ty /= tl; a.hx = tx; a.hy = ty; } else { tx = a.hx; ty = a.hy; }
     // keep to the right-hand side of the street (people on the sidewalk); streetcars run down the middle
