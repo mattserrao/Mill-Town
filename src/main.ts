@@ -391,6 +391,7 @@ function requestRender() {
       ? { x: hover.x, y: hover.y, size: fpSize, ok: !game.company && hoverSiteOk(hover.x, hover.y) }
       : null;
     const ov = makeOverlay(overlay, game, overlayCache);
+    renderer.night = nightLevel((now - t0) / 1000);
     const more = renderer.draw(ctx, cam, game, { overlay: ov.fn, overlayKey: ov.key, grid: $<HTMLInputElement>("grid").checked },
       { hover, selected, footprint: fp, labels: $<HTMLInputElement>("labels").checked });
     const t = (now - t0) / 1000;

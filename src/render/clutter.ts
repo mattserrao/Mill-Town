@@ -217,6 +217,49 @@ function yardCars(o: "a" | "b", v: number): Sprite {
   return p.sprite();
 }
 
+/**
+ * A roundhouse and its turntable, at the big yards: the engine house is an arc of brick stalls with a smoke jack
+ * over each and a door facing in, round the turntable pit with its girder bridge; tracks fan from the pit to the
+ * stalls and out to the yard.
+ */
+function roundhouse(v: number): Sprite {
+  const p = new Painter(1, 120);
+  const cx = 0.3, cy = 0.3, R = 0.2;
+  // the pit: an ellipse of dark ground, its rim of stone, and the bridge across it
+  const pit: [number, number][] = [];
+  for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; pit.push(p.P(cx + Math.cos(a) * R, cy + Math.sin(a) * R, 0)); }
+  p.poly(pit, "#9a9284");
+  const inner: [number, number][] = [];
+  for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; inner.push(p.P(cx + Math.cos(a) * (R - 0.025), cy + Math.sin(a) * (R - 0.025), -1)); }
+  p.poly(inner, "#4a443c");
+  const ang = (v * 0.7) % Math.PI;
+  p.line(p.P(cx - Math.cos(ang) * R, cy - Math.sin(ang) * R, 1), p.P(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, 1), "#2a2a2e");
+  p.line(p.P(cx - Math.cos(ang) * R, cy - Math.sin(ang) * R, 2), p.P(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, 2), "#5a5a62");
+  // stalls on an arc round the far side, built back to front so the nearer ones overlap
+  const stalls: number[] = [];
+  for (let k = 0; k < 7; k++) stalls.push(-0.15 + k * 0.29);
+  stalls.sort((a, b) => (Math.cos(a) + Math.sin(a)) - (Math.cos(b) + Math.sin(b)));
+  for (const a of stalls) {
+    const r0 = R + 0.08, r1 = R + 0.5;
+    // the radial track out to the stall
+    p.line(p.P(cx + Math.cos(a) * R, cy + Math.sin(a) * R, 0), p.P(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, 0), "#7a7a82");
+    const ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux, hw = 0.06;
+    const q = (r: number, s2: number, z: number) => p.P(cx + ux * r + vx * s2, cy + uy * r + vy * s2, z);
+    const H = 10;
+    // walls
+    p.poly([q(r0, -hw, 0), q(r1, -hw, 0), q(r1, -hw, H), q(r0, -hw, H)], "#8a4a36");
+    p.poly([q(r0, hw, 0), q(r1, hw, 0), q(r1, hw, H), q(r0, hw, H)], "#7a3e2e");
+    p.poly([q(r1, -hw, 0), q(r1, hw, 0), q(r1, hw, H), q(r1, -hw, H)], "#6a3628");
+    p.poly([q(r0, -hw, 0), q(r0, hw, 0), q(r0, hw, H), q(r0, -hw, H)], "#9a5a42");
+    p.poly([q(r0 + 0.01, -hw * 0.6, 0), q(r0 + 0.01, hw * 0.6, 0), q(r0 + 0.01, hw * 0.6, H - 3), q(r0 + 0.01, -hw * 0.6, H - 3)], "#2a2220"); // the door
+    // roof and smoke jack
+    p.poly([q(r0, -hw, H), q(r1, -hw, H), q(r1, hw, H), q(r0, hw, H)], "#3e3a38");
+    const [jx, jy] = q((r0 + r1) / 2, 0, H);
+    p.px(jx, jy - 4, "#2a2a2e", 2, 4);
+  }
+  return p.sprite();
+}
+
 /** the static sprites this module adds */
 export function clutterSprites(): [string, Sprite][] {
   const out: [string, Sprite][] = [];
@@ -228,6 +271,7 @@ export function clutterSprites(): [string, Sprite][] {
     for (let v = 0; v < 4; v++) out.push([`cars:${o}:${v}`, yardCars(o, v)]);
   }
   for (let v = 0; v < 4; v++) { out.push([`slag:0:${v}`, slagTile(v, 0)]); out.push([`slag:1:${v}`, slagTile(v, 1)]); }
+  for (let v = 0; v < 3; v++) out.push([`rhouse:${v}`, roundhouse(v)]);
   for (let v = 0; v < 2; v++) { out.push([`tipple:${v}`, tipple(v)]); out.push([`gob:${v}`, gobPile(v)]); out.push([`strip:${v}`, stripCut(v)]); out.push([`ore:${v}`, orePile(v)]); }
   return out;
 }

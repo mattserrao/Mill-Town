@@ -5,6 +5,7 @@
 // Chunks are cached (LRU) and re-rendered progressively when the world changes.
 
 import { clutterSprites } from "./clutter";
+import { type SeasonLook, seasonGround, seasonLook, seasonSprite } from "./seasons";
 import { DETAIL, shadowKind, shadowShape, terrainLight } from "./light";
 import { lineIndex, segDist, type Seg } from "../core/lines";
 import { shoreDist, shoreField, wetAt } from "../core/shore";
@@ -63,7 +64,7 @@ const FRAME_MS = 28;        // raster budget per frame
  * A drawn chunk. `depth` holds, per pixel, what was drawn there last: 0 nothing, 1 ground (and bridge decks),
  * otherwise 2 + the tile depth (x + y) of the object — so moving figures can tell when a building stands in front.
  */
-interface Chunk { canvas: HTMLCanvasElement; ox: number; oy: number; key: string; px: number; depth: Uint16Array; w: number }
+interface Chunk { canvas: HTMLCanvasElement; ox: number; oy: number; key: string; px: number; depth: Uint16Array; w: number; shade?: HTMLCanvasElement }
 
 // ---------------------------------------------------------------- colour helpers
 const rgb = (r: number, g: number, b: number) => (r << 16) | (g << 8) | b;
@@ -214,6 +215,8 @@ export class Renderer {
   /** call after terrain heights change (grading) */
   /** bumped when the terrain is regraded, so the hills' shadows are worked out again */
   heightsVersion = 0;
+  /** 0 day … 1 full night, set by the caller before draw() (v0.31: the shadow layer fades with it) */
+  night = 0;
   private slagN = 0;
   updateHeights() {
     this.heightsVersion++;
@@ -241,7 +244,22 @@ export class Renderer {
     };
   }
 
+  /** v0.31: the season's look for this frame (0 green, 1 autumn, 2 winter) and the recoloured sprites for it */
+  private look: SeasonLook = 0;
+  private seasonal = new Map<string, SpriteBuf | null>();
   private sprite(key: string, s: number): SpriteBuf | null {
+    const b = this.spriteRaw(key, s);
+    if (!b || this.look === 0) return b;
+    const k = `${key}@${s}`;
+    let v = this.seasonal.get(k);
+    if (v === undefined) {
+      if (this.seasonal.size > 6000) this.seasonal.clear();
+      v = seasonSprite(key, b, this.look);
+      this.seasonal.set(k, v);
+    }
+    return v ?? b;
+  }
+  private spriteRaw(key: string, s: number): SpriteBuf | null {
     // houses and plants are generated per variant: kept in a byte-budgeted LRU
     if (key.charCodeAt(1) === 124 && (key.startsWith("H|") || key.startsWith("P|") || key.startsWith("T|"))) {
       let e = this.gen.get(key);
@@ -374,12 +392,14 @@ export class Renderer {
     ctx.imageSmoothingEnabled = false;
     placeLabelRects.length = 0;
     if ((g.world.slagN ?? 0) !== this.slagN) { this.slagN = g.world.slagN ?? 0; this.updateHeights(); }
+    const look = DETAIL > 0 ? seasonLook(g.turn) : 0;
+    if (look !== this.look) { this.look = look; this.seasonal.clear(); }
     this.updatePlants(g);
 
     const s = Math.min(1, cam.zoom);
     this.setScale(s);
     const k = cam.zoom / s; // extra pixel scaling for zoom > 1
-    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}|d${DETAIL}`;
+    const tail = `|${view.overlayKey}|${view.grid}|r${RELIEF}|d${DETAIL}|s${this.look}`;
     const vis: { cx: number; cy: number; d: number }[] = [];
     const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + cw / cam.zoom, vy1 = cam.y + ch / cam.zoom;
     const midx = (vx0 + vx1) / 2, midy = (vy0 + vy1) / 2;
@@ -454,6 +474,13 @@ export class Renderer {
       this.drawn.push({ c: chn, dx, dy, k });
       if (k === 1) ctx.drawImage(chn.canvas, dx, dy);
       else ctx.drawImage(chn.canvas, dx, dy, Math.round(chn.canvas.width * k), Math.round(chn.canvas.height * k));
+      // the shadows, fading as the light goes (there are no sun shadows at night)
+      if (chn.shade && this.night < 0.97) {
+        ctx.globalAlpha = 1 - this.night;
+        if (k === 1) ctx.drawImage(chn.shade, dx, dy);
+        else ctx.drawImage(chn.shade, dx, dy, Math.round(chn.canvas.width * k), Math.round(chn.canvas.height * k));
+        ctx.globalAlpha = 1;
+      }
     }
 
     this.drawMarks(ctx, cam, marks);
@@ -605,6 +632,9 @@ export class Renderer {
     // v0.31 (High, closer zooms): which pixels are open water, for the daytime reflections
     const wmask = DETAIL >= 2 && s >= 0.5 && !view.overlay ? new Uint8Array(cw * ch) : null;
     let triWater = false;
+    // v0.31: how much each pixel is shaded (hills, cast shadows, a sprite in a hill's shadow), 0..255, drawn as its
+    // own layer over the chunk so the shadows can fade out at night
+    const shadeA = DETAIL >= 1 && !view.overlay ? new Uint8Array(cw * ch) : null;
     let objDepth = 1;
     const year = w.year;
     const pxu = 1 / (HW * s * 1.2); // ~ uv units per pixel
@@ -641,7 +671,9 @@ export class Renderer {
           if (wmask && (triWater || c & UNLIT) && (c & 255) > ((c >> 16) & 255) + 25) wmask[py * cw + px] = 1;
           // water drawn over the corner of a sloping bank tile is lit like the river, not like the slope
           const sh = w0 * sa + w1 * sb + w2 * sq;
-          let k = (c & UNLIT ? 1 - (1 - sh) * 0.5 : light * sh) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          // v0.31: shadow goes to its own layer (so it can fade at night); without one it's multiplied in
+          let k = (c & UNLIT ? (shadeA ? 1 : 1 - (1 - sh) * 0.5) : shadeA ? light : light * sh) + BAYER[((py & 3) << 2) | (px & 3)] * 0.07;
+          if (shadeA) shadeA[py * cw + px] = sh >= 1 ? 0 : Math.round((1 - sh) * (c & UNLIT ? 128 : 255));
           c &= 0xffffff;
           k = Math.round(k * 14) / 14;
           let r = ((c >> 16) & 255) * k, gg = ((c >> 8) & 255) * k, b = (c & 255) * k;
@@ -674,7 +706,8 @@ export class Renderer {
           const al = p >>> 24;
           if (!al) continue;
           if (gdep[drow + bx_] > dLim) continue; // the ground of a nearer tile (a hill) is in front
-          if (mr < 256) p = (p & 0xff000000) | ((((p >> 16) & 255) * mr >> 8) << 16) | ((((p >> 8) & 255) * mr >> 8) << 8) | ((p & 255) * mr >> 8);
+          if (shadeA) { if (al >= 128) shadeA[drow + bx_] = 256 - mr; }
+          else if (mr < 256) p = (p & 0xff000000) | ((((p >> 16) & 255) * mr >> 8) << 16) | ((((p >> 8) & 255) * mr >> 8) << 8) | ((p & 255) * mr >> 8);
           if (al >= 128) depth[drow + bx_] = objDepth;
           if (al === 255 || !sb.soft) { buf[drow + bx_] = p | 0xff000000; continue; }
           const q = buf[drow + bx_], f = al / 255;
@@ -709,6 +742,21 @@ export class Renderer {
         const [Tx, Ty] = P(tx, ty, hT), [Rx, Ry] = P(tx + 1, ty, hR), [Lx, Ly] = P(tx, ty + 1, hL), [Bx, By] = P(tx + 1, ty + 1, hB);
         let tex = this.groundShader(g, tx, ty, i, pxu, view.grid, railActive);
         if (DETAIL > 0 && m.terrain[i] === Terrain.Water) tex = withCurrent(tex, riverAxis(m, tx, ty));
+        if (this.look) {
+          let bank = false;
+          if (m.terrain[i] === Terrain.Water) for (const [dx, dy] of N8) { const nx = tx + dx, ny = ty + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && m.terrain[ny * W + nx] !== Terrain.Water) { bank = true; break; } }
+          const land = (dx: number, dy: number) => { const nx = tx + dx, ny = ty + dy; return nx >= 0 && ny >= 0 && nx < W && ny < m.height && m.terrain[ny * W + nx] !== Terrain.Water; };
+          const lW = land(-1, 0), lE = land(1, 0), lN = land(0, -1), lS = land(0, 1);
+          const corners: [number, number][] = [];
+          if (land(-1, -1)) corners.push([0, 0]); if (land(1, -1)) corners.push([1, 0]); if (land(-1, 1)) corners.push([0, 1]); if (land(1, 1)) corners.push([1, 1]);
+          const shoreD = (u: number, v: number) => {
+            let d = 9;
+            if (lW) d = Math.min(d, u); if (lE) d = Math.min(d, 1 - u); if (lN) d = Math.min(d, v); if (lS) d = Math.min(d, 1 - v);
+            for (const [cx, cy] of corners) d = Math.min(d, Math.hypot(u - cx, v - cy));
+            return d;
+          };
+          tex = seasonGround(tex, this.look, { soot: Math.max(0, w.pollution[i] - 0.15), street: !!w.street[i], steep: m.terrain[i] === Terrain.Cliff, bank, shoreD });
+        }
         let tint = 0, tintA = 0;
         const pol = w.pollution[i];
         if (pol > 0.02 && m.terrain[i] !== Terrain.Water) { tint = 0x2e2824; tintA = Math.min(0.55, pol * 0.35); }
@@ -762,7 +810,14 @@ export class Renderer {
     // cast shadows on the ground (High): each sprite's shadow is thrown screen-right (the sun is low in the south-west)
     if (DETAIL >= 2 && !view.overlay && placed.length) {
       const mask = new Uint8Array(cw * ch);
-      for (const pl of placed) {
+      // the tiles just off the chunk's screen-left edges throw their shadows into it too (they're cast, not drawn)
+      const casters = placed.slice();
+      for (let ty = y0; ty < Math.min(H, y1 + 4); ty++) for (let tx = Math.max(0, x0 - 4); tx < x1; tx++) {
+        if (tx >= x0 && ty < y1) continue;
+        const i = ty * W + tx;
+        for (const sp of this.tileSprites(g, tx, ty, i)) casters.push({ key: sp.key, fx: tx + sp.u, fy: ty + sp.v, h: sp.h ?? 0, d: tx + ty + 1, od: 0, mul: 1 });
+      }
+      for (const pl of casters) {
         const kind = shadowKind(pl.key);
         if (!kind) continue;
         const sb = this.sprite(pl.key, s);
@@ -792,7 +847,9 @@ export class Renderer {
       for (let p = 0; p < mask.length; p++) {
         const mk = mask[p];
         if (!mk) continue;
-        const q = buf[p], f = mk === 2 ? 150 : 172; // /256; a cool shadow, a darker line at the foot
+        const f = mk === 2 ? 150 : 172; // /256; a cool shadow, a darker line at the foot
+        if (shadeA) { shadeA[p] = 255 - (((255 - shadeA[p]) * f) >> 8); continue; }
+        const q = buf[p];
         const r = (q & 255) * f >> 8, gg = ((q >> 8) & 255) * f >> 8, b = Math.min(255, (((q >> 16) & 255) * (f + 14)) >> 8);
         buf[p] = 0xff000000 | (b << 16) | (gg << 8) | r;
       }
@@ -830,7 +887,19 @@ export class Renderer {
     canvas.width = cw; canvas.height = ch;
     const c2 = canvas.getContext("2d")!;
     c2.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer), cw, ch), 0, 0);
-    return { canvas, ox, oy, key: version, px: cw * ch, depth, w: cw };
+    let shade: HTMLCanvasElement | undefined;
+    if (shadeA) {
+      // a cool, dark blue at the shade's alpha: drawn over the chunk it multiplies the colour by (1 - alpha)
+      const sb = new Uint32Array(cw * ch);
+      let any = false;
+      for (let p = 0; p < sb.length; p++) { const a = shadeA[p]; if (a && buf[p] >>> 24) { sb[p] = (a << 24) | 0x2a1c14; any = true; } }
+      if (any) {
+        shade = document.createElement("canvas");
+        shade.width = cw; shade.height = ch;
+        shade.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(sb.buffer), cw, ch), 0, 0);
+      }
+    }
+    return { canvas, ox, oy, key: version, px: cw * ch * (shade ? 2 : 1), depth, w: cw, shade };
   }
 
   // ------------------------------------------------------------ ground textures
@@ -1324,6 +1393,41 @@ export class Renderer {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < m.height && f(ny * W + nx)) return true; }
     return false;
   }
+  /** v0.31: the big rail yards (where the rails lie thickest), and beside each the tile its roundhouse stands on */
+  private yards: Map<number, number> | null = null; // site tile → the yard's busiest rail tile
+  private yardSites(): Map<number, number> {
+    if (this.yards) return this.yards;
+    const m = this.map, W = m.width, H = m.height, out = new Map<number, number>();
+    const R = 3, dens = new Uint16Array(W * H);
+    for (let y = R; y < H - R; y++) for (let x = R; x < W - R; x++) {
+      if (!m.rail[y * W + x]) continue;
+      let c = 0;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (m.rail[(y + dy) * W + x + dx]) c++;
+      dens[y * W + x] = c;
+    }
+    const peaks = Array.from(dens.keys()).filter((i) => dens[i] >= 19).sort((a, b) => dens[b] - dens[a]);
+    const chosen: number[] = [];
+    for (const i of peaks) {
+      const x = i % W, y = (i / W) | 0;
+      if (chosen.some((j) => Math.hypot((j % W) - x, ((j / W) | 0) - y) < 22)) continue;
+      // the nearest open, level tile off the tracks within a few tiles
+      let best = -1, bd = Infinity;
+      for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 1 || yy < 1 || xx >= W - 1 || yy >= H - 1) continue;
+        const j = yy * W + xx;
+        if (m.rail[j] || m.terrain[j] === Terrain.Water || m.slope[j] > 8) continue;
+        let byRail = false;
+        for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (m.rail[(yy + ay) * W + xx + ax]) byRail = true;
+        if (!byRail) continue;
+        const d = Math.hypot(dx, dy);
+        if (d < bd) { bd = d; best = j; }
+      }
+      if (best >= 0) { chosen.push(i); out.set(best, i); }
+    }
+    this.yards = out;
+    return out;
+  }
   /** next to a drift mine */
   private byMine(g: GameState, x: number, y: number): boolean { return this.near(g, x, y, (j) => g.world.use[j] === Use.Mine); }
   /** a strip mine on an open hilltop in the country, from 1942 (the war's coal) */
@@ -1335,7 +1439,7 @@ export class Renderer {
     return hash(x, y >> 1, 971) < 0.75;
   }
   /** an open lot by the works or the mines: coke ovens by a mine (1850–1930), ore by a steel works' dock, billboards on the pike */
-  private industrialLot(g: GameState, x: number, y: number, i: number): string | null {
+  private industrialLot(g: GameState, x: number, y: number, _i: number): string | null {
     const m = this.map, w = g.world, W = m.width, yr = w.year;
     const h = hash(x, y, 972 + (w.seed & 0xff));
     if (yr < 1930 && this.byMine(g, x, y) && h < 0.5) {
@@ -1347,7 +1451,6 @@ export class Renderer {
       const o = this.near(g, x, y, (j) => w.street[j] === Street.Pike && (j % W) !== x) ? "a" : "b";
       return `bill:${o}:${Math.floor(hash(x, y, 975) * 4)}`;
     }
-    void i;
     return null;
   }
 
@@ -1359,6 +1462,11 @@ export class Renderer {
     const t = m.terrain[i];
     const sub = w.sub[i];
 
+    // v0.31: the roundhouse at a big yard (from 1865, on open ground the town hasn't taken)
+    if (DETAIL > 0 && w.year >= 1865 && (use === Use.Empty || use === Use.Forest || use === Use.Farm) && !w.pop[i] && !w.street[i] && this.yardSites().has(i)) {
+      out.push({ key: `rhouse:${Math.floor(hash(x, y, 976) * 3)}`, u: 0.5, v: 0.5 });
+      return out;
+    }
     // a tunnel portal fills its tile; its cutting runs out over the next few (no trees or buildings in the road)
     const tp = this.tunnelTiles();
     const pt = tp.portal.get(i);

@@ -38,3 +38,21 @@ describe("slag dumps", () => {
     expect(raised).toBeGreaterThan(0);
   }, 120_000);
 });
+
+describe("Brown's Dump", () => {
+  it("is growing in the Nine Mile Run valley by 1947", async () => {
+    const map = parseMap(meta, bin);
+    const g = await unpackGame(new Blob([readFileSync(new URL("../public/starts/1947-steel.mtsave", import.meta.url))]), map);
+    const tiles = g.slag?.nmr ?? [];
+    expect(tiles.length).toBeGreaterThan(40);
+    const id = Number(Object.entries(map.creekNames).find(([, v]) => v === "Ninemile Run")![0]);
+    // every tile of it lies within a few tiles of the run
+    for (const i of tiles) {
+      const x = i % map.width, y = (i / map.width) | 0;
+      let near = false;
+      for (let dy = -4; dy <= 4 && !near; dy++) for (let dx = -4; dx <= 4; dx++) if (map.creek[(y + dy) * map.width + x + dx] === id) { near = true; break; }
+      expect(near).toBe(true);
+      expect(map.creek[i]).toBe(0);
+    }
+  }, 60_000);
+});

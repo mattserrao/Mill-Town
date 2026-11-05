@@ -86,16 +86,56 @@ Decisions taken while Matt was away (all easy to change):
   - bright and clear after (the Renaissance)
   - the 1884–91 natural-gas clearing is kept
 
-## Not done / changed from the plan
-- **Seasons:** seasonal visuals stay out of scope, as planned. Chimney smoke uses the season only.
-- **Sub-tile lots:** extended by lot widths and setbacks rather than a new `lotsFor` system. The houses already drew 2–5 units per tile with yards, so the big gain was the street and ground treatment.
-- **Haze by elevation:** already existed (`paintHaze` weights the valley floors). Only the era grade changed.
-- **Shadows at night:** shadows are baked into the chunks and stay faintly visible under the night tint.
-- **Brown's Dump at Nine Mile Run** (an off-site dump fed by several works from 1922) isn't modelled. Dumps grow from each works.
-- **Roundhouses and turntables** at the big yards: not done.
+## Follow-up: the "not done" items, now done
+
+### Seasons (`render/seasons.ts`)
+- The map shows the turn's season. Spring and summer stay green.
+- **Autumn:** each tree species turns its own colour:
+  - oak russet
+  - maple red and orange
+  - sycamore yellow-brown
+  - sumac crimson
+
+  Each tree turns on its own beat. Grass goes tawny with fallen leaves, and yard trees in the house and works sprites turn too.
+- **Winter:**
+  - deciduous trees go bare (a tracery of twigs); pines and hemlocks keep their green under snow
+  - snow lies on the ground, greyed by the soot near the works
+  - paving is slushy; rock shows on the cliffs
+  - snow on the roofs and along every top edge
+  - shore ice along the river banks and frozen creeks
+- On at Med and High. Chunks are keyed by the look, so a turn re-draws them when the season changes.
+
+### Shadows at night and across chunk edges
+- **Night:** shade (hill shadows, occlusion, cast shadows, a sprite in a hill's shadow) is now its own layer per chunk, drawn over the chunk at `1 − night`. Shadows fade out at dusk and are gone at night.
+- **Chunk edges:** each chunk also casts the shadows of the tiles just off its screen-left edges, so a tall building's shadow carries into the next chunk.
+
+### Brown's Dump (Nine Mile Run, 1922–72) (`core/slag.ts`)
+- From spring 1922 a third of the slag of every steel works within ~7 km goes to the Nine Mile Run valley. It's tipped along the run's course (never in the creek bed) and spreads up the valley sides. A new bank starts where the valley side is open when the old one is hemmed in.
+- A headline marks the start. It stops in 1972.
+- The tiles are kept in `slag.nmr`. The 1947 start has it well grown.
+- Dumps now have a talus: open ground next to a heap takes spilled slag part way up, so the foot is a slope, not a saw-tooth.
+
+### Roundhouses and turntables
+- The big yards are found where the rails lie thickest, eight on the map.
+- From 1865 each yard has a roundhouse on open ground beside it:
+  - a turntable pit with its girder bridge
+  - an arc of seven brick stalls, each with a door and a smoke jack
+  - tracks fanning out from the pit
+
+### Sub-tile lots (`houses.ts` `lotsFor`)
+- Frame-house tiles are platted properly. One, two, three or four lots of uneven widths, with the lot lines falling differently on each tile.
+- Each house takes most of its lot with a side yard on one side or the other, and is set back its own distance.
+- A fence runs down each lot line through the back yards. Now and then a narrow lot is a kitchen garden.
+
+### Haze by elevation
+- Already in the game (`paintHaze` weights the valley floors over the hilltops). Only the era grade was added.
+
+### Still open
+- The 2×-density close-zoom sprite set (deferred by decision).
+- Summerset, the reclamation of Brown's Dump, is after the game's end.
 
 ## Verification
-- Typecheck and build clean. 163 tests pass, including the new `tests/slag.test.ts`.
+- Typecheck and build clean. 164 tests pass, including `tests/slag.test.ts` (works' dumps, and Brown's Dump along Nine Mile Run by 1947).
 - Starts re-baked. Determinism hashes re-pinned for the 1893 and 1947 starts. The 1850 hashes are unchanged: no steel runs in the first ten seasons.
 - **Raster time** (headless Chrome, 1920 town):
 
@@ -108,5 +148,5 @@ Decisions taken while Matt was away (all easy to change):
 - Checked on screen: 1893, 1920 and 1947 starts at 0.25–2×, day and night.
 
 ## Files
-- **New:** `src/render/light.ts`, `src/render/clutter.ts`, `src/core/slag.ts`, `tests/slag.test.ts`.
+- **New:** `src/render/light.ts`, `src/render/clutter.ts`, `src/render/seasons.ts`, `src/core/slag.ts`, `tests/slag.test.ts`.
 - **Changed:** `renderer.ts` (three-pass chunks, shadows, reflections, paving, trees, clutter, night glow, pours, chimneys), `houses.ts`, `sprites.ts`, `pollution.ts` (era grade), `game.ts` / `town.ts` / `save.ts` (slag, format 5), `main.ts` and `index.html` (Detail setting, `mt.later` dev hook).

@@ -362,6 +362,33 @@ function wallFor(s: HouseSpec, k = 0): string {
   return pal[(s.v + k) % pal.length];
 }
 
+/** v0.31: one platted lot along the tile's street front: its lot lines, the house's own width on it, whether it's narrow */
+export interface Lot { a0: number; a1: number; h0: number; h1: number; narrow: boolean; garden: boolean }
+
+/**
+ * How a frame-house tile is platted: one wide lot, a pair, or three or four narrow 25-ft lots (the mill towns'
+ * usual plat) — the lot lines fall at slightly different places on each tile, and each house takes most of its lot
+ * with a side yard on one side or the other. Deterministic per house spec.
+ */
+export function lotsFor(s: HouseSpec): Lot[] {
+  const n = s.style >= 2 && rnd(s, 1) < 0.4 ? 1 : s.style >= 1 && s.style <= 3 && rnd(s, 5) < 0.4 ? (rnd(s, 6) < 0.25 ? 4 : 3) : 2;
+  const ws: number[] = [];
+  for (let k = 0; k < n; k++) ws.push(0.8 + rnd(s, 150 + k) * 0.4);
+  const tot = ws.reduce((a, b) => a + b, 0), span = 0.94;
+  const out: Lot[] = [];
+  let a = 0.03;
+  for (let k = 0; k < n; k++) {
+    const w = (ws[k] / tot) * span, a0 = a, a1 = a + w;
+    a = a1;
+    const narrow = n >= 3;
+    if (n === 1) { out.push({ a0, a1, h0: 0.12, h1: 0.88, narrow: false, garden: false }); continue; }
+    const fill = narrow ? 0.86 : 0.78 + rnd(s, 160 + k) * 0.1, side = rnd(s, 170 + k) < 0.5;
+    const hw = w * fill, h0 = side ? a0 + 0.01 : a1 - 0.01 - hw;
+    out.push({ a0, a1, h0, h1: h0 + hw, narrow, garden: n >= 3 && k === n - 1 && rnd(s, 180) < 0.15 });
+  }
+  return out;
+}
+
 function detachedHouse(p: Painter, s: HouseSpec, a0: number, a1: number, z0: number, fnd: number, k = 0, narrow = 0) {
   const f = frame(s);
   const st = s.style;
@@ -411,13 +438,19 @@ function houseSprite(s0: HouseSpec): Sprite {
   const z0 = s.lift, fnd = s.fnd;
   switch (s.kind) {
     case "house": {
+      // v0.31: the tile is platted into lots (lotsFor): each house on its own lot, lots of different widths, a fence
+      // down each lot line through the back yards, now and then a lot kept as a kitchen garden
       yard(p, s, f, 0.05, 0.95, 0.6, 0.97);
-      // v0.31: lots of different widths — one wide house, a pair, or three narrow frame houses on 25-foot lots
-      // (the mill towns' usual plat), each set back its own distance from the sidewalk
-      const lots = s.style >= 2 && rnd(s, 1) < 0.4 ? 1 : s.style >= 1 && s.style <= 3 && rnd(s, 5) < 0.4 ? 3 : 2;
-      if (lots === 1) detachedHouse(p, s, 0.12, 0.88, z0, fnd);
-      else if (lots === 2) { detachedHouse(p, s, 0.05, 0.45, z0, fnd, 0); detachedHouse(p, s, 0.55, 0.95, z0, fnd, 1); }
-      else for (let k = 0; k < 3; k++) detachedHouse(p, s, 0.03 + k * 0.33, 0.29 + k * 0.33, z0, fnd, k, 0.24);
+      const lots = lotsFor(s);
+      const lift = lifted(p, s.lift > 0 && Math.max(...s.g) - Math.min(...s.g) >= TERRACE_PX ? s.lift : 0);
+      lots.forEach((L, k) => {
+        if (k > 0 && s.style <= 3) for (let t = 0.6; t <= 0.97; t += 0.06) { const q = f.pt(lift, L.a0 - 0.01, t, 0); lift.px(q[0], q[1] - 3, "#7a6650", 1, 3); }
+        if (L.garden) {
+          for (let r = 0; r < 4; r++) for (let t = L.a0 + 0.03; t < L.a1 - 0.02; t += 0.04) { const q = f.pt(lift, t, 0.2 + r * 0.09, 0); lift.px(q[0], q[1] - 1, r % 2 ? "#5a7a30" : "#3e5a24", 2, 1); }
+          return;
+        }
+        detachedHouse(p, s, L.h0, L.h1, z0, fnd, k, L.narrow ? 0.24 : 0);
+      });
       break;
     }
     case "cottage": {
