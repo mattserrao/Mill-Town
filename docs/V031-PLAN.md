@@ -23,7 +23,7 @@ Decisions taken while Matt was away (all easy to change):
   - The chunk is now drawn in three passes: all ground, then shadows, then sprites. A per-pixel "which diagonal drew this ground" buffer keeps sprites hidden behind nearer hills, as before.
   - A building's shadow is each sprite column thrown screen-right by its height, plus a dark contact line at its foot. A tree's shadow is a soft ellipse under its crown.
   - Cemeteries, gob piles and similar are low. Bushes, boats, bridges, lamps, wires and slag throw none.
-- Shadows only fall on ground and stop at chunk edges.
+- Shadows only fall on ground (they carry across chunk edges; see the follow-up below).
 
 ### 2. Lots, streets and paving (`groundShader`, `houses.ts`)
 - **City streets** (next to rows or shops):
@@ -62,7 +62,7 @@ Decisions taken while Matt was away (all easy to change):
 ### 4. Industrial landforms
 - **Slag dumps** (`core/slag.ts`, the one sim change):
   - Each steel works (yours or a rival's) makes a step of slag per 550 units of output. It goes to a dump that starts on the lowest open ground within 24 tiles: a riverbank first, then a hollow. The dump stays on the works' own side of the river and keeps a tile clear of houses, streets and public land.
-  - The dump grows from its edge. Each tile rises 1.5 m a step to 24 m. Its interior corners rise no steeper than 7 m per tile in from the edge, so small dumps are low mounds and big ones stand tall. The edge tiles are the tipped face. Nothing beside a dump is tilted.
+  - The dump grows from its edge. Each tile rises 1.5 m a step to 24 m. Its interior corners rise no steeper than 7 m per tile in from the edge, so small dumps are low mounds and big ones stand tall. The edge tiles are the tipped face. Houses, streets, rails and water beside a dump are never tilted; open ground takes a talus (see the follow-up).
   - Slag tiles are `Use.Rock`, so nothing builds on them. `world.slag` holds the steps. The height goes into the graded ground, which is already saved.
   - Save format 5. The 1947 start has about 800 dump tiles along the Mon.
   - Drawn as grey-tan cinders with pale fresh runs. Face tiles show tipped runs; top tiles show the dump track and a ladle car.
